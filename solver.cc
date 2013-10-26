@@ -20,6 +20,7 @@ minmax(N, a, b, P)
 
 #include <assert.h>
 #include <ctype.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <algorithm>
@@ -106,20 +107,24 @@ struct Trick {
 
 class Node {
   public:
-    Node(Cards h[NUM_SEATS], int t, int seat_to_play)
-      : trump(t), ns_tricks(0), current_trick(tricks) {
-        for (int seat = 0; seat < NUM_SEATS; ++seat) {
-          hands[seat] = h[seat];
-          all_cards.Add(hands[seat]);
-        }
-        current_trick->lead_seat = seat_to_play;
-      }
-    int MinMax(int min_tricks, int max_tricks, const int seat_to_play, const int depth);
+    Node(Cards h[NUM_SEATS], int t, int seat_to_play);
+    int MinMax(int alpha, int beta, int seat_to_play, int depth);
 
   private:
     int CollectLastTrick(int seat_to_play);
     Cards RemoveRedundantCards(Cards cards) const;
     Cards GetPlayableCards(int seat_to_play) const;
+
+    struct State {
+      int ns_tricks;
+      int winning_seat;
+      Cards all_cards;
+      bool trick_completed;
+    };
+
+    State SaveState() const;
+    int Play(int seat_to_play, int card_to_play, State *state);
+    void Unplay(int seat_to_play, int card_to_play, const State& state);
 
     int    trump;
     int    ns_tricks;
@@ -128,6 +133,15 @@ class Node {
     Trick  tricks[13];
     Trick* current_trick;
 };
+
+Node::Node(Cards h[NUM_SEATS], int t, int seat_to_play)
+  : trump(t), ns_tricks(0), current_trick(tricks) {
+  for (int seat = 0; seat < NUM_SEATS; ++seat) {
+    hands[seat] = h[seat];
+    all_cards.Add(hands[seat]);
+  }
+  current_trick->lead_seat = seat_to_play;
+}
 
 Cards Node::RemoveRedundantCards(Cards cards) const {
   if (cards.Size() <= 1)
@@ -174,87 +188,89 @@ int Node::CollectLastTrick(int seat_to_play) {
   return ns_tricks + IsNS(current_trick->winning_seat);
 }
 
-int Node::MinMax(int min_tricks, int max_tricks, const int seat_to_play, const int depth) {
+Node::State Node::SaveState() const {
+  State state;
+  state.ns_tricks = ns_tricks;
+  state.winning_seat = current_trick->winning_seat;
+  state.all_cards = all_cards;
+  return state;
+}
+
+int Node::Play(int seat_to_play, int card_to_play, State *state) {
+  current_trick->cards[seat_to_play] = card_to_play;
+
+  // who's winning?
+  if (current_trick->OnLead(seat_to_play) ||
+      WinOver(card_to_play, current_trick->WinningCard(), trump)) {
+    current_trick->winning_seat = seat_to_play;
+  }
+
+  // who won?
+  int next_seat_to_play;
+  state->trick_completed = current_trick->CompleteAfter(seat_to_play);
+  if (state->trick_completed) {
+    (current_trick + 1)->lead_seat = current_trick->winning_seat;
+    ns_tricks += IsNS(current_trick->winning_seat);
+    // remove cards from global suits
+    for (int i = 0; i < NUM_SEATS; ++i)
+      all_cards.Remove(current_trick->cards[i]);
+    ++current_trick;
+    next_seat_to_play = current_trick->lead_seat;
+  } else {
+    next_seat_to_play = NextSeatToPlay(seat_to_play);
+  }
+
+  // remove played card from hand
+  hands[seat_to_play].Remove(card_to_play);
+  return next_seat_to_play;
+}
+
+void Node::Unplay(int seat_to_play, int card_to_play, const State& state) {
+  // add played card back to hand
+  hands[seat_to_play].Add(card_to_play);
+
+  if (state.trick_completed) {
+    --current_trick;
+    // add cards back to global suits
+    all_cards = state.all_cards;
+    ns_tricks = state.ns_tricks;
+  }
+
+  // restore state
+  current_trick->winning_seat = state.winning_seat;
+}
+
+int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
   if (hands[seat_to_play].Size() == 1 && current_trick->OnLead(seat_to_play))
     return CollectLastTrick(seat_to_play);
 
-  // save some state
-  int prev_ns_tricks = ns_tricks;
-  int prev_winning_seat = current_trick->winning_seat;
-  Cards prev_all_cards = all_cards;
-
+  State state = SaveState();
   Cards playable_cards = GetPlayableCards(seat_to_play);
   // TODO: reorder playable cards
+  int max_tricks = INT_MIN;
+  int min_tricks = INT_MAX;
   for (int card_to_play = playable_cards.Begin(); card_to_play != playable_cards.End();
        card_to_play = playable_cards.After(card_to_play)) {
-    current_trick->cards[seat_to_play] = card_to_play;
 
-    // who's winning?
-    if (current_trick->OnLead(seat_to_play) ||
-        WinOver(card_to_play, current_trick->WinningCard(), trump)) {
-      current_trick->winning_seat = seat_to_play;
-    }
+    int next_seat_to_play = Play(seat_to_play, card_to_play, &state);
+    int num_tricks = MinMax(alpha, beta, next_seat_to_play, depth + 1);
+    Unplay(seat_to_play, card_to_play, state);
+    if (depth < 4)
+      printf("%*s => %d\n", depth * 2 + 2, CardName(card_to_play), num_tricks);
 
-    // who won?
-    int next_seat_to_play;
-    bool trick_completed;
-    if ((trick_completed = current_trick->CompleteAfter(seat_to_play))) {
-      (current_trick + 1)->lead_seat = current_trick->winning_seat;
-      ns_tricks += IsNS(current_trick->winning_seat);
-      // remove cards from global suits
-      for (int i = 0; i < NUM_SEATS; ++i)
-        all_cards.Remove(current_trick->cards[i]);
-      ++current_trick;
-      next_seat_to_play = current_trick->lead_seat;
-    } else {
-      next_seat_to_play = NextSeatToPlay(seat_to_play);
-    }
-
-    // remove played card from hand
-    hands[seat_to_play].Remove(card_to_play);
-
-    // recursive search
-    int num_tricks = MinMax(min_tricks, max_tricks, next_seat_to_play, depth + 1);
-
-    // add played card back to hand
-    hands[seat_to_play].Add(card_to_play);
-
-    if (trick_completed) {
-      --current_trick;
-      // add cards back to global suits
-      all_cards = prev_all_cards;
-      ns_tricks = prev_ns_tricks;
-    }
-
-    // restore state
-    current_trick->winning_seat = prev_winning_seat;
-#if 0
-    if (depth < 6) {
-      for (int j = 0; j < depth * 2; j ++) putchar(' ');
-      printf("%s => %d\n", CardName(card_to_play), num_tricks);
-    }
-#endif
-    // possible pruning
     if (IsNS(seat_to_play)) {
-      if (num_tricks >= max_tricks) {
-        return num_tricks;
-      }
-      if (min_tricks < num_tricks) {
-        min_tricks = num_tricks;
-      }
+      max_tricks = std::max(max_tricks, num_tricks);
+      if (max_tricks >= beta)
+        break;
+      alpha = std::max(alpha, num_tricks);
     } else {
-      if (num_tricks <= min_tricks) {
-        return num_tricks;
-      }
-      if (max_tricks > num_tricks) {
-        max_tricks = num_tricks;
-      }
+      min_tricks = std::min(min_tricks, num_tricks);
+      if (min_tricks <= alpha)
+        break;
+      beta = std::min(beta, num_tricks);
     }
   }
-  if (IsNS(seat_to_play))
-    return min_tricks;
-  else
-    return max_tricks;
+  return IsNS(seat_to_play) ? max_tricks : min_tricks;
 }
 
 namespace {
