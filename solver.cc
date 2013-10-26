@@ -83,16 +83,37 @@ class Cards {
     uint64_t cards_;
 };
 
+int NextSeatToPlay(int seat_to_play) { return (seat_to_play + 1) % NUM_SEATS; }
+
+struct Trick {
+  int lead_seat;
+  int winning_seat;
+  int cards[NUM_SEATS];
+
+  int LeadSuit() const { return SuitOf(cards[lead_seat]); }
+  int WinningCard() const { return cards[winning_seat]; }
+  bool CompleteAfter(int seat) const { return NextSeatToPlay(seat) == lead_seat; }
+};
+
 struct Node {
-  int   trump;
-  int   ns_tricks;
-  int   lead_seat;
-  int   lead_suit;
-  int   cards_in_trick;
-  int   winning_card;
-  int   winning_seat;
-  Cards hands[NUM_SEATS];
-  int   current_trick[NUM_SEATS];
+  int    trump;
+  int    ns_tricks;
+  Cards  hands[NUM_SEATS];
+  Cards  all_cards;
+  Trick  tricks[13];
+  Trick* current_trick;
+
+  Node(Cards h[NUM_SEATS], int t, int seat_to_play)
+    : trump(t), ns_tricks(0), current_trick(tricks) {
+    for (int seat = 0; seat < NUM_SEATS; ++seat) {
+      hands[seat] = h[seat];
+      all_cards.Add(hands[seat]);
+    }
+    current_trick->lead_seat = seat_to_play;
+  }
+  bool OnLead(int seat_to_play) const { return seat_to_play == current_trick->lead_seat; }
+  int MinMax(int min_tricks, int max_tricks, const bool is_parent_NS,
+             const int seat_to_play, const int depth);
 };
 
 bool IsNS(int seat) {
@@ -134,99 +155,83 @@ Cards GetPlayableCards(Cards hand, Cards all_cards, int lead_suit) {
   }
 }
 
-Cards all_cards;
-int depth = 0;
-
-int MinMax(Node *node, int min_tricks, int max_tricks, int is_parent_NS) {
-  int seat_to_play = (node->lead_seat + node->cards_in_trick) % NUM_SEATS;
-  Cards& hand_to_play = node->hands[seat_to_play];
+int Node::MinMax(int min_tricks, int max_tricks, const bool is_parent_NS,
+                 const int seat_to_play, const int depth) {
+  Cards& hand_to_play = hands[seat_to_play];
 #if 0
   if (hand_to_play.Empty()) {
-    return node->ns_tricks;
+    return ns_tricks;
   }
 #else
-  if (hand_to_play.Size() == 1 && node->cards_in_trick == 0) {
+  if (hand_to_play.Size() == 1 && OnLead(seat_to_play)) {
     int winning_seat = seat_to_play;
     int winning_card = hand_to_play.Begin();
     for (int i = 1; i < NUM_SEATS; i++) {
       int seat = (seat_to_play + i) % NUM_SEATS;
-      int card_to_play = node->hands[seat].Begin();
-      if (WinOver(card_to_play, winning_card, node->trump)) {
+      int card_to_play = hands[seat].Begin();
+      if (WinOver(card_to_play, winning_card, trump)) {
         winning_card = card_to_play;
         winning_seat = seat;
       }
     }
-    return node->ns_tricks + IsNS(winning_seat);
+    return ns_tricks + IsNS(winning_seat);
   }
 #endif
 
   Cards playable_cards;
-  if (node->cards_in_trick == 0)
+  if (OnLead(seat_to_play))
     playable_cards = GetPlayableCards(hand_to_play, all_cards, NOTRUMP);
   else
-    playable_cards = GetPlayableCards(hand_to_play, all_cards, node->lead_suit);
+    playable_cards = GetPlayableCards(hand_to_play, all_cards, current_trick->LeadSuit());
 
   // TODO: reorder playable cards
 
+  int prev_ns_tricks = ns_tricks;
+  int prev_winning_seat = current_trick->winning_seat;
+  Cards prev_all_cards = all_cards;
   int best_card = -1;
   for (int card_to_play = playable_cards.Begin(); card_to_play != playable_cards.End();
        card_to_play = playable_cards.After(card_to_play)) {
-    int   prev_ns_tricks      = node->ns_tricks;
-    int   prev_lead_seat      = node->lead_seat;
-    int   prev_lead_suit      = node->lead_suit;
-    int   prev_cards_in_trick = node->cards_in_trick;
-    int   prev_winning_card   = node->winning_card;
-    int   prev_winning_seat   = node->winning_seat;
-    int   prev_card = node->current_trick[node->cards_in_trick];
-
-    node->current_trick[node->cards_in_trick] = card_to_play;
-    node->cards_in_trick ++;
-
-    if (node->cards_in_trick == 1)
-      node->lead_suit = SuitOf(card_to_play);
+    current_trick->cards[seat_to_play] = card_to_play;
 
     // who's winning?
-    if (node->cards_in_trick == 1
-        || WinOver(card_to_play, node->winning_card, node->trump)) {
-      node->winning_card = card_to_play;
-      node->winning_seat = seat_to_play;
+    if (OnLead(seat_to_play) || WinOver(card_to_play, current_trick->WinningCard(), trump)) {
+      current_trick->winning_seat = seat_to_play;
     }
 
     // who won?
-    if (node->cards_in_trick == NUM_SEATS) {
-      node->lead_seat = node->winning_seat;
-      node->ns_tricks += IsNS(node->winning_seat);
-      node->cards_in_trick = 0;
+    int next_seat_to_play;
+    bool trick_completed;
+    if (trick_completed = current_trick->CompleteAfter(seat_to_play)) {
+      (current_trick + 1)->lead_seat = current_trick->winning_seat;
+      ns_tricks += IsNS(current_trick->winning_seat);
       // remove cards from global suits
       for (int i = 0; i < NUM_SEATS; ++i)
-        all_cards.Remove(node->current_trick[i]);
+        all_cards.Remove(current_trick->cards[i]);
+      ++current_trick;
+      next_seat_to_play = current_trick->lead_seat;
+    } else {
+      next_seat_to_play = NextSeatToPlay(seat_to_play);
     }
 
     // remove played card from hand
     hand_to_play.Remove(card_to_play);
 
     // recursive search
-    depth ++;
-    int num_tricks = MinMax(node, min_tricks, max_tricks, IsNS(seat_to_play));
-    depth --;
+    int num_tricks = MinMax(min_tricks, max_tricks, IsNS(seat_to_play), next_seat_to_play, depth + 1);
 
     // add played card back to hand
     hand_to_play.Add(card_to_play);
 
-    if (node->cards_in_trick == 0) {
+    if (trick_completed) {
+      --current_trick;
       // add cards back to global suits
-      for (int i = 0; i < NUM_SEATS; ++i)
-        all_cards.Add(node->current_trick[i]);
+      all_cards = prev_all_cards;
+      ns_tricks = prev_ns_tricks;
     }
 
     // restore state
-    node->ns_tricks      = prev_ns_tricks;
-    node->lead_seat      = prev_lead_seat;
-    node->lead_suit      = prev_lead_suit;
-    node->cards_in_trick = prev_cards_in_trick;
-    node->winning_card   = prev_winning_card;
-    node->winning_seat   = prev_winning_seat;
-    node->current_trick[node->cards_in_trick] = prev_card;
+    current_trick->winning_seat = prev_winning_seat;
 
     // possible pruning
     if (IsNS(seat_to_play)) {
@@ -307,6 +312,7 @@ int CharToSeat(char c) {
 }
 
 Cards ParseHand(char *line) {
+  static Cards all_cards;
   Cards hand;
   for (int suit = 0; suit < NUM_SUITS; suit++) {
     while (line[0] && isspace(line[0])) line++;
@@ -343,30 +349,29 @@ int main() {
   CHECK(fgets(line[EAST],  sizeof(line[EAST]),  stdin));
   CHECK(fgets(line[SOUTH], sizeof(line[SOUTH]), stdin));
 
-  Node node;
+  Cards hands[NUM_SEATS];
   int num_tricks = 0;
   for (int seat = 0; seat < NUM_SEATS; seat ++) {
-    node.hands[seat] = ParseHand(line[seat]);
+    hands[seat] = ParseHand(line[seat]);
     if (seat == 0)
-      num_tricks = node.hands[seat].Size();
+      num_tricks = hands[seat].Size();
     else
-      if (num_tricks != node.hands[seat].Size()) {
+      if (num_tricks != hands[seat].Size()) {
         printf("%s has %d cards, while %s has %d.\n",
-               seat_name[seat], node.hands[seat].Size(),
+               seat_name[seat], hands[seat].Size(),
                seat_name[0], num_tricks);
         exit(-1);
       }
   }
 
   CHECK(fgets(line[0], sizeof(line[0]), stdin));
-  node.trump = CharToSuit(line[0][0]);
+  int trump = CharToSuit(line[0][0]);
   CHECK(fgets(line[0], sizeof(line[0]), stdin));
-  node.lead_seat = CharToSeat(line[0][0]);
+  int seat_to_play = CharToSeat(line[0][0]);
 
   printf("Solving ...\n");
-  node.cards_in_trick = 0;
-  node.ns_tricks      = 0;
-  int ns_tricks = MinMax(&node, 0, num_tricks, IsNS(node.lead_seat));
+  Node node(hands, trump, seat_to_play);
+  int ns_tricks = node.MinMax(0, num_tricks, IsNS(seat_to_play), seat_to_play, 0);
   printf("NS tricks: %d      EW tricks: %d\n",
          ns_tricks, num_tricks - ns_tricks);
   return 0;
