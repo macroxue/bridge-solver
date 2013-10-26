@@ -1,3 +1,3 @@
 all: solver
-solver: solver.c
-	gcc -O3 -o $@ $^
+solver: solver.cc
+	g++ -O3 -o $@ $^
