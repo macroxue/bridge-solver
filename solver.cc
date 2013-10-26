@@ -20,6 +20,7 @@ minmax(N, a, b, P)
 
 #include <assert.h>
 #include <ctype.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <algorithm>
 
@@ -30,23 +31,56 @@ const char suit_name[] = "SHDC";
 const char rank_name[] = "23456789TJQKA";
 const char *seat_name[] = { "West", "North", "East", "South" };
 
+enum { SPADE, HEART, DIAMOND, CLUB, NUM_SUITS, NOTRUMP = NUM_SUITS };
+enum { TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT, NINE, TEN,
+       JACK, QUEEN, KING, ACE, NUM_RANKS };
+enum { WEST, NORTH, EAST, SOUTH, NUM_SEATS };
 
-enum Suit { SPADE, HEART, DIAMOND, CLUB, NUM_SUITS, NOTRUMP = NUM_SUITS };
-enum Rank { TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT, NINE, TEN,
-            JACK, QUEEN, KING, ACE, NUM_RANKS };
-enum Seat { WEST, NORTH, EAST, SOUTH, NUM_SEATS };
+int SuitOf(int card) {
+  return card / 13;
+}
 
-struct Card {
-  int   suit;
-  int   rank;
-  Card* prev;
-  Card* next;
-};
+int RankOf(int card) {
+  return card % 13;
+}
 
-struct Hand {
-  int   num_cards;
-  Card* cards[CARDS_PER_HAND];
-  int   suit_count[NUM_SUITS];
+int CardFromSuitRank(int suit, int rank) {
+  return suit * 13 + rank;
+}
+
+class Cards {
+  public:
+    Cards() : cards_(0) {}
+    Cards(uint64_t cards) : cards_(cards) {}
+
+    int  Size() const { return __builtin_popcountll(cards_); }
+    bool Empty() const { return cards_ == 0; }
+    bool Has(int card) { return cards_ & Bit(card); }
+    bool operator ==(const Cards& c) const { return cards_ == c.cards_; }
+
+    Cards Slice(int begin, int end) const { return cards_ & (Bit(end) - Bit(begin)); }
+    Cards GetSuit(int suit) const { return Slice(suit * 13, suit * 13 + 13); }
+
+    int Begin() const { return After(-1); }
+    int After(int card) const { return __builtin_ctzll(Slice(card + 1, End()).Add(End()).cards_); }
+    int End() const { return 52; }
+
+    Cards Add(int card) { cards_ |= Bit(card); return cards_; }
+    Cards Remove(int card) { cards_ &= ~Bit(card); return cards_; }
+
+    Cards Add(const Cards& c) { cards_ |= c.cards_; return cards_; }
+    Cards Remove(const Cards& c) { cards_ &= ~c.cards_; return cards_; }
+
+    void Show() {
+      for (int card = Begin(); card != End(); card = After(card))
+        printf("%c%c ", suit_name[SuitOf(card)], rank_name[RankOf(card)]);
+      printf("\n");
+    }
+
+  private:
+    uint64_t Bit(int index) const { return uint64_t(1) << index; }
+
+    uint64_t cards_;
 };
 
 struct Node {
@@ -55,147 +89,105 @@ struct Node {
   int   lead_seat;
   int   lead_suit;
   int   cards_in_trick;
-  Card* winning_card;
+  int   winning_card;
   int   winning_seat;
-  Hand  hands[NUM_SEATS];
-  Card* current_trick[NUM_SEATS];
+  Cards hands[NUM_SEATS];
+  int   current_trick[NUM_SEATS];
 };
 
-Card all_cards[NUM_SUITS][NUM_RANKS];
-Card* all_suits[NUM_SUITS];
-
-#if 1
-
-bool is_ns(int seat) {
+bool IsNS(int seat) {
   return seat % 2;
 }
 
-bool win_over(Card* c1, Card* c2, int trump) {
-  return c1->suit == c2->suit && c1->rank > c2->rank ||
-         c1->suit != c2->suit && c1->suit == trump;
+bool WinOver(int c1, int c2, int trump) {
+  return (SuitOf(c1) == SuitOf(c2) && RankOf(c1) > RankOf(c2)) ||
+         (SuitOf(c1) != SuitOf(c2) && SuitOf(c1) == trump);
 }
 
-int gen_valid_cards(Hand *hand, int lead_suit,
-                    Card* valid_cards[], int valid_index[],
-                    Card* winning_card, bool partner) {
-  int begin_index = 0;
-  for (int suit = 0; suit < lead_suit; suit++)
-    begin_index += hand->suit_count[suit];
+Cards RemoveRedundantCards(Cards cards, Cards all_cards, int suit) {
+  assert(suit != NOTRUMP);
+  if (cards.Size() <= 1)
+    return cards;
 
-  int suit_count = hand->suit_count[lead_suit];
-  assert(suit_count > 0);
-
-  // big card first
-  int num_valid_cards = 0;
-  for (int i = 0; i < suit_count; ) {
-    Card* card;
-
-    valid_index[num_valid_cards] = begin_index + i;
-    valid_cards[num_valid_cards] = card = hand->cards[begin_index + i];
-    num_valid_cards++;
-
-    // skip cards that are equivalent to the previous one
-    i++;
-    while (i < suit_count && card->next == hand->cards[begin_index + i]) {
-      card = card->next;
-      i++;
+  Cards redundant_cards;
+  int prev_card = cards.Begin();
+  int cur_card = cards.After(prev_card);
+  while (cur_card != cards.End()) {
+    if (cards.Slice(prev_card, cur_card + 1) == all_cards.Slice(prev_card, cur_card + 1)) {
+      redundant_cards.Add(cur_card);
+    } else {
+      prev_card = cur_card;
     }
+    cur_card = cards.After(cur_card);
   }
-
-  if (hand->cards[begin_index]->rank < winning_card->rank
-      /*|| partner && winning_card->rank >= JACK*/) {
-    // reverse the order, small card first
-    for (int i = 0; i < num_valid_cards/2; i++) {
-      std::swap(valid_cards[i], valid_cards[num_valid_cards - 1 - i]);
-      std::swap(valid_index[i], valid_index[num_valid_cards - 1 - i]);
-    }
-  }
-  return num_valid_cards;
+  return cards.Remove(redundant_cards);
 }
 
+Cards GetPlayableCards(Cards hand, Cards all_cards, int lead_suit) {
+  if (lead_suit == NOTRUMP || hand.GetSuit(lead_suit).Empty()) {
+    Cards cards;
+    for (int s = 0; s < NUM_SUITS; ++s)
+      cards.Add(RemoveRedundantCards(hand.GetSuit(s), all_cards, s));
+    return cards;
+  } else {
+    return RemoveRedundantCards(hand.GetSuit(lead_suit), all_cards, lead_suit);
+  }
+}
+
+Cards all_cards;
 int depth = 0;
 
-int min_max(Node *node, int min_tricks, int max_tricks, int is_parent_NS) {
+int MinMax(Node *node, int min_tricks, int max_tricks, int is_parent_NS) {
   int seat_to_play = (node->lead_seat + node->cards_in_trick) % NUM_SEATS;
-  Hand* hand_to_play = &node->hands[seat_to_play];
+  Cards& hand_to_play = node->hands[seat_to_play];
 #if 0
-  if (hand_to_play->num_cards == 0) {
+  if (hand_to_play.Empty()) {
     return node->ns_tricks;
   }
 #else
-  if (hand_to_play->num_cards == 1 && node->cards_in_trick == 0) {
+  if (hand_to_play.Size() == 1 && node->cards_in_trick == 0) {
     int winning_seat = seat_to_play;
-    Card* winning_card = hand_to_play->cards[0];
+    int winning_card = hand_to_play.Begin();
     for (int i = 1; i < NUM_SEATS; i++) {
       int seat = (seat_to_play + i) % NUM_SEATS;
-      if (win_over(node->hands[seat].cards[0], winning_card,
-                   node->trump)) {
-        winning_card = node->hands[seat].cards[0];
+      int card_to_play = node->hands[seat].Begin();
+      if (WinOver(card_to_play, winning_card, node->trump)) {
+        winning_card = card_to_play;
         winning_seat = seat;
       }
     }
-    return node->ns_tricks + is_ns(winning_seat);
+    return node->ns_tricks + IsNS(winning_seat);
   }
 #endif
 
-  int   num_valid_cards;
-  Card* valid_cards[CARDS_PER_HAND];
-  int   valid_index[CARDS_PER_HAND];
+  Cards playable_cards;
+  if (node->cards_in_trick == 0)
+    playable_cards = GetPlayableCards(hand_to_play, all_cards, NOTRUMP);
+  else
+    playable_cards = GetPlayableCards(hand_to_play, all_cards, node->lead_suit);
 
-  if (node->cards_in_trick == 0
-      || hand_to_play->suit_count[node->lead_suit] == 0) {
-    num_valid_cards = 0;
-    for (int i = 0; i < hand_to_play->num_cards; ) {
-      Card*  card;
+  // TODO: reorder playable cards
 
-      /*
-         j = num_valid_cards;
-         if (j && valid_cards[j-1]->suit == hand_to_play->cards[i]->suit
-         && valid_cards[j-1]->rank == hand_to_play->cards[i]->rank+1)
-         assert(valid_cards[j-1]->next == hand_to_play->cards[i]);
-         */
-
-      valid_index[num_valid_cards] = i;
-      valid_cards[num_valid_cards] = card = hand_to_play->cards[i];
-      num_valid_cards++;
-
-      // skip cards that are equivalent to the previous one
-      i++;
-      while (i < hand_to_play->num_cards
-             && card->next == hand_to_play->cards[i]) {
-        card = card->next;
-        i++;
-      }
-    }
-  } else {
-    num_valid_cards = gen_valid_cards(hand_to_play,
-                                      node->lead_suit,
-                                      valid_cards, valid_index,
-                                      node->winning_card,
-                                      is_ns(seat_to_play) ==
-                                      is_ns(node->winning_seat));
-  }
-
-  Card* best_card = NULL;
-  for (int i = 0; i < num_valid_cards; i++) {
+  int best_card = -1;
+  for (int card_to_play = playable_cards.Begin(); card_to_play != playable_cards.End();
+       card_to_play = playable_cards.After(card_to_play)) {
     int   prev_ns_tricks      = node->ns_tricks;
     int   prev_lead_seat      = node->lead_seat;
     int   prev_lead_suit      = node->lead_suit;
     int   prev_cards_in_trick = node->cards_in_trick;
-    Card* prev_winning_card   = node->winning_card;
+    int   prev_winning_card   = node->winning_card;
     int   prev_winning_seat   = node->winning_seat;
-    Card* prev_card = node->current_trick[node->cards_in_trick];
+    int   prev_card = node->current_trick[node->cards_in_trick];
 
-    Card* card_to_play = valid_cards[i];
     node->current_trick[node->cards_in_trick] = card_to_play;
     node->cards_in_trick ++;
 
     if (node->cards_in_trick == 1)
-      node->lead_suit = card_to_play->suit;
+      node->lead_suit = SuitOf(card_to_play);
 
     // who's winning?
     if (node->cards_in_trick == 1
-        || win_over(card_to_play, node->winning_card, node->trump)) {
+        || WinOver(card_to_play, node->winning_card, node->trump)) {
       node->winning_card = card_to_play;
       node->winning_seat = seat_to_play;
     }
@@ -203,50 +195,28 @@ int min_max(Node *node, int min_tricks, int max_tricks, int is_parent_NS) {
     // who won?
     if (node->cards_in_trick == NUM_SEATS) {
       node->lead_seat = node->winning_seat;
-      node->ns_tricks += is_ns(node->winning_seat);
+      node->ns_tricks += IsNS(node->winning_seat);
       node->cards_in_trick = 0;
-
       // remove cards from global suits
-      for (int j = 0; j < NUM_SEATS; j++) {
-        Card* card = node->current_trick[j];
-        if (card->prev)
-          card->prev->next = card->next;
-        else
-          all_suits[card->suit] = card->next;
-        if (card->next)
-          card->next->prev = card->prev;
-      }
+      for (int i = 0; i < NUM_SEATS; ++i)
+        all_cards.Remove(node->current_trick[i]);
     }
 
     // remove played card from hand
-    for (int j = valid_index[i]; j < hand_to_play->num_cards - 1; j++)
-      hand_to_play->cards[j] = hand_to_play->cards[j + 1];
-    hand_to_play->suit_count[card_to_play->suit]--;
-    hand_to_play->num_cards--;
+    hand_to_play.Remove(card_to_play);
 
     // recursive search
     depth ++;
-    int num_tricks = min_max(node, min_tricks, max_tricks, is_ns(seat_to_play));
+    int num_tricks = MinMax(node, min_tricks, max_tricks, IsNS(seat_to_play));
     depth --;
 
     // add played card back to hand
-    hand_to_play->num_cards++;
-    hand_to_play->suit_count[card_to_play->suit]++;
-    for (int j = hand_to_play->num_cards - 1; j > valid_index[i]; j--)
-      hand_to_play->cards[j] = hand_to_play->cards[j - 1];
-    hand_to_play->cards[valid_index[i]] = card_to_play;
+    hand_to_play.Add(card_to_play);
 
-    // add cards back to global suits
     if (node->cards_in_trick == 0) {
-      for (int j = NUM_SEATS - 1; j >= 0; j--) {
-        Card* card = node->current_trick[j];
-        if (card->prev)
-          card->prev->next = card;
-        else
-          all_suits[card->suit] = card;
-        if (card->next)
-          card->next->prev = card;
-      }
+      // add cards back to global suits
+      for (int i = 0; i < NUM_SEATS; ++i)
+        all_cards.Add(node->current_trick[i]);
     }
 
     // restore state
@@ -259,7 +229,7 @@ int min_max(Node *node, int min_tricks, int max_tricks, int is_parent_NS) {
     node->current_trick[node->cards_in_trick] = prev_card;
 
     // possible pruning
-    if (is_ns(seat_to_play)) {
+    if (IsNS(seat_to_play)) {
       if (!is_parent_NS && num_tricks >= max_tricks) {
         return num_tricks;
       }
@@ -277,21 +247,19 @@ int min_max(Node *node, int min_tricks, int max_tricks, int is_parent_NS) {
       }
     }
   }
-  if (best_card && depth < 4) {
+  if (best_card >= 0 && depth < 4) {
     for (int j = 0; j < depth * 2; j ++) putchar(' ');
     printf("%c%c => %d\n",
-           suit_name[best_card->suit], rank_name[best_card->rank],
-           (is_ns(seat_to_play) ? min_tricks : max_tricks));
+           suit_name[SuitOf(best_card)], rank_name[RankOf(best_card)],
+           (IsNS(seat_to_play) ? min_tricks : max_tricks));
   }
-  if (is_ns(seat_to_play))
+  if (IsNS(seat_to_play))
     return min_tricks;
   else
     return max_tricks;
 }
 
-#endif
-
-int char_to_suit(char c) {
+int CharToSuit(char c) {
   switch (toupper(c)) {
     case 'S': return SPADE;
     case 'H': return HEART;
@@ -304,7 +272,7 @@ int char_to_suit(char c) {
   }
 }
 
-int char_to_rank(char c) {
+int CharToRank(char c) {
   switch (toupper(c)) {
     case 'A': return ACE;
     case 'K': return KING;
@@ -326,7 +294,7 @@ int char_to_rank(char c) {
   }
 }
 
-int char_to_seat(char c) {
+int CharToSeat(char c) {
   switch (toupper(c)) {
     case 'W': return WEST;
     case 'N': return NORTH;
@@ -338,54 +306,19 @@ int char_to_seat(char c) {
   }
 }
 
-bool card_used[NUM_SUITS][NUM_RANKS] = { false };
-
-void parse_hand(char *line, Hand *hand) {
-  hand->num_cards = 0;
+Cards ParseHand(char *line) {
+  Cards hand;
   for (int suit = 0; suit < NUM_SUITS; suit++) {
-    hand->suit_count[suit] = 0;
     while (line[0] && isspace(line[0])) line++;
     while (line[0] && !isspace(line[0]) && line[0] != '-') {
-      int rank = char_to_rank(line[0]);
-
-      if (card_used[suit][rank]) {
-        printf("%c%c showed up twice.\n",
-               suit_name[suit], rank_name[rank]);
+      int rank = CharToRank(line[0]);
+      int card = CardFromSuitRank(suit, rank);
+      if (all_cards.Has(card)) {
+        printf("%c%c showed up twice.\n", suit_name[suit], rank_name[rank]);
         exit(-1);
-      } else
-        card_used[suit][rank] = true;
-
-      hand->suit_count[suit]++;
-      hand->cards[hand->num_cards] = &all_cards[suit][rank];
-      hand->num_cards++;
-
-      {
-        Card* card = all_suits[suit];
-        Card* prev_card = NULL;
-        while (card) {
-          if (card->rank < rank)
-            break;
-          prev_card = card;
-          card = card->next;
-        }
-        card = &all_cards[suit][rank];
-        card->prev = prev_card;
-        if (prev_card) {
-          card->next = prev_card->next;
-          prev_card->next = card;
-        } else {
-          card->next = all_suits[suit];
-          all_suits[suit] = card;
-        }
-        if (card->next)
-          card->next->prev = card;
-#if 0
-        printf("After %c%c: ", suit_name[suit], rank_name[rank]);
-        for (card = all_suits[suit]; card; card = card->next)
-          printf("%c%c ", suit_name[card->suit], rank_name[card->rank]);
-        printf("\n");
-#endif
       }
+      all_cards.Add(card);
+      hand.Add(card);
 
       if (rank == TEN && line[0] == '1') {
         if (line[1] != '0') {
@@ -399,28 +332,10 @@ void parse_hand(char *line, Hand *hand) {
     if (line[0] == '-')
       line++;
   }
-}
-
-void show_suits() {
-  for (int suit = 0; suit < NUM_SUITS; suit++) {
-    for (Card* card = all_suits[suit]; card; card = card->next)
-      printf("%c%c ", suit_name[card->suit], rank_name[card->rank]);
-    printf("\n");
-  }
+  return hand;
 }
 
 int main() {
-  // setup deck
-  for (int suit = 0; suit < NUM_SUITS; suit++) {
-    for (int rank = 0; rank < NUM_RANKS; rank++) {
-      all_cards[suit][rank].suit = suit;
-      all_cards[suit][rank].rank = rank;
-      all_cards[suit][rank].prev = NULL;
-      all_cards[suit][rank].next = NULL;
-    }
-    all_suits[suit] = NULL;
-  }
-
   // read hands
   char line[NUM_SEATS][80];
   CHECK(fgets(line[NORTH], sizeof(line[NORTH]), stdin));
@@ -429,29 +344,29 @@ int main() {
   CHECK(fgets(line[SOUTH], sizeof(line[SOUTH]), stdin));
 
   Node node;
-  int num_tricks;
+  int num_tricks = 0;
   for (int seat = 0; seat < NUM_SEATS; seat ++) {
-    parse_hand(line[seat], &node.hands[seat]);
+    node.hands[seat] = ParseHand(line[seat]);
     if (seat == 0)
-      num_tricks = node.hands[seat].num_cards;
+      num_tricks = node.hands[seat].Size();
     else
-      if (num_tricks != node.hands[seat].num_cards) {
+      if (num_tricks != node.hands[seat].Size()) {
         printf("%s has %d cards, while %s has %d.\n",
-               seat_name[seat], node.hands[seat].num_cards,
+               seat_name[seat], node.hands[seat].Size(),
                seat_name[0], num_tricks);
         exit(-1);
       }
   }
 
   CHECK(fgets(line[0], sizeof(line[0]), stdin));
-  node.trump = char_to_suit(line[0][0]);
+  node.trump = CharToSuit(line[0][0]);
   CHECK(fgets(line[0], sizeof(line[0]), stdin));
-  node.lead_seat = char_to_seat(line[0][0]);
+  node.lead_seat = CharToSeat(line[0][0]);
 
   printf("Solving ...\n");
   node.cards_in_trick = 0;
   node.ns_tricks      = 0;
-  int ns_tricks = min_max(&node, 0, num_tricks, is_ns(node.lead_seat));
+  int ns_tricks = MinMax(&node, 0, num_tricks, IsNS(node.lead_seat));
   printf("NS tricks: %d      EW tricks: %d\n",
          ns_tricks, num_tricks - ns_tricks);
   return 0;
