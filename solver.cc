@@ -114,8 +114,7 @@ class Node {
         }
         current_trick->lead_seat = seat_to_play;
       }
-    int MinMax(int min_tricks, int max_tricks, const bool is_parent_NS,
-               const int seat_to_play, const int depth);
+    int MinMax(int min_tricks, int max_tricks, const int seat_to_play, const int depth);
 
   private:
     int CollectLastTrick(int seat_to_play);
@@ -175,8 +174,7 @@ int Node::CollectLastTrick(int seat_to_play) {
   return ns_tricks + IsNS(current_trick->winning_seat);
 }
 
-int Node::MinMax(int min_tricks, int max_tricks, const bool is_parent_NS,
-                 const int seat_to_play, const int depth) {
+int Node::MinMax(int min_tricks, int max_tricks, const int seat_to_play, const int depth) {
   if (hands[seat_to_play].Size() == 1 && current_trick->OnLead(seat_to_play))
     return CollectLastTrick(seat_to_play);
 
@@ -187,7 +185,6 @@ int Node::MinMax(int min_tricks, int max_tricks, const bool is_parent_NS,
 
   Cards playable_cards = GetPlayableCards(seat_to_play);
   // TODO: reorder playable cards
-  int best_card = -1;
   for (int card_to_play = playable_cards.Begin(); card_to_play != playable_cards.End();
        card_to_play = playable_cards.After(card_to_play)) {
     current_trick->cards[seat_to_play] = card_to_play;
@@ -217,7 +214,7 @@ int Node::MinMax(int min_tricks, int max_tricks, const bool is_parent_NS,
     hands[seat_to_play].Remove(card_to_play);
 
     // recursive search
-    int num_tricks = MinMax(min_tricks, max_tricks, IsNS(seat_to_play), next_seat_to_play, depth + 1);
+    int num_tricks = MinMax(min_tricks, max_tricks, next_seat_to_play, depth + 1);
 
     // add played card back to hand
     hands[seat_to_play].Add(card_to_play);
@@ -231,30 +228,28 @@ int Node::MinMax(int min_tricks, int max_tricks, const bool is_parent_NS,
 
     // restore state
     current_trick->winning_seat = prev_winning_seat;
-
+#if 0
+    if (depth < 6) {
+      for (int j = 0; j < depth * 2; j ++) putchar(' ');
+      printf("%s => %d\n", CardName(card_to_play), num_tricks);
+    }
+#endif
     // possible pruning
     if (IsNS(seat_to_play)) {
-      if (!is_parent_NS && num_tricks >= max_tricks) {
+      if (num_tricks >= max_tricks) {
         return num_tricks;
       }
       if (min_tricks < num_tricks) {
         min_tricks = num_tricks;
-        best_card  = card_to_play;
       }
     } else {
-      if (is_parent_NS && num_tricks <= min_tricks) {
+      if (num_tricks <= min_tricks) {
         return num_tricks;
       }
       if (max_tricks > num_tricks) {
         max_tricks = num_tricks;
-        best_card  = card_to_play;
       }
     }
-  }
-  if (best_card >= 0 && depth < 4) {
-    for (int j = 0; j < depth * 2; j ++) putchar(' ');
-    printf("%s => %d\n", CardName(best_card),
-           (IsNS(seat_to_play) ? min_tricks : max_tricks));
   }
   if (IsNS(seat_to_play))
     return min_tricks;
@@ -373,7 +368,7 @@ int main() {
 
   printf("Solving ...\n");
   Node node(hands, trump, seat_to_play);
-  int ns_tricks = node.MinMax(0, num_tricks, IsNS(seat_to_play), seat_to_play, 0);
+  int ns_tricks = node.MinMax(0, num_tricks, seat_to_play, 0);
   printf("NS tricks: %d      EW tricks: %d\n",
          ns_tricks, num_tricks - ns_tricks);
   return 0;
