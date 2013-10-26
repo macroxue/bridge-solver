@@ -28,8 +28,6 @@ minmax(N, a, b, P)
 
 namespace {
 
-const char suit_name[] = "SHDC";
-const char rank_name[] = "23456789TJQKA";
 const char *seat_name[] = { "West", "North", "East", "South" };
 
 enum { SPADE, HEART, DIAMOND, CLUB, NUM_SUITS, NOTRUMP = NUM_SUITS };
@@ -42,9 +40,20 @@ int RankOf(int card) { return card % 13; }
 int CardFromSuitRank(int suit, int rank) { return suit * 13 + rank; }
 int NextSeatToPlay(int seat_to_play) { return (seat_to_play + 1) % NUM_SEATS; }
 bool IsNS(int seat) { return seat % 2; }
+
 bool WinOver(int c1, int c2, int trump) {
   return (SuitOf(c1) == SuitOf(c2) && RankOf(c1) > RankOf(c2)) ||
          (SuitOf(c1) != SuitOf(c2) && SuitOf(c1) == trump);
+}
+
+const char* CardName(int card) {
+  static const char suit_name[] = "SHDC";
+  static const char rank_name[] = "23456789TJQKA";
+  static char name[3];
+  name[0] = suit_name[SuitOf(card)];
+  name[1] = rank_name[RankOf(card)];
+  name[2] = '\0';
+  return name;
 }
 
 }  // namespace
@@ -74,7 +83,7 @@ class Cards {
 
     void Show() {
       for (int card = Begin(); card != End(); card = After(card))
-        printf("%c%c ", suit_name[SuitOf(card)], rank_name[RankOf(card)]);
+        printf("%s ", CardName(card));
       printf("\n");
     }
 
@@ -244,8 +253,7 @@ int Node::MinMax(int min_tricks, int max_tricks, const bool is_parent_NS,
   }
   if (best_card >= 0 && depth < 4) {
     for (int j = 0; j < depth * 2; j ++) putchar(' ');
-    printf("%c%c => %d\n",
-           suit_name[SuitOf(best_card)], rank_name[RankOf(best_card)],
+    printf("%s => %d\n", CardName(best_card),
            (IsNS(seat_to_play) ? min_tricks : max_tricks));
   }
   if (IsNS(seat_to_play))
@@ -312,7 +320,7 @@ Cards ParseHand(char *line) {
       int rank = CharToRank(line[0]);
       int card = CardFromSuitRank(suit, rank);
       if (all_cards.Has(card)) {
-        printf("%c%c showed up twice.\n", suit_name[suit], rank_name[rank]);
+        printf("%s showed up twice.\n", CardName(card));
         exit(-1);
       }
       all_cards.Add(card);
