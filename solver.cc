@@ -26,7 +26,8 @@ minmax(N, a, b, P)
 
 #define CHECK(statement)  if (!(statement)) printf("CHECK("#statement") failed")
 
-const int CARDS_PER_HAND = 13;
+namespace {
+
 const char suit_name[] = "SHDC";
 const char rank_name[] = "23456789TJQKA";
 const char *seat_name[] = { "West", "North", "East", "South" };
@@ -36,17 +37,17 @@ enum { TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT, NINE, TEN,
        JACK, QUEEN, KING, ACE, NUM_RANKS };
 enum { WEST, NORTH, EAST, SOUTH, NUM_SEATS };
 
-int SuitOf(int card) {
-  return card / 13;
+int SuitOf(int card) { return card / 13; }
+int RankOf(int card) { return card % 13; }
+int CardFromSuitRank(int suit, int rank) { return suit * 13 + rank; }
+int NextSeatToPlay(int seat_to_play) { return (seat_to_play + 1) % NUM_SEATS; }
+bool IsNS(int seat) { return seat % 2; }
+bool WinOver(int c1, int c2, int trump) {
+  return (SuitOf(c1) == SuitOf(c2) && RankOf(c1) > RankOf(c2)) ||
+         (SuitOf(c1) != SuitOf(c2) && SuitOf(c1) == trump);
 }
 
-int RankOf(int card) {
-  return card % 13;
-}
-
-int CardFromSuitRank(int suit, int rank) {
-  return suit * 13 + rank;
-}
+}  // namespace
 
 class Cards {
   public:
@@ -83,8 +84,6 @@ class Cards {
     uint64_t cards_;
 };
 
-int NextSeatToPlay(int seat_to_play) { return (seat_to_play + 1) % NUM_SEATS; }
-
 struct Trick {
   int lead_seat;
   int winning_seat;
@@ -96,38 +95,33 @@ struct Trick {
   bool CompleteAfter(int seat) const { return NextSeatToPlay(seat) == lead_seat; }
 };
 
-struct Node {
-  int    trump;
-  int    ns_tricks;
-  Cards  hands[NUM_SEATS];
-  Cards  all_cards;
-  Trick  tricks[13];
-  Trick* current_trick;
+class Node {
+  public:
+    Node(Cards h[NUM_SEATS], int t, int seat_to_play)
+      : trump(t), ns_tricks(0), current_trick(tricks) {
+        for (int seat = 0; seat < NUM_SEATS; ++seat) {
+          hands[seat] = h[seat];
+          all_cards.Add(hands[seat]);
+        }
+        current_trick->lead_seat = seat_to_play;
+      }
+    int MinMax(int min_tricks, int max_tricks, const bool is_parent_NS,
+               const int seat_to_play, const int depth);
 
-  Node(Cards h[NUM_SEATS], int t, int seat_to_play)
-    : trump(t), ns_tricks(0), current_trick(tricks) {
-    for (int seat = 0; seat < NUM_SEATS; ++seat) {
-      hands[seat] = h[seat];
-      all_cards.Add(hands[seat]);
-    }
-    current_trick->lead_seat = seat_to_play;
-  }
-  int CollectLastTrick(int seat_to_play);
-  int MinMax(int min_tricks, int max_tricks, const bool is_parent_NS,
-             const int seat_to_play, const int depth);
+  private:
+    int CollectLastTrick(int seat_to_play);
+    Cards RemoveRedundantCards(Cards cards) const;
+    Cards GetPlayableCards(int seat_to_play) const;
+
+    int    trump;
+    int    ns_tricks;
+    Cards  hands[NUM_SEATS];
+    Cards  all_cards;
+    Trick  tricks[13];
+    Trick* current_trick;
 };
 
-bool IsNS(int seat) {
-  return seat % 2;
-}
-
-bool WinOver(int c1, int c2, int trump) {
-  return (SuitOf(c1) == SuitOf(c2) && RankOf(c1) > RankOf(c2)) ||
-         (SuitOf(c1) != SuitOf(c2) && SuitOf(c1) == trump);
-}
-
-Cards RemoveRedundantCards(Cards cards, Cards all_cards, int suit) {
-  assert(suit != NOTRUMP);
+Cards Node::RemoveRedundantCards(Cards cards) const {
   if (cards.Size() <= 1)
     return cards;
 
@@ -145,15 +139,17 @@ Cards RemoveRedundantCards(Cards cards, Cards all_cards, int suit) {
   return cards.Remove(redundant_cards);
 }
 
-Cards GetPlayableCards(Cards hand, Cards all_cards, int lead_suit) {
-  if (lead_suit == NOTRUMP || hand.GetSuit(lead_suit).Empty()) {
-    Cards cards;
-    for (int s = 0; s < NUM_SUITS; ++s)
-      cards.Add(RemoveRedundantCards(hand.GetSuit(s), all_cards, s));
-    return cards;
-  } else {
-    return RemoveRedundantCards(hand.GetSuit(lead_suit), all_cards, lead_suit);
+Cards Node::GetPlayableCards(int seat_to_play) const {
+  const Cards& hand = hands[seat_to_play];
+  if (!current_trick->OnLead(seat_to_play)) {
+    Cards suit = hand.GetSuit(current_trick->LeadSuit());
+    if (!suit.Empty())
+      return RemoveRedundantCards(suit);
   }
+  Cards cards;
+  for (int i = 0; i < NUM_SUITS; ++i)
+    cards.Add(RemoveRedundantCards(hand.GetSuit(i)));
+  return cards;
 }
 
 int Node::CollectLastTrick(int seat_to_play) {
@@ -175,17 +171,13 @@ int Node::MinMax(int min_tricks, int max_tricks, const bool is_parent_NS,
   if (hands[seat_to_play].Size() == 1 && current_trick->OnLead(seat_to_play))
     return CollectLastTrick(seat_to_play);
 
-  Cards playable_cards;
-  if (current_trick->OnLead(seat_to_play))
-    playable_cards = GetPlayableCards(hands[seat_to_play], all_cards, NOTRUMP);
-  else
-    playable_cards = GetPlayableCards(hands[seat_to_play], all_cards, current_trick->LeadSuit());
-
-  // TODO: reorder playable cards
-
+  // save some state
   int prev_ns_tricks = ns_tricks;
   int prev_winning_seat = current_trick->winning_seat;
   Cards prev_all_cards = all_cards;
+
+  Cards playable_cards = GetPlayableCards(seat_to_play);
+  // TODO: reorder playable cards
   int best_card = -1;
   for (int card_to_play = playable_cards.Begin(); card_to_play != playable_cards.End();
        card_to_play = playable_cards.After(card_to_play)) {
@@ -261,6 +253,8 @@ int Node::MinMax(int min_tricks, int max_tricks, const bool is_parent_NS,
   else
     return max_tricks;
 }
+
+namespace {
 
 int CharToSuit(char c) {
   switch (toupper(c)) {
@@ -338,6 +332,8 @@ Cards ParseHand(char *line) {
   }
   return hand;
 }
+
+}  // namespace
 
 int main() {
   // read hands
