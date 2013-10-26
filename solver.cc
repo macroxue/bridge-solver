@@ -192,7 +192,7 @@ int Node::MinMax(int min_tricks, int max_tricks, const bool is_parent_NS,
     // who won?
     int next_seat_to_play;
     bool trick_completed;
-    if (trick_completed = current_trick->CompleteAfter(seat_to_play)) {
+    if ((trick_completed = current_trick->CompleteAfter(seat_to_play))) {
       (current_trick + 1)->lead_seat = current_trick->winning_seat;
       ns_tricks += IsNS(current_trick->winning_seat);
       // remove cards from global suits
