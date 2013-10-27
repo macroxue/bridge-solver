@@ -1,28 +1,9 @@
-/*
-minmax(N, a, b, P)
-{
-    if is_leaf(N)
-        return evaluate(N);
-    foreach S in sons(N) {
-        v = minmax(S, a, b, N);
-        if is_max(N) {
-            if is_min(P) and v >= b
-                return v;
-            a = max(a, v);
-        } else {
-            if is_max(P) and v <= a
-                return v;
-            b = min(b, v);
-        }
-    }
-}
-*/
-
 #include <assert.h>
 #include <ctype.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <algorithm>
 
 #define CHECK(statement)  if (!(statement)) printf("CHECK("#statement") failed")
@@ -57,12 +38,20 @@ const char* CardName(int card) {
   return name;
 }
 
+struct Options {
+  bool use_cache;
+  bool use_test_driver;
+
+  Options() : use_cache(false), use_test_driver(false) {}
+} options;
+
 }  // namespace
 
 class Cards {
   public:
     Cards() : cards_(0) {}
     Cards(uint64_t cards) : cards_(cards) {}
+    uint64_t Value() const { return cards_; }
 
     int  Size() const { return __builtin_popcountll(cards_); }
     bool Empty() const { return cards_ == 0; }
@@ -94,6 +83,69 @@ class Cards {
     uint64_t cards_;
 };
 
+struct Bound {
+  int lower;
+  int upper;
+};
+
+class Cache {
+  public:
+    Cache() : lookup_count(0), hit_count(0), collision_count(0) {
+      for (int i = 0; i < size; ++i)
+        entries_[i].key = 0;
+
+      hash_rand = (__uint128_t(rand()) << 96) + (__uint128_t(rand()) << 64) +
+                  (__uint128_t(rand()) << 32) + (__uint128_t(rand()) | 1);
+    }
+
+    ~Cache() {
+      printf("lookups: %d  hits: %d (%.2f%%)\n",
+             lookup_count, hit_count, hit_count * 100.0 / lookup_count);
+      printf("collisions: %d\n", collision_count);
+    }
+
+    bool Lookup(Cards cards, int lead_seat, Bound* bound) const {
+      uint64_t key = cards.Value() * 4 + lead_seat;
+      uint64_t hash = Hash(key);
+      const Entry& entry = entries_[hash];
+      ++lookup_count;
+      if (entry.key == key) {
+        ++hit_count;
+        *bound = entry.bound;
+        return true;
+      }
+      return false;
+    }
+
+    void Update(Cards cards, int lead_seat, const Bound& bound) {
+      uint64_t key = cards.Value() * 4 + lead_seat;
+      uint64_t hash = Hash(key);
+      Entry& entry = entries_[hash];
+      if (entry.key != 0 && entry.key != key)
+        ++collision_count;
+      entry.key = key;
+      entry.bound = bound;
+    }
+
+  private:
+    uint64_t Hash(uint64_t value) const {
+      return (value * hash_rand) >> (128 - bits);
+    }
+    __uint128_t hash_rand;
+    static const int bits = 18;
+    static const int size = 1 << bits;
+    struct Entry {
+      uint64_t key;
+      Bound    bound;
+    } entries_[size];
+
+    mutable int lookup_count;
+    mutable int hit_count;
+    mutable int collision_count;
+};
+
+Cache cache;
+
 struct Trick {
   int lead_seat;
   int winning_seat;
@@ -109,6 +161,7 @@ class Node {
   public:
     Node(Cards h[NUM_SEATS], int t, int seat_to_play);
     int MinMax(int alpha, int beta, int seat_to_play, int depth);
+    int MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth);
 
   private:
     int CollectLastTrick(int seat_to_play);
@@ -253,7 +306,7 @@ int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
        card_to_play = playable_cards.After(card_to_play)) {
 
     int next_seat_to_play = Play(seat_to_play, card_to_play, &state);
-    int num_tricks = MinMax(alpha, beta, next_seat_to_play, depth + 1);
+    int num_tricks = MinMaxWithMemory(alpha, beta, next_seat_to_play, depth + 1);
     Unplay(seat_to_play, card_to_play, state);
     if (depth < 4)
       printf("%*s => %d (%d, %d)\n",
@@ -272,6 +325,42 @@ int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
     }
   }
   return IsNS(seat_to_play) ? max_tricks : min_tricks;
+}
+
+int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
+  if (!options.use_cache || !current_trick->OnLead(seat_to_play))
+    return MinMax(alpha, beta, seat_to_play, depth);
+
+  Cards remaining_cards;
+  for (int i = 0; i < NUM_SEATS; ++i)
+    remaining_cards.Add(hands[i]);
+
+  Bound bound;
+  bound.lower = INT_MIN + 13;
+  bound.upper = INT_MAX - 13;
+
+  if (cache.Lookup(remaining_cards, seat_to_play, &bound)) {
+    bound.lower += ns_tricks;
+    bound.upper += ns_tricks;
+    if (bound.lower >= beta)
+      return bound.lower;
+    if (bound.upper <= alpha)
+      return bound.upper;
+    alpha = std::max(alpha, bound.lower);
+    beta = std::min(beta, bound.upper);
+  }
+
+  int g = MinMax(alpha, beta, seat_to_play, depth);
+  if (g <= alpha)
+    bound.upper = g;
+  else if (g < beta)
+    bound.upper = bound.lower = g;
+  else
+    bound.lower = g;
+  bound.lower -= ns_tricks;
+  bound.upper -= ns_tricks;
+  cache.Update(remaining_cards, seat_to_play, bound);
+  return g;
 }
 
 namespace {
@@ -353,9 +442,35 @@ Cards ParseHand(char *line) {
   return hand;
 }
 
+int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
+                             int num_tricks) {
+  int upperbound = num_tricks;
+  int lowerbound = 0;
+  int ns_tricks = num_tricks;
+  while (lowerbound < upperbound) {
+    Node node(hands, trump, seat_to_play);
+    int beta = (ns_tricks == lowerbound ? ns_tricks + 1 : ns_tricks);
+    ns_tricks = node.MinMaxWithMemory(beta - 1, beta, seat_to_play, 0);
+    if (ns_tricks < beta)
+      upperbound = ns_tricks;
+    else
+      lowerbound = ns_tricks;
+    printf("lowerbound: %d     upperbound: %d\n", lowerbound, upperbound);
+  }
+  return ns_tricks;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
+  int c;
+  while ((c = getopt(argc, argv, "ct")) != -1) {
+    switch (c) {
+      case 'c': options.use_cache = true; break;
+      case 't': options.use_test_driver = true; break;
+    }
+  }
+
   // read hands
   char line[NUM_SEATS][80];
   CHECK(fgets(line[NORTH], sizeof(line[NORTH]), stdin));
@@ -383,16 +498,14 @@ int main(int argc, char* argv[]) {
   CHECK(fgets(line[0], sizeof(line[0]), stdin));
   int seat_to_play = CharToSeat(line[0][0]);
 
-  int alpha = 0, beta = num_tricks;
-  if (argc > 1) {
-    beta = atoi(argv[1]);
-    alpha = beta - 1;
-  }
-
   printf("Solving ...\n");
-  Node node(hands, trump, seat_to_play);
-  int ns_tricks = node.MinMax(alpha, beta, seat_to_play, 0);
-  printf("NS tricks: %d      EW tricks: %d\n",
-         ns_tricks, num_tricks - ns_tricks);
+  int ns_tricks;
+  if (options.use_test_driver) {
+    ns_tricks = MemoryEnhancedTestDriver(hands, trump, seat_to_play, num_tricks);
+  } else {
+    Node node(hands, trump, seat_to_play);
+    ns_tricks = node.MinMaxWithMemory(0, num_tricks, seat_to_play, 0);
+  }
+  printf("NS tricks: %d      EW tricks: %d\n", ns_tricks, num_tricks - ns_tricks);
   return 0;
 }
