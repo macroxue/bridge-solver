@@ -41,8 +41,9 @@ const char* CardName(int card) {
 struct Options {
   bool use_cache;
   bool use_test_driver;
+  int  small_card;
 
-  Options() : use_cache(false), use_test_driver(false) {}
+  Options() : use_cache(false), use_test_driver(false), small_card(TWO) {}
 } options;
 
 }  // namespace
@@ -230,7 +231,8 @@ Cards Node::RemoveRedundantCards(Cards cards) const {
   int prev_card = cards.Begin();
   int cur_card = cards.After(prev_card);
   while (cur_card != cards.End()) {
-    if (cards.Slice(prev_card, cur_card + 1) == all_cards.Slice(prev_card, cur_card + 1)) {
+    if (cards.Slice(prev_card, cur_card + 1) == all_cards.Slice(prev_card, cur_card + 1) ||
+        (RankOf(prev_card) <= options.small_card && RankOf(cur_card) <= options.small_card)) {
       redundant_cards.Add(cur_card);
     } else {
       prev_card = cur_card;
@@ -490,9 +492,10 @@ int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
 
 int main(int argc, char* argv[]) {
   int c;
-  while ((c = getopt(argc, argv, "ct")) != -1) {
+  while ((c = getopt(argc, argv, "cs:t")) != -1) {
     switch (c) {
       case 'c': options.use_cache = true; break;
+      case 's': options.small_card = CharToRank(optarg[0]); break;
       case 't': options.use_test_driver = true; break;
     }
   }
