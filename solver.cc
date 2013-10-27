@@ -42,8 +42,10 @@ struct Options {
   bool use_cache;
   bool use_test_driver;
   int  small_card;
+  int  displaying_depth;
 
-  Options() : use_cache(false), use_test_driver(false), small_card(TWO) {}
+  Options()
+    : use_cache(false), use_test_driver(false), small_card(TWO), displaying_depth(4) {}
 } options;
 
 }  // namespace
@@ -336,7 +338,7 @@ int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
     int next_seat_to_play = Play(seat_to_play, card_to_play, &state);
     int num_tricks = MinMaxWithMemory(alpha, beta, next_seat_to_play, depth + 1);
     Unplay(seat_to_play, card_to_play, state);
-    if (depth < 4)
+    if (depth < options.displaying_depth)
       printf("%*s => %d (%d, %d)\n",
              depth * 2 + 2, CardName(card_to_play), num_tricks, alpha, beta);
 
@@ -492,9 +494,10 @@ int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
 
 int main(int argc, char* argv[]) {
   int c;
-  while ((c = getopt(argc, argv, "cs:t")) != -1) {
+  while ((c = getopt(argc, argv, "cd:s:t")) != -1) {
     switch (c) {
       case 'c': options.use_cache = true; break;
+      case 'd': options.displaying_depth = atoi(optarg); break;
       case 's': options.small_card = CharToRank(optarg[0]); break;
       case 't': options.use_test_driver = true; break;
     }
