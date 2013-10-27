@@ -256,7 +256,8 @@ int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
     int num_tricks = MinMax(alpha, beta, next_seat_to_play, depth + 1);
     Unplay(seat_to_play, card_to_play, state);
     if (depth < 4)
-      printf("%*s => %d\n", depth * 2 + 2, CardName(card_to_play), num_tricks);
+      printf("%*s => %d (%d, %d)\n",
+             depth * 2 + 2, CardName(card_to_play), num_tricks, alpha, beta);
 
     if (IsNS(seat_to_play)) {
       max_tricks = std::max(max_tricks, num_tricks);
@@ -354,7 +355,7 @@ Cards ParseHand(char *line) {
 
 }  // namespace
 
-int main() {
+int main(int argc, char* argv[]) {
   // read hands
   char line[NUM_SEATS][80];
   CHECK(fgets(line[NORTH], sizeof(line[NORTH]), stdin));
@@ -382,9 +383,15 @@ int main() {
   CHECK(fgets(line[0], sizeof(line[0]), stdin));
   int seat_to_play = CharToSeat(line[0][0]);
 
+  int alpha = 0, beta = num_tricks;
+  if (argc > 1) {
+    beta = atoi(argv[1]);
+    alpha = beta - 1;
+  }
+
   printf("Solving ...\n");
   Node node(hands, trump, seat_to_play);
-  int ns_tricks = node.MinMax(0, num_tricks, seat_to_play, 0);
+  int ns_tricks = node.MinMax(alpha, beta, seat_to_play, 0);
   printf("NS tricks: %d      EW tricks: %d\n",
          ns_tricks, num_tricks - ns_tricks);
   return 0;
