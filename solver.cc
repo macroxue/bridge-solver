@@ -18,8 +18,8 @@ enum { TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT, NINE, TEN,
 enum { WEST, NORTH, EAST, SOUTH, NUM_SEATS };
 
 int SuitOf(int card) { return card / 13; }
-int RankOf(int card) { return card % 13; }
-int CardFromSuitRank(int suit, int rank) { return suit * 13 + rank; }
+int RankOf(int card) { return 12 - card % 13; }
+int CardFromSuitRank(int suit, int rank) { return suit * 13 + 12 - rank; }
 int NextSeatToPlay(int seat_to_play) { return (seat_to_play + 1) % NUM_SEATS; }
 bool IsNS(int seat) { return seat % 2; }
 
