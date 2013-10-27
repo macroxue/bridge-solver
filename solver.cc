@@ -90,57 +90,83 @@ struct Bound {
 
 class Cache {
   public:
-    Cache() : lookup_count(0), hit_count(0), collision_count(0) {
+    Cache() : lookup_count(0), hit_count(0), update_count(0), collision_count(0) {
       for (int i = 0; i < size; ++i)
         entries_[i].key = 0;
 
-      hash_rand = (__uint128_t(rand()) << 96) + (__uint128_t(rand()) << 64) +
-                  (__uint128_t(rand()) << 32) + (__uint128_t(rand()) | 1);
+      srand(1);
+      for (int r = 0; r < hash_rounds; ++r) {
+        hash_rand[r] = 0;
+        for (int i = 0; i < 4; ++i)
+          hash_rand[r] = (hash_rand[r] << 32) + rand();
+        hash_rand[r] |= 1;
+      }
     }
 
     ~Cache() {
+      int unused_count = 0;
+      for (int i = 0; i < size; ++i)
+        unused_count += (entries_[i].key == 0);
+
       printf("lookups: %d  hits: %d (%.2f%%)\n",
              lookup_count, hit_count, hit_count * 100.0 / lookup_count);
-      printf("collisions: %d\n", collision_count);
+      printf("updates: %d  collisions: %d (%.2f%%)\n",
+             update_count, collision_count, collision_count * 100.0 / update_count);
+      printf("entries: %d  unused: %d (%.2f%%)\n",
+             size, unused_count, unused_count * 100.0 / size);
     }
 
     bool Lookup(Cards cards, int lead_seat, Bound* bound) const {
-      uint64_t key = cards.Value() * 4 + lead_seat;
-      uint64_t hash = Hash(key);
-      const Entry& entry = entries_[hash];
       ++lookup_count;
-      if (entry.key == key) {
-        ++hit_count;
-        *bound = entry.bound;
-        return true;
+      uint64_t key = cards.Value() * 4 + lead_seat;
+      for (int r = 0; r < hash_rounds; ++r) {
+        uint64_t hash = Hash(key, r);
+        const Entry& entry = entries_[hash];
+        if (entry.key == key) {
+          ++hit_count;
+          bound->lower = entry.lower;
+          bound->upper = entry.upper;
+          return true;
+        }
       }
       return false;
     }
 
     void Update(Cards cards, int lead_seat, const Bound& bound) {
+      ++update_count;
       uint64_t key = cards.Value() * 4 + lead_seat;
-      uint64_t hash = Hash(key);
-      Entry& entry = entries_[hash];
-      if (entry.key != 0 && entry.key != key)
-        ++collision_count;
-      entry.key = key;
-      entry.bound = bound;
+      for (int r = 0; r < hash_rounds; ++r) {
+        uint64_t hash = Hash(key, r);
+        Entry& entry = entries_[hash];
+        bool collision_free = (entry.key == 0 || entry.key == key);
+        if (collision_free || r == hash_rounds - 1) {
+          collision_count += !collision_free;
+          entry.key = key;
+          entry.lower = bound.lower;
+          entry.upper = bound.upper;
+          return;
+        }
+      }
     }
 
   private:
-    uint64_t Hash(uint64_t value) const {
-      return (value * hash_rand) >> (128 - bits);
+    uint64_t Hash(uint64_t value, int r) const {
+      return (value * hash_rand[r]) >> (128 - bits);
     }
-    __uint128_t hash_rand;
-    static const int bits = 18;
+    static const int hash_rounds = 2;
+    __uint128_t hash_rand[hash_rounds];
+
+    static const int bits = 24;
     static const int size = 1 << bits;
     struct Entry {
-      uint64_t key;
-      Bound    bound;
+      uint64_t key : 54;
+      int64_t lower : 5;
+      int64_t upper : 5;
     } entries_[size];
 
     mutable int lookup_count;
     mutable int hit_count;
+    mutable int update_count;
     mutable int collision_count;
 };
 
@@ -300,8 +326,8 @@ int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
   State state = SaveState();
   Cards playable_cards = GetPlayableCards(seat_to_play);
   // TODO: reorder playable cards
-  int max_tricks = INT_MIN;
-  int min_tricks = INT_MAX;
+  int max_tricks = 0;
+  int min_tricks = 13;
   for (int card_to_play = playable_cards.Begin(); card_to_play != playable_cards.End();
        card_to_play = playable_cards.After(card_to_play)) {
 
@@ -336,8 +362,8 @@ int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
     remaining_cards.Add(hands[i]);
 
   Bound bound;
-  bound.lower = INT_MIN + 13;
-  bound.upper = INT_MAX - 13;
+  bound.lower = 0;
+  bound.upper = 13;
 
   if (cache.Lookup(remaining_cards, seat_to_play, &bound)) {
     bound.lower += ns_tricks;
