@@ -116,16 +116,17 @@ class Cache {
              size, unused_count, unused_count * 100.0 / size);
     }
 
+    struct Entry;
     bool Lookup(const Cards hands[4], int lead_seat, Bound* bound) const {
       ++lookup_count;
 
-      uint64_t keys[4];
-      ComputeKeys(hands, lead_seat, keys);
+      Entry input;
+      ComputeKeys(hands, lead_seat, &input);
 
       for (int r = 0; r < hash_rounds; ++r) {
-        uint64_t hash = Hash(keys, r);
+        uint64_t hash = Hash(input, r);
         const Entry& entry = entries_[hash];
-        if (SameKeys(entry, keys)) {
+        if (SameKeys(entry, input)) {
           ++hit_count;
           bound->lower = entry.hands[0].lower;
           bound->upper = entry.hands[0].upper;
@@ -138,37 +139,35 @@ class Cache {
     void Update(const Cards hands[4], int lead_seat, const Bound& bound) {
       ++update_count;
 
-      uint64_t keys[4];
-      ComputeKeys(hands, lead_seat, keys);
+      Entry input;
+      ComputeKeys(hands, lead_seat, &input);
+      input.hands[0].lower = bound.lower;
+      input.hands[0].upper = bound.upper;
 
       for (int r = 0; r < hash_rounds; ++r) {
-        uint64_t hash = Hash(keys, r);
+        uint64_t hash = Hash(input, r);
         Entry& entry = entries_[hash];
 
-        bool collision_free = entry.hands[0].key == 0 || SameKeys(entry, keys);
-        if (collision_free || r == hash_rounds - 1) {
-          collision_count += !collision_free;
-          if (entry.hands[0].key == 0)
-            for (int i = 0; i < 4; ++i)
-              entry.hands[i].key = keys[i];
-          entry.hands[0].lower = bound.lower;
-          entry.hands[0].upper = bound.upper;
+        bool collided = entry.hands[0].key != 0 && !SameKeys(entry, input);
+        if (!collided || r == hash_rounds - 1) {
+          collision_count += collided;
+          entry = input;
           return;
         }
       }
     }
 
   private:
-    void ComputeKeys(const Cards hands[4], int lead_seat, uint64_t keys[4]) const {
+    void ComputeKeys(const Cards hands[4], int lead_seat, Entry* entry) const {
       for (int i = 0; i < 4; ++i)
-        keys[i] = hands[i].Value();
-      keys[0] = keys[0] * 4 + lead_seat;
+        entry->hands[i].key = hands[i].Value() * 4 + lead_seat;
     }
 
-    struct Entry;
-    bool SameKeys(const Entry& entry, uint64_t keys[]) const {
-      return entry.hands[0].key == keys[0] && entry.hands[1].key == keys[1] &&
-             entry.hands[2].key == keys[2] && entry.hands[3].key == keys[3];
+    bool SameKeys(const Entry& entry, const Entry& input) const {
+      for (int i = 0; i < 4; ++i)
+        if (entry.hands[i].key != input.hands[i].key)
+          return false;
+      return true;
     }
 
     __uint128_t GenerateHashRandom() {
@@ -178,10 +177,10 @@ class Cache {
       return r | 1;
     }
 
-    uint64_t Hash(uint64_t keys[4], int r) const {
+    uint64_t Hash(const Entry& entry, int r) const {
       __uint128_t sum = 0;
       for (int i = 0; i < 4; ++i)
-        sum += keys[i] * hash_rand[r][i];
+        sum += entry.hands[i].key * hash_rand[r][i];
       return sum >> (128 - bits);
     }
     static const int hash_rounds = 4;
