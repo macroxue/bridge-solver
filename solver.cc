@@ -392,8 +392,8 @@ int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
     int num_tricks = MinMaxWithMemory(alpha, beta, next_seat_to_play, depth + 1);
     Unplay(seat_to_play, card_to_play, state);
     if (depth < options.displaying_depth)
-      printf("%*s => %d (%d, %d)\n",
-             depth * 2 + 2, CardName(card_to_play), num_tricks, alpha, beta);
+      printf("%*d: %c %s => %d (%d, %d)\n", depth * 2 + 2, depth,
+             seat_name[seat_to_play][0], CardName(card_to_play), num_tricks, alpha, beta);
 
     if (IsNS(seat_to_play)) {
       max_tricks = std::max(max_tricks, num_tricks);
@@ -424,10 +424,18 @@ int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
   if (cache.Lookup(pattern_hands, seat_to_play, &bound)) {
     bound.lower += ns_tricks;
     bound.upper += ns_tricks;
-    if (bound.lower >= beta)
+    if (bound.lower >= beta) {
+      if (depth <= options.displaying_depth)
+        printf("%*d: %c beta cut %d\n", depth * 2 + 2, depth,
+               seat_name[seat_to_play][0], bound.lower);
       return bound.lower;
-    if (bound.upper <= alpha)
+    }
+    if (bound.upper <= alpha) {
+      if (depth <= options.displaying_depth)
+        printf("%*d: %c alpha cut %d\n", depth * 2 + 2, depth,
+               seat_name[seat_to_play][0], bound.upper);
       return bound.upper;
+    }
     alpha = std::max(alpha, bound.lower);
     beta = std::min(beta, bound.upper);
   }
