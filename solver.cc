@@ -58,7 +58,7 @@ class Cards {
 
     int  Size() const { return __builtin_popcountll(cards_); }
     bool Empty() const { return cards_ == 0; }
-    bool Has(int card) { return cards_ & Bit(card); }
+    bool Has(int card) const { return cards_ & Bit(card); }
     bool operator ==(const Cards& c) const { return cards_ == c.cards_; }
 
     Cards Slice(int begin, int end) const { return cards_ & (Bit(end) - Bit(begin)); }
@@ -95,21 +95,18 @@ class Cache {
   public:
     Cache() : lookup_count(0), hit_count(0), update_count(0), collision_count(0) {
       for (int i = 0; i < size; ++i)
-        entries_[i].key = 0;
+        entries_[i].hands[0].key = 0;
 
       srand(1);
-      for (int r = 0; r < hash_rounds; ++r) {
-        hash_rand[r] = 0;
+      for (int r = 0; r < hash_rounds; ++r)
         for (int i = 0; i < 4; ++i)
-          hash_rand[r] = (hash_rand[r] << 32) + rand();
-        hash_rand[r] |= 1;
-      }
+          hash_rand[r][i] = GenerateHashRandom();
     }
 
     ~Cache() {
       int unused_count = 0;
       for (int i = 0; i < size; ++i)
-        unused_count += (entries_[i].key == 0);
+        unused_count += (entries_[i].hands[0].key == 0);
 
       printf("lookups: %d  hits: %d (%.2f%%)\n",
              lookup_count, hit_count, hit_count * 100.0 / lookup_count);
@@ -119,52 +116,87 @@ class Cache {
              size, unused_count, unused_count * 100.0 / size);
     }
 
-    bool Lookup(Cards cards, int lead_seat, Bound* bound) const {
+    bool Lookup(const Cards hands[4], int lead_seat, Bound* bound) const {
       ++lookup_count;
-      uint64_t key = cards.Value() * 4 + lead_seat;
+
+      uint64_t keys[4];
+      ComputeKeys(hands, lead_seat, keys);
+
       for (int r = 0; r < hash_rounds; ++r) {
-        uint64_t hash = Hash(key, r);
+        uint64_t hash = Hash(keys, r);
         const Entry& entry = entries_[hash];
-        if (entry.key == key) {
+        if (SameKeys(entry, keys)) {
           ++hit_count;
-          bound->lower = entry.lower;
-          bound->upper = entry.upper;
+          bound->lower = entry.hands[0].lower;
+          bound->upper = entry.hands[0].upper;
           return true;
         }
       }
       return false;
     }
 
-    void Update(Cards cards, int lead_seat, const Bound& bound) {
+    void Update(const Cards hands[4], int lead_seat, const Bound& bound) {
       ++update_count;
-      uint64_t key = cards.Value() * 4 + lead_seat;
+
+      uint64_t keys[4];
+      ComputeKeys(hands, lead_seat, keys);
+
       for (int r = 0; r < hash_rounds; ++r) {
-        uint64_t hash = Hash(key, r);
+        uint64_t hash = Hash(keys, r);
         Entry& entry = entries_[hash];
-        bool collision_free = (entry.key == 0 || entry.key == key);
+
+        bool collision_free = entry.hands[0].key == 0 || SameKeys(entry, keys);
         if (collision_free || r == hash_rounds - 1) {
           collision_count += !collision_free;
-          entry.key = key;
-          entry.lower = bound.lower;
-          entry.upper = bound.upper;
+          if (entry.hands[0].key == 0)
+            for (int i = 0; i < 4; ++i)
+              entry.hands[i].key = keys[i];
+          entry.hands[0].lower = bound.lower;
+          entry.hands[0].upper = bound.upper;
           return;
         }
       }
     }
 
   private:
-    uint64_t Hash(uint64_t value, int r) const {
-      return (value * hash_rand[r]) >> (128 - bits);
+    void ComputeKeys(const Cards hands[4], int lead_seat, uint64_t keys[4]) const {
+      for (int i = 0; i < 4; ++i)
+        keys[i] = hands[i].Value();
+      keys[0] = keys[0] * 4 + lead_seat;
     }
-    static const int hash_rounds = 2;
-    __uint128_t hash_rand[hash_rounds];
+
+    struct Entry;
+    bool SameKeys(const Entry& entry, uint64_t keys[]) const {
+      return entry.hands[0].key == keys[0] && entry.hands[1].key == keys[1] &&
+             entry.hands[2].key == keys[2] && entry.hands[3].key == keys[3];
+    }
+
+    __uint128_t GenerateHashRandom() {
+      __uint128_t r = 0;
+      for (int i = 0; i < 4; ++i)
+        r = (r << 32) + rand();
+      return r | 1;
+    }
+
+    uint64_t Hash(uint64_t keys[4], int r) const {
+      __uint128_t sum = 0;
+      for (int i = 0; i < 4; ++i)
+        sum += keys[i] * hash_rand[r][i];
+      return sum >> (128 - bits);
+    }
+    static const int hash_rounds = 4;
+    __uint128_t hash_rand[hash_rounds][4];
 
     static const int bits = 24;
     static const int size = 1 << bits;
-    struct Entry {
+
+    struct Hand {
       uint64_t key : 54;
       int64_t lower : 5;
       int64_t upper : 5;
+    };
+    struct Entry {
+      Hand hands[4];
     } entries_[size];
 
     mutable int lookup_count;
@@ -196,6 +228,7 @@ class Node {
     int CollectLastTrick(int seat_to_play);
     Cards RemoveRedundantCards(Cards cards) const;
     Cards GetPlayableCards(int seat_to_play) const;
+    void GetPattern(const Cards hands[4], Cards pattern_hands[4]);
 
     struct State {
       int ns_tricks;
@@ -255,6 +288,26 @@ Cards Node::GetPlayableCards(int seat_to_play) const {
   for (int i = 0; i < NUM_SUITS; ++i)
     cards.Add(RemoveRedundantCards(hand.GetSuit(i)));
   return cards;
+}
+
+void Node::GetPattern(const Cards hands[4], Cards pattern_hands[4]) {
+  Cards all_cards;
+  int relative_ranks[4];
+  int card_holder[52];
+  for (int i = 0; i < 4; ++i) {
+    all_cards.Add(hands[i]);
+    relative_ranks[i] = ACE;
+    for (int card = hands[i].Begin(); card != hands[i].End(); card = hands[i].After(card))
+      card_holder[card] = i;
+  }
+
+  for (int suit = 0; suit < 4; ++suit) {
+    Cards cards = all_cards.GetSuit(suit);
+    for (int card = cards.Begin(); card != cards.End(); card = cards.After(card)) {
+      pattern_hands[card_holder[card]].Add(CardFromSuitRank(suit, relative_ranks[suit]));
+      --relative_ranks[suit];
+    }
+  }
 }
 
 int Node::CollectLastTrick(int seat_to_play) {
@@ -361,15 +414,14 @@ int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
   if (!options.use_cache || !current_trick->OnLead(seat_to_play))
     return MinMax(alpha, beta, seat_to_play, depth);
 
-  Cards remaining_cards;
-  for (int i = 0; i < NUM_SEATS; ++i)
-    remaining_cards.Add(hands[i]);
+  Cards pattern_hands[4];
+  GetPattern(hands, pattern_hands);
 
   Bound bound;
   bound.lower = 0;
   bound.upper = 13;
 
-  if (cache.Lookup(remaining_cards, seat_to_play, &bound)) {
+  if (cache.Lookup(pattern_hands, seat_to_play, &bound)) {
     bound.lower += ns_tricks;
     bound.upper += ns_tricks;
     if (bound.lower >= beta)
@@ -389,7 +441,7 @@ int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
     bound.lower = g;
   bound.lower -= ns_tricks;
   bound.upper -= ns_tricks;
-  cache.Update(remaining_cards, seat_to_play, bound);
+  cache.Update(pattern_hands, seat_to_play, bound);
   return g;
 }
 
