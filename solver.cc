@@ -98,9 +98,8 @@ class Cache {
         entries_[i].hands[0].key = 0;
 
       srand(1);
-      for (int r = 0; r < hash_rounds; ++r)
-        for (int i = 0; i < 4; ++i)
-          hash_rand[r][i] = GenerateHashRandom();
+      for (int i = 0; i < 4; ++i)
+        hash_rand[i] = GenerateHashRandom();
     }
 
     ~Cache() {
@@ -123,9 +122,9 @@ class Cache {
       Entry input;
       ComputeKeys(hands, lead_seat, &input);
 
-      for (int r = 0; r < hash_rounds; ++r) {
-        uint64_t hash = Hash(input, r);
-        const Entry& entry = entries_[hash];
+      uint64_t hash = Hash(input);
+      for (int i = 0; i < walk_distance; ++i) {
+        const Entry& entry = entries_[(hash + i) & (size - 1)];
         if (SameKeys(entry, input)) {
           ++hit_count;
           bound->lower = entry.hands[0].lower;
@@ -144,12 +143,11 @@ class Cache {
       input.hands[0].lower = bound.lower;
       input.hands[0].upper = bound.upper;
 
-      for (int r = 0; r < hash_rounds; ++r) {
-        uint64_t hash = Hash(input, r);
-        Entry& entry = entries_[hash];
-
+      uint64_t hash = Hash(input);
+      for (int i = 0; i < walk_distance; ++i) {
+        Entry& entry = entries_[(hash + i) & (size - 1)];
         bool collided = entry.hands[0].key != 0 && !SameKeys(entry, input);
-        if (!collided || r == hash_rounds - 1) {
+        if (!collided || i == walk_distance - 1) {
           collision_count += collided;
           entry = input;
           return;
@@ -177,16 +175,17 @@ class Cache {
       return r | 1;
     }
 
-    uint64_t Hash(const Entry& entry, int r) const {
+    uint64_t Hash(const Entry& entry) const {
       __uint128_t sum = 0;
       for (int i = 0; i < 4; ++i)
-        sum += entry.hands[i].key * hash_rand[r][i];
+        sum += entry.hands[i].key * hash_rand[i];
       return sum >> (128 - bits);
     }
-    static const int hash_rounds = 4;
-    __uint128_t hash_rand[hash_rounds][4];
 
-    static const int bits = 24;
+    __uint128_t hash_rand[4];
+
+    static const int walk_distance = 16;
+    static const int bits = 23;
     static const int size = 1 << bits;
 
     struct Hand {
