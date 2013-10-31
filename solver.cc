@@ -125,15 +125,15 @@ class Cache {
       ++lookup_count;
 
       Entry input;
-      ComputeKeys(hands, lead_seat, &input);
+      ComputeKeys(hands, &input);
 
       uint64_t hash = Hash(input);
       for (int i = 0; i < walk_distance; ++i) {
         const Entry& entry = entries_[(hash + i) & (size - 1)];
         if (SameKeys(entry, input)) {
           ++hit_count;
-          bound->lower = entry.hands[0].lower;
-          bound->upper = entry.hands[0].upper;
+          bound->lower = entry.hands[lead_seat].lower;
+          bound->upper = entry.hands[lead_seat].upper;
           return true;
         }
       }
@@ -144,26 +144,35 @@ class Cache {
       ++update_count;
 
       Entry input;
-      ComputeKeys(hands, lead_seat, &input);
-      input.hands[0].lower = bound.lower;
-      input.hands[0].upper = bound.upper;
+      ComputeKeys(hands, &input);
+      input.hands[lead_seat].lower = bound.lower;
+      input.hands[lead_seat].upper = bound.upper;
 
       uint64_t hash = Hash(input);
       for (int i = 0; i < walk_distance; ++i) {
         Entry& entry = entries_[(hash + i) & (size - 1)];
-        bool collided = entry.hands[0].key != 0 && !SameKeys(entry, input);
+        bool same_keys = SameKeys(entry, input);
+        bool collided = entry.hands[0].key != 0 && !same_keys;
         if (!collided || i == walk_distance - 1) {
           collision_count += collided;
-          entry = input;
+          if (!same_keys) {
+            for (int i = 0; i < 4; ++i) {
+              entry.hands[i].key = input.hands[i].key;
+              entry.hands[i].lower = 0;
+              entry.hands[i].upper = 13;
+            }
+          }
+          entry.hands[lead_seat].lower = bound.lower;
+          entry.hands[lead_seat].upper = bound.upper;
           return;
         }
       }
     }
 
   private:
-    void ComputeKeys(const Cards hands[4], int lead_seat, Entry* entry) const {
+    void ComputeKeys(const Cards hands[4], Entry* entry) const {
       for (int i = 0; i < 4; ++i)
-        entry->hands[i].key = hands[i].Value() * 4 + lead_seat;
+        entry->hands[i].key = hands[i].Value();
     }
 
     bool SameKeys(const Entry& entry, const Entry& input) const {
@@ -190,7 +199,7 @@ class Cache {
     __uint128_t hash_rand[4];
 
     static const int walk_distance = 16;
-    static const int bits = 23;
+    static const int bits = 22;
     static const int size = 1 << bits;
 
     struct Hand {
