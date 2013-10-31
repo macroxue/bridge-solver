@@ -40,13 +40,16 @@ const char* CardName(int card) {
 }
 
 struct Options {
+  int  alpha;
+  int  beta;
   bool use_cache;
   bool use_test_driver;
   int  small_card;
   int  displaying_depth;
 
   Options()
-    : use_cache(false), use_test_driver(false), small_card(TWO), displaying_depth(4) {}
+    : alpha(0), beta(13), use_cache(false), use_test_driver(false),
+      small_card(TWO), displaying_depth(4) {}
 } options;
 
 }  // namespace
@@ -554,8 +557,10 @@ int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
 
 int main(int argc, char* argv[]) {
   int c;
-  while ((c = getopt(argc, argv, "cd:s:t")) != -1) {
+  while ((c = getopt(argc, argv, "a:b:cd:s:t")) != -1) {
     switch (c) {
+      case 'a': options.alpha = atoi(optarg); break;
+      case 'b': options.beta = atoi(optarg); break;
       case 'c': options.use_cache = true; break;
       case 'd': options.displaying_depth = atoi(optarg); break;
       case 's': options.small_card = CharToRank(optarg[0]); break;
@@ -594,11 +599,13 @@ int main(int argc, char* argv[]) {
   gettimeofday(&start, NULL);
   printf("Solving ...\n");
   int ns_tricks;
+  int alpha = options.alpha;
+  int beta = std::min(options.beta, num_tricks);
   if (options.use_test_driver) {
-    ns_tricks = MemoryEnhancedTestDriver(hands, trump, seat_to_play, num_tricks);
+    ns_tricks = MemoryEnhancedTestDriver(hands, trump, seat_to_play, beta);
   } else {
     Node node(hands, trump, seat_to_play);
-    ns_tricks = node.MinMaxWithMemory(0, num_tricks, seat_to_play, 0);
+    ns_tricks = node.MinMaxWithMemory(alpha, beta, seat_to_play, 0);
   }
   printf("NS tricks: %d\tEW tricks: %d\n", ns_tricks, num_tricks - ns_tricks);
   struct timeval finish;
