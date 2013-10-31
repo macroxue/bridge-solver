@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <algorithm>
 
@@ -107,11 +108,12 @@ class Cache {
       for (int i = 0; i < size; ++i)
         unused_count += (entries_[i].hands[0].key == 0);
 
-      printf("lookups: %d  hits: %d (%.2f%%)\n",
+      puts("\n--- Cache Statistics ---");
+      printf("lookups: %8d   hits:     %8d (%5.2f%%)\n",
              lookup_count, hit_count, hit_count * 100.0 / lookup_count);
-      printf("updates: %d  collisions: %d (%.2f%%)\n",
+      printf("updates: %8d   collisions: %6d (%5.2f%%)\n",
              update_count, collision_count, collision_count * 100.0 / update_count);
-      printf("entries: %d  unused: %d (%.2f%%)\n",
+      printf("entries: %8d   unused:   %8d (%5.2f%%)\n",
              size, unused_count, unused_count * 100.0 / size);
     }
 
@@ -543,7 +545,7 @@ int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
       upperbound = ns_tricks;
     else
       lowerbound = ns_tricks;
-    printf("lowerbound: %d     upperbound: %d\n", lowerbound, upperbound);
+    printf("lowerbound: %d\tupperbound: %d\n", lowerbound, upperbound);
   }
   return ns_tricks;
 }
@@ -588,6 +590,8 @@ int main(int argc, char* argv[]) {
   CHECK(fgets(line[0], sizeof(line[0]), stdin));
   int seat_to_play = CharToSeat(line[0][0]);
 
+  struct timeval start;
+  gettimeofday(&start, NULL);
   printf("Solving ...\n");
   int ns_tricks;
   if (options.use_test_driver) {
@@ -596,6 +600,10 @@ int main(int argc, char* argv[]) {
     Node node(hands, trump, seat_to_play);
     ns_tricks = node.MinMaxWithMemory(0, num_tricks, seat_to_play, 0);
   }
-  printf("NS tricks: %d      EW tricks: %d\n", ns_tricks, num_tricks - ns_tricks);
+  printf("NS tricks: %d\tEW tricks: %d\n", ns_tricks, num_tricks - ns_tricks);
+  struct timeval finish;
+  gettimeofday(&finish, NULL);
+  printf("time: %.3fs\n", (finish.tv_sec - start.tv_sec) +
+         (double(finish.tv_usec) - start.tv_usec) * 1e-6);
   return 0;
 }
