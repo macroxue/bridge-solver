@@ -1,0 +1,7 @@
+#!/bin/bash
+
+for test in fu*; do
+  opt="-Dct $*"
+  echo "./solver $opt < $test"
+  ./solver $opt < $test
+done
