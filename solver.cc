@@ -11,16 +11,20 @@
 
 namespace {
 
-const char *seat_name[] = { "West", "North", "East", "South" };
+const char *seat_names[] = { "West", "North", "East", "South" };
 
 enum { SPADE, HEART, DIAMOND, CLUB, NUM_SUITS, NOTRUMP = NUM_SUITS };
 enum { TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT, NINE, TEN,
        JACK, QUEEN, KING, ACE, NUM_RANKS };
 enum { WEST, NORTH, EAST, SOUTH, NUM_SEATS };
 
-int SuitOf(int card) { return card / 13; }
-int RankOf(int card) { return 12 - card % 13; }
-int CardFromSuitRank(int suit, int rank) { return suit * 13 + 12 - rank; }
+const int SUIT_SIZE = 13;
+const int TOTAL_TRICKS = 13;
+const int TOTAL_CARDS = 52;
+
+int SuitOf(int card) { return card / SUIT_SIZE; }
+int RankOf(int card) { return SUIT_SIZE - 1 - card % SUIT_SIZE; }
+int CardFromSuitRank(int suit, int rank) { return suit * SUIT_SIZE + SUIT_SIZE - 1 - rank; }
 int NextSeatToPlay(int seat_to_play) { return (seat_to_play + 1) % NUM_SEATS; }
 bool IsNS(int seat) { return seat % 2; }
 
@@ -30,13 +34,13 @@ bool WinOver(int c1, int c2, int trump) {
 }
 
 const char* CardName(int card) {
-  static const char suit_name[] = "SHDC";
-  static const char rank_name[] = "23456789TJQKA";
-  static char name[3];
-  name[0] = suit_name[SuitOf(card)];
-  name[1] = rank_name[RankOf(card)];
-  name[2] = '\0';
-  return name;
+  static const char suit_names[] = "SHDC";
+  static const char rank_names[] = "23456789TJQKA";
+  static char card_name[3];
+  card_name[0] = suit_names[SuitOf(card)];
+  card_name[1] = rank_names[RankOf(card)];
+  card_name[2] = '\0';
+  return card_name;
 }
 
 struct Options {
@@ -49,36 +53,38 @@ struct Options {
   bool discard_suit_bottom;
 
   Options()
-    : alpha(0), beta(13), use_cache(false), use_test_driver(false),
+    : alpha(0), beta(TOTAL_TRICKS), use_cache(false), use_test_driver(false),
       small_card(TWO), displaying_depth(4), discard_suit_bottom(false) {}
 } options;
+
+template <class T> int BitSize(T v) { return sizeof(v) * 8; }
 
 }  // namespace
 
 class Cards {
   public:
-    Cards() : cards_(0) {}
-    Cards(uint64_t cards) : cards_(cards) {}
-    uint64_t Value() const { return cards_; }
+    Cards() : bits(0) {}
+    Cards(uint64_t b) : bits(b) {}
+    uint64_t Value() const { return bits; }
 
-    int  Size() const { return __builtin_popcountll(cards_); }
-    bool Empty() const { return cards_ == 0; }
-    bool Has(int card) const { return cards_ & Bit(card); }
-    bool operator ==(const Cards& c) const { return cards_ == c.cards_; }
+    int  Size() const { return __builtin_popcountll(bits); }
+    bool Empty() const { return bits == 0; }
+    bool Have(int card) const { return bits & Bit(card); }
+    bool operator ==(const Cards& c) const { return bits == c.bits; }
 
-    Cards Slice(int begin, int end) const { return cards_ & (Bit(end) - Bit(begin)); }
-    Cards GetSuit(int suit) const { return Slice(suit * 13, suit * 13 + 13); }
-    Cards Bottom() const { return  Cards().Add(63 - __builtin_clzll(cards_)); }
+    Cards Slice(int begin, int end) const { return bits & (Bit(end) - Bit(begin)); }
+    Cards Suit(int suit) const { return Slice(suit * SUIT_SIZE, (suit + 1) * SUIT_SIZE); }
+    Cards Bottom() const { return  Cards().Add(BitSize(bits) - 1 - __builtin_clzll(bits)); }
 
     int Begin() const { return After(-1); }
-    int After(int card) const { return __builtin_ctzll(Slice(card + 1, End()).Add(End()).cards_); }
-    int End() const { return 52; }
+    int After(int card) const { return __builtin_ctzll(Slice(card + 1, End()).Add(End()).bits); }
+    int End() const { return TOTAL_CARDS; }
 
-    Cards Add(int card) { cards_ |= Bit(card); return cards_; }
-    Cards Remove(int card) { cards_ &= ~Bit(card); return cards_; }
+    Cards Add(int card) { bits |= Bit(card); return bits; }
+    Cards Remove(int card) { bits &= ~Bit(card); return bits; }
 
-    Cards Add(const Cards& c) { cards_ |= c.cards_; return cards_; }
-    Cards Remove(const Cards& c) { cards_ &= ~c.cards_; return cards_; }
+    Cards Add(const Cards& c) { bits |= c.bits; return bits; }
+    Cards Remove(const Cards& c) { bits &= ~c.bits; return bits; }
 
     void Show() {
       for (int card = Begin(); card != End(); card = After(card))
@@ -89,7 +95,7 @@ class Cards {
   private:
     uint64_t Bit(int index) const { return uint64_t(1) << index; }
 
-    uint64_t cards_;
+    uint64_t bits;
 };
 
 struct Bound {
@@ -104,7 +110,7 @@ class Cache {
         entries_[i].hands[0].key = 0;
 
       srand(1);
-      for (int i = 0; i < 4; ++i)
+      for (int i = 0; i < NUM_SEATS; ++i)
         hash_rand[i] = GenerateHashRandom();
     }
 
@@ -123,15 +129,15 @@ class Cache {
     }
 
     struct Entry;
-    bool Lookup(const Cards hands[4], int lead_seat, Bound* bound) const {
+    bool Lookup(const Cards hands[NUM_SEATS], int lead_seat, Bound* bound) const {
       ++lookup_count;
 
       Entry input;
       ComputeKeys(hands, &input);
 
       uint64_t hash = Hash(input);
-      for (int i = 0; i < walk_distance; ++i) {
-        const Entry& entry = entries_[(hash + i) & (size - 1)];
+      for (int d = 0; d < probe_distance; ++d) {
+        const Entry& entry = entries_[(hash + d) & (size - 1)];
         if (SameKeys(entry, input)) {
           ++hit_count;
           bound->lower = entry.hands[lead_seat].lower;
@@ -142,7 +148,7 @@ class Cache {
       return false;
     }
 
-    void Update(const Cards hands[4], int lead_seat, const Bound& bound) {
+    void Update(const Cards hands[NUM_SEATS], int lead_seat, const Bound& bound) {
       ++update_count;
 
       Entry input;
@@ -150,18 +156,20 @@ class Cache {
       input.hands[lead_seat].lower = bound.lower;
       input.hands[lead_seat].upper = bound.upper;
 
+      // Linear probing benefits from hardware prefetch and thus is faster
+      // than collision resolution with multiple hash functions.
       uint64_t hash = Hash(input);
-      for (int i = 0; i < walk_distance; ++i) {
-        Entry& entry = entries_[(hash + i) & (size - 1)];
+      for (int d = 0; d < probe_distance; ++d) {
+        Entry& entry = entries_[(hash + d) & (size - 1)];
         bool same_keys = SameKeys(entry, input);
         bool collided = entry.hands[0].key != 0 && !same_keys;
-        if (!collided || i == walk_distance - 1) {
+        if (!collided || d == probe_distance - 1) {
           collision_count += collided;
           if (!same_keys) {
-            for (int i = 0; i < 4; ++i) {
+            for (int i = 0; i < NUM_SEATS; ++i) {
               entry.hands[i].key = input.hands[i].key;
               entry.hands[i].lower = 0;
-              entry.hands[i].upper = 13;
+              entry.hands[i].upper = TOTAL_TRICKS;
             }
           }
           entry.hands[lead_seat].lower = bound.lower;
@@ -172,45 +180,47 @@ class Cache {
     }
 
   private:
-    void ComputeKeys(const Cards hands[4], Entry* entry) const {
-      for (int i = 0; i < 4; ++i)
+    void ComputeKeys(const Cards hands[NUM_SEATS], Entry* entry) const {
+      for (int i = 0; i < NUM_SEATS; ++i)
         entry->hands[i].key = hands[i].Value();
     }
 
     bool SameKeys(const Entry& entry, const Entry& input) const {
-      for (int i = 0; i < 4; ++i)
+      for (int i = 0; i < NUM_SEATS; ++i)
         if (entry.hands[i].key != input.hands[i].key)
           return false;
       return true;
     }
 
     __uint128_t GenerateHashRandom() {
+      static const int BITS_PER_RAND = 32;
       __uint128_t r = 0;
-      for (int i = 0; i < 4; ++i)
-        r = (r << 32) + rand();
+      for (int i = 0; i < BitSize(r) / BITS_PER_RAND; ++i)
+        r = (r << BITS_PER_RAND) + rand();
       return r | 1;
     }
 
     uint64_t Hash(const Entry& entry) const {
       __uint128_t sum = 0;
-      for (int i = 0; i < 4; ++i)
+      for (int i = 0; i < NUM_SEATS; ++i)
         sum += entry.hands[i].key * hash_rand[i];
-      return sum >> (128 - bits);
+      return sum >> (BitSize(sum) - bits);
     }
 
-    __uint128_t hash_rand[4];
+    __uint128_t hash_rand[NUM_SEATS];
 
-    static const int walk_distance = 16;
+    static const int probe_distance = 16;
     static const int bits = 22;
     static const int size = 1 << bits;
 
     struct Hand {
-      uint64_t key : 54;
-      int64_t lower : 5;
-      int64_t upper : 5;
+      uint64_t key : TOTAL_CARDS;
+      int64_t lower : 5;  // lowerbound when this hand is on lead
+      int64_t upper : 5;  // upperbound when this hand is on lead
     };
+
     struct Entry {
-      Hand hands[4];
+      Hand hands[NUM_SEATS];
     } entries_[size];
 
     mutable int lookup_count;
@@ -240,12 +250,12 @@ class Node {
 
   private:
     int CollectLastTrick(int seat_to_play);
-    Cards RemoveRedundantCards(Cards cards) const;
+    Cards CombineEquivalentCards(Cards cards) const;
     Cards GetPlayableCards(int seat_to_play) const;
-    void GetPattern(const Cards hands[4], Cards pattern_hands[4]);
+    void GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEATS]);
 
     struct State {
-      int ns_tricks;
+      int ns_tricks_won;
       int winning_seat;
       Cards all_cards;
       bool trick_completed;
@@ -256,15 +266,15 @@ class Node {
     void Unplay(int seat_to_play, int card_to_play, const State& state);
 
     int    trump;
-    int    ns_tricks;
+    int    ns_tricks_won;
     Cards  hands[NUM_SEATS];
     Cards  all_cards;
-    Trick  tricks[13];
+    Trick  tricks[TOTAL_TRICKS];
     Trick* current_trick;
 };
 
 Node::Node(Cards h[NUM_SEATS], int t, int seat_to_play)
-  : trump(t), ns_tricks(0), current_trick(tricks) {
+  : trump(t), ns_tricks_won(0), current_trick(tricks) {
   for (int seat = 0; seat < NUM_SEATS; ++seat) {
     hands[seat] = h[seat];
     all_cards.Add(hands[seat]);
@@ -272,10 +282,12 @@ Node::Node(Cards h[NUM_SEATS], int t, int seat_to_play)
   current_trick->lead_seat = seat_to_play;
 }
 
-Cards Node::RemoveRedundantCards(Cards cards) const {
+Cards Node::CombineEquivalentCards(Cards cards) const {
   if (cards.Size() <= 1)
     return cards;
 
+  // Two cards in one suit are equivalent when their relative ranks are next to
+  // each other. Only need to keep one of them.
   Cards redundant_cards;
   int prev_card = cards.Begin();
   int cur_card = cards.After(prev_card);
@@ -294,38 +306,48 @@ Cards Node::RemoveRedundantCards(Cards cards) const {
 Cards Node::GetPlayableCards(int seat_to_play) const {
   const Cards& hand = hands[seat_to_play];
   if (!current_trick->OnLead(seat_to_play)) {
-    Cards suit = hand.GetSuit(current_trick->LeadSuit());
-    if (!suit.Empty())
-      return RemoveRedundantCards(suit);
+    Cards suit_cards = hand.Suit(current_trick->LeadSuit());
+    if (!suit_cards.Empty())
+      return CombineEquivalentCards(suit_cards);
   }
-  Cards cards;
-  for (int s = 0; s < NUM_SUITS; ++s) {
-    Cards suit = hand.GetSuit(s);
-    if (suit.Empty()) continue;
-    if (s == trump || current_trick->OnLead(seat_to_play) ||
+  Cards playable_cards;
+  for (int suit = 0; suit < NUM_SUITS; ++suit) {
+    Cards suit_cards = hand.Suit(suit);
+    if (suit_cards.Empty()) continue;
+    if (suit == trump || current_trick->OnLead(seat_to_play) ||
         !options.discard_suit_bottom) {
-      cards.Add(RemoveRedundantCards(suit));
+      playable_cards.Add(CombineEquivalentCards(suit_cards));
     } else {
-      cards.Add(suit.Bottom());
+      // Discard only the bottom card in a suit. It's very rare that discarding
+      // a higher ranked card in the same suit is necessary. One example,
+      // South to make 3NT:
+      //                 AK83 AK A65432 K
+      //  65 QJT876 KT9 AJ               JT92 54 Q 765432
+      //                 Q74 932 J87 QT98
+      playable_cards.Add(suit_cards.Bottom());
     }
   }
-  return cards;
+  return playable_cards;
 }
 
-void Node::GetPattern(const Cards hands[4], Cards pattern_hands[4]) {
+void Node::GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEATS]) {
+  // Create the pattern using relative ranks. For example, when all the cards
+  // remaining in a suit are J, 8, 7 and 2, they are treated as A, K, Q and J
+  // respectively.
   Cards all_cards;
-  int relative_ranks[4];
-  int card_holder[52];
-  for (int i = 0; i < 4; ++i) {
-    all_cards.Add(hands[i]);
-    relative_ranks[i] = ACE;
-    for (int card = hands[i].Begin(); card != hands[i].End(); card = hands[i].After(card))
-      card_holder[card] = i;
+  int relative_ranks[NUM_SUITS];
+  int card_holder[TOTAL_CARDS];
+  for (int seat = 0; seat < NUM_SEATS; ++seat) {
+    relative_ranks[seat] = ACE;
+    Cards hand = hands[seat];
+    all_cards.Add(hand);
+    for (int card = hand.Begin(); card != hand.End(); card = hand.After(card))
+      card_holder[card] = seat;
   }
 
-  for (int suit = 0; suit < 4; ++suit) {
-    Cards cards = all_cards.GetSuit(suit);
-    for (int card = cards.Begin(); card != cards.End(); card = cards.After(card)) {
+  for (int suit = 0; suit < NUM_SUITS; ++suit) {
+    Cards suit_cards = all_cards.Suit(suit);
+    for (int card = suit_cards.Begin(); card != suit_cards.End(); card = suit_cards.After(card)) {
       pattern_hands[card_holder[card]].Add(CardFromSuitRank(suit, relative_ranks[suit]));
       --relative_ranks[suit];
     }
@@ -335,7 +357,7 @@ void Node::GetPattern(const Cards hands[4], Cards pattern_hands[4]) {
 int Node::CollectLastTrick(int seat_to_play) {
   current_trick->cards[seat_to_play] = hands[seat_to_play].Begin();
   current_trick->winning_seat = seat_to_play;
-  for (int i = 1; i < NUM_SEATS; i++) {
+  for (int i = 1; i < NUM_SEATS; ++i) {
     seat_to_play = NextSeatToPlay(seat_to_play);
     int card_to_play = hands[seat_to_play].Begin();
     current_trick->cards[seat_to_play] = card_to_play;
@@ -343,12 +365,12 @@ int Node::CollectLastTrick(int seat_to_play) {
       current_trick->winning_seat = seat_to_play;
     }
   }
-  return ns_tricks + IsNS(current_trick->winning_seat);
+  return ns_tricks_won + IsNS(current_trick->winning_seat);
 }
 
 Node::State Node::SaveState() const {
   State state;
-  state.ns_tricks = ns_tricks;
+  state.ns_tricks_won = ns_tricks_won;
   state.winning_seat = current_trick->winning_seat;
   state.all_cards = all_cards;
   return state;
@@ -368,10 +390,10 @@ int Node::Play(int seat_to_play, int card_to_play, State *state) {
   state->trick_completed = current_trick->CompleteAfter(seat_to_play);
   if (state->trick_completed) {
     (current_trick + 1)->lead_seat = current_trick->winning_seat;
-    ns_tricks += IsNS(current_trick->winning_seat);
+    ns_tricks_won += IsNS(current_trick->winning_seat);
     // remove cards from global suits
-    for (int i = 0; i < NUM_SEATS; ++i)
-      all_cards.Remove(current_trick->cards[i]);
+    for (int seat = 0; seat < NUM_SEATS; ++seat)
+      all_cards.Remove(current_trick->cards[seat]);
     ++current_trick;
     next_seat_to_play = current_trick->lead_seat;
   } else {
@@ -391,7 +413,7 @@ void Node::Unplay(int seat_to_play, int card_to_play, const State& state) {
     --current_trick;
     // add cards back to global suits
     all_cards = state.all_cards;
-    ns_tricks = state.ns_tricks;
+    ns_tricks_won = state.ns_tricks_won;
   }
 
   // restore state
@@ -405,31 +427,31 @@ int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
   State state = SaveState();
   Cards playable_cards = GetPlayableCards(seat_to_play);
   // TODO: reorder playable cards
-  int max_tricks = 0;
-  int min_tricks = 13;
+  int max_ns_tricks = 0;
+  int min_ns_tricks = TOTAL_TRICKS;
   for (int card_to_play = playable_cards.Begin(); card_to_play != playable_cards.End();
        card_to_play = playable_cards.After(card_to_play)) {
 
     int next_seat_to_play = Play(seat_to_play, card_to_play, &state);
-    int num_tricks = MinMaxWithMemory(alpha, beta, next_seat_to_play, depth + 1);
+    int ns_tricks = MinMaxWithMemory(alpha, beta, next_seat_to_play, depth + 1);
     Unplay(seat_to_play, card_to_play, state);
     if (depth < options.displaying_depth)
       printf("%*d: %c %s => %d (%d, %d)\n", depth * 2 + 2, depth,
-             seat_name[seat_to_play][0], CardName(card_to_play), num_tricks, alpha, beta);
+             seat_names[seat_to_play][0], CardName(card_to_play), ns_tricks, alpha, beta);
 
     if (IsNS(seat_to_play)) {
-      max_tricks = std::max(max_tricks, num_tricks);
-      if (max_tricks >= beta)
+      max_ns_tricks = std::max(max_ns_tricks, ns_tricks);
+      if (max_ns_tricks >= beta)
         break;
-      alpha = std::max(alpha, num_tricks);
+      alpha = std::max(alpha, ns_tricks);
     } else {
-      min_tricks = std::min(min_tricks, num_tricks);
-      if (min_tricks <= alpha)
+      min_ns_tricks = std::min(min_ns_tricks, ns_tricks);
+      if (min_ns_tricks <= alpha)
         break;
-      beta = std::min(beta, num_tricks);
+      beta = std::min(beta, ns_tricks);
     }
   }
-  return IsNS(seat_to_play) ? max_tricks : min_tricks;
+  return IsNS(seat_to_play) ? max_ns_tricks : min_ns_tricks;
 }
 
 int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
@@ -441,38 +463,38 @@ int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
 
   Bound bound;
   bound.lower = 0;
-  bound.upper = 13;
+  bound.upper = TOTAL_TRICKS;
 
   if (cache.Lookup(pattern_hands, seat_to_play, &bound)) {
-    bound.lower += ns_tricks;
-    bound.upper += ns_tricks;
+    bound.lower += ns_tricks_won;
+    bound.upper += ns_tricks_won;
     if (bound.lower >= beta) {
       if (depth <= options.displaying_depth)
         printf("%*d: %c beta cut %d\n", depth * 2 + 2, depth,
-               seat_name[seat_to_play][0], bound.lower);
+               seat_names[seat_to_play][0], bound.lower);
       return bound.lower;
     }
     if (bound.upper <= alpha) {
       if (depth <= options.displaying_depth)
         printf("%*d: %c alpha cut %d\n", depth * 2 + 2, depth,
-               seat_name[seat_to_play][0], bound.upper);
+               seat_names[seat_to_play][0], bound.upper);
       return bound.upper;
     }
     alpha = std::max(alpha, bound.lower);
     beta = std::min(beta, bound.upper);
   }
 
-  int g = MinMax(alpha, beta, seat_to_play, depth);
-  if (g <= alpha)
-    bound.upper = g;
-  else if (g < beta)
-    bound.upper = bound.lower = g;
+  int ns_tricks = MinMax(alpha, beta, seat_to_play, depth);
+  if (ns_tricks <= alpha)
+    bound.upper = ns_tricks;
+  else if (ns_tricks < beta)
+    bound.upper = bound.lower = ns_tricks;
   else
-    bound.lower = g;
-  bound.lower -= ns_tricks;
-  bound.upper -= ns_tricks;
+    bound.lower = ns_tricks;
+  bound.lower -= ns_tricks_won;
+  bound.upper -= ns_tricks_won;
   cache.Update(pattern_hands, seat_to_play, bound);
-  return g;
+  return ns_tricks;
 }
 
 namespace {
@@ -527,12 +549,12 @@ int CharToSeat(char c) {
 Cards ParseHand(char *line) {
   static Cards all_cards;
   Cards hand;
-  for (int suit = 0; suit < NUM_SUITS; suit++) {
-    while (line[0] && isspace(line[0])) line++;
+  for (int suit = 0; suit < NUM_SUITS; ++suit) {
+    while (line[0] && isspace(line[0])) ++line;
     while (line[0] && !isspace(line[0]) && line[0] != '-') {
       int rank = CharToRank(line[0]);
       int card = CardFromSuitRank(suit, rank);
-      if (all_cards.Has(card)) {
+      if (all_cards.Have(card)) {
         printf("%s showed up twice.\n", CardName(card));
         exit(-1);
       }
@@ -544,12 +566,12 @@ Cards ParseHand(char *line) {
           printf("Unknown rank: %c%c\n", line[0], line[1]);
           exit(-1);
         }
-        line++;
+        ++line;
       }
-      line++;
+      ++line;
     }
     if (line[0] == '-')
-      line++;
+      ++line;
   }
   return hand;
 }
@@ -597,15 +619,15 @@ int main(int argc, char* argv[]) {
 
   Cards hands[NUM_SEATS];
   int num_tricks = 0;
-  for (int seat = 0; seat < NUM_SEATS; seat ++) {
+  for (int seat = 0; seat < NUM_SEATS; ++seat) {
     hands[seat] = ParseHand(line[seat]);
     if (seat == 0)
       num_tricks = hands[seat].Size();
     else
       if (num_tricks != hands[seat].Size()) {
         printf("%s has %d cards, while %s has %d.\n",
-               seat_name[seat], hands[seat].Size(),
-               seat_name[0], num_tricks);
+               seat_names[seat], hands[seat].Size(),
+               seat_names[0], num_tricks);
         exit(-1);
       }
   }
