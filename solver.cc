@@ -107,17 +107,17 @@ class Cache {
     }
 
     ~Cache() {
-      int unused_count = 0;
+      int loaded_count = 0;
       for (int i = 0; i < size; ++i)
-        unused_count += (entries_[i].hands[0].key == 0);
+        loaded_count += (entries_[i].hands[0].key != 0);
 
       puts("\n--- Cache Statistics ---");
       printf("lookups: %8d   hits:     %8d (%5.2f%%)\n",
              lookup_count, hit_count, hit_count * 100.0 / lookup_count);
       printf("updates: %8d   collisions: %6d (%5.2f%%)\n",
              update_count, collision_count, collision_count * 100.0 / update_count);
-      printf("entries: %8d   unused:   %8d (%5.2f%%)\n",
-             size, unused_count, unused_count * 100.0 / size);
+      printf("entries: %8d   loaded:   %8d (%5.2f%%)\n",
+             size, loaded_count, loaded_count * 100.0 / size);
     }
 
     struct Entry;
