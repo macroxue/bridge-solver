@@ -423,7 +423,7 @@ int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
 }
 
 int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
-  if (!options.use_cache || !current_trick->OnLead(seat_to_play))
+  if (!options.use_cache || (!current_trick->OnLead(seat_to_play) && depth >= 4))
     return MinMax(alpha, beta, seat_to_play, depth);
 
   Cards pattern_hands[4];
