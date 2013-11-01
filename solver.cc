@@ -46,10 +46,11 @@ struct Options {
   bool use_test_driver;
   int  small_card;
   int  displaying_depth;
+  bool discard_suit_bottom;
 
   Options()
     : alpha(0), beta(13), use_cache(false), use_test_driver(false),
-      small_card(TWO), displaying_depth(4) {}
+      small_card(TWO), displaying_depth(4), discard_suit_bottom(false) {}
 } options;
 
 }  // namespace
@@ -67,6 +68,7 @@ class Cards {
 
     Cards Slice(int begin, int end) const { return cards_ & (Bit(end) - Bit(begin)); }
     Cards GetSuit(int suit) const { return Slice(suit * 13, suit * 13 + 13); }
+    Cards Bottom() const { return  Cards().Add(63 - __builtin_clzll(cards_)); }
 
     int Begin() const { return After(-1); }
     int After(int card) const { return __builtin_ctzll(Slice(card + 1, End()).Add(End()).cards_); }
@@ -297,8 +299,16 @@ Cards Node::GetPlayableCards(int seat_to_play) const {
       return RemoveRedundantCards(suit);
   }
   Cards cards;
-  for (int i = 0; i < NUM_SUITS; ++i)
-    cards.Add(RemoveRedundantCards(hand.GetSuit(i)));
+  for (int s = 0; s < NUM_SUITS; ++s) {
+    Cards suit = hand.GetSuit(s);
+    if (suit.Empty()) continue;
+    if (s == trump || current_trick->OnLead(seat_to_play) ||
+        !options.discard_suit_bottom) {
+      cards.Add(RemoveRedundantCards(suit));
+    } else {
+      cards.Add(suit.Bottom());
+    }
+  }
   return cards;
 }
 
@@ -566,7 +576,7 @@ int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
 
 int main(int argc, char* argv[]) {
   int c;
-  while ((c = getopt(argc, argv, "a:b:cd:s:t")) != -1) {
+  while ((c = getopt(argc, argv, "a:b:cd:s:tD")) != -1) {
     switch (c) {
       case 'a': options.alpha = atoi(optarg); break;
       case 'b': options.beta = atoi(optarg); break;
@@ -574,6 +584,7 @@ int main(int argc, char* argv[]) {
       case 'd': options.displaying_depth = atoi(optarg); break;
       case 's': options.small_card = CharToRank(optarg[0]); break;
       case 't': options.use_test_driver = true; break;
+      case 'D': options.discard_suit_bottom = true; break;
     }
   }
 
