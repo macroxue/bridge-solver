@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/time.h>
 #include <unistd.h>
 #include <algorithm>
@@ -86,7 +87,7 @@ class Cards {
     Cards Add(const Cards& c) { bits |= c.bits; return bits; }
     Cards Remove(const Cards& c) { bits &= ~c.bits; return bits; }
 
-    void Show() {
+    void Show() const {
       for (int card = Begin(); card != End(); card = After(card))
         printf("%s ", CardName(card));
       printf("\n");
@@ -240,6 +241,16 @@ struct Trick {
   int WinningCard() const { return cards[winning_seat]; }
   bool OnLead(int seat_to_play) const { return seat_to_play == lead_seat; }
   bool CompleteAfter(int seat) const { return NextSeatToPlay(seat) == lead_seat; }
+  void Show(int depth, int ns_tricks) const {
+    char card_names[NUM_SEATS][3];
+    for (int i = 0; i < NUM_SEATS; ++i) {
+      int seat = (lead_seat + i) % NUM_SEATS;
+      strcpy(card_names[i], CardName(cards[seat]));
+    }
+    printf("%*d: %c %s %s %s %s => %d\n", depth * 2 + 2, depth,
+           seat_names[lead_seat][0], card_names[0], card_names[1], card_names[2],card_names[3],
+           ns_tricks);
+  }
 };
 
 class Node {
@@ -365,7 +376,7 @@ int Node::CollectLastTrick(int seat_to_play) {
       current_trick->winning_seat = seat_to_play;
     }
   }
-  return ns_tricks_won + IsNS(current_trick->winning_seat);
+  return ns_tricks_won += IsNS(current_trick->winning_seat);
 }
 
 Node::State Node::SaveState() const {
@@ -421,8 +432,12 @@ void Node::Unplay(int seat_to_play, int card_to_play, const State& state) {
 }
 
 int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
-  if (hands[seat_to_play].Size() == 1 && current_trick->OnLead(seat_to_play))
-    return CollectLastTrick(seat_to_play);
+  if (all_cards.Size() == 4) {
+    int ns_tricks = CollectLastTrick(seat_to_play);
+    if (depth < options.displaying_depth)
+      current_trick->Show(depth, ns_tricks);
+    return ns_tricks;
+  }
 
   State state = SaveState();
   Cards playable_cards = GetPlayableCards(seat_to_play);
@@ -455,7 +470,8 @@ int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
 }
 
 int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
-  if (!options.use_cache || (!current_trick->OnLead(seat_to_play) && depth >= 4))
+  if (!options.use_cache || (!current_trick->OnLead(seat_to_play) && depth >= 4) ||
+      all_cards.Size() == 4)
     return MinMax(alpha, beta, seat_to_play, depth);
 
   Cards pattern_hands[4];
