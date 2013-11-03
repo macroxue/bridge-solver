@@ -3,7 +3,6 @@
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <string.h>
 #include <sys/time.h>
 #include <unistd.h>
 #include <algorithm>
@@ -11,8 +10,6 @@
 #define CHECK(statement)  if (!(statement)) printf("CHECK("#statement") failed")
 
 namespace {
-
-const char *seat_names[] = { "West", "North", "East", "South" };
 
 enum { SPADE, HEART, DIAMOND, CLUB, NUM_SUITS, NOTRUMP = NUM_SUITS };
 enum { TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT, NINE, TEN,
@@ -23,25 +20,45 @@ const int SUIT_SIZE = 13;
 const int TOTAL_TRICKS = 13;
 const int TOTAL_CARDS = 52;
 
-int SuitOf(int card) { return card / SUIT_SIZE; }
-int RankOf(int card) { return SUIT_SIZE - 1 - card % SUIT_SIZE; }
-int CardFromSuitRank(int suit, int rank) { return suit * SUIT_SIZE + SUIT_SIZE - 1 - rank; }
-int NextSeatToPlay(int seat_to_play) { return (seat_to_play + 1) % NUM_SEATS; }
+const char* SeatName(int seat) {
+  static const char *seat_names[NUM_SEATS] = { "West", "North", "East", "South" };
+  return seat_names[seat];
+}
+char SeatLetter(int seat) { return SeatName(seat)[0]; }
+
+char suit_of[TOTAL_CARDS];
+char rank_of[TOTAL_CARDS];
+char card_of[NUM_SUITS][16];
+char name_of[TOTAL_CARDS][4];
+
+int SuitOf(int card) { return suit_of[card]; }
+int RankOf(int card) { return rank_of[card]; }
+int CardOf(int suit, int rank) { return card_of[suit][rank]; }
+const char* NameOf(int card) { return name_of[card]; }
+
+struct CardInitializer {
+  CardInitializer() {
+    static const char suit_names[] = "SHDC";
+    static const char rank_names[] = "23456789TJQKA";
+    for (int card = 0; card < TOTAL_CARDS; ++card) {
+      suit_of[card] = card / SUIT_SIZE;
+      rank_of[card] = SUIT_SIZE - 1 - card % SUIT_SIZE;
+      name_of[card][0] = suit_names[SuitOf(card)];
+      name_of[card][1] = rank_names[RankOf(card)];
+      name_of[card][2] = '\0';
+    }
+    for (int suit = 0; suit < NUM_SUITS; ++suit)
+      for (int rank = 0; rank < NUM_RANKS; ++rank)
+        card_of[suit][rank] = suit * SUIT_SIZE + SUIT_SIZE - 1 - rank;
+  }
+} card_initializer;
+
+int NextSeat(int seat, int count = 1) { return (seat + count) % NUM_SEATS; }
 bool IsNS(int seat) { return seat % 2; }
 
 bool WinOver(int c1, int c2, int trump) {
   return (SuitOf(c1) == SuitOf(c2) && RankOf(c1) > RankOf(c2)) ||
          (SuitOf(c1) != SuitOf(c2) && SuitOf(c1) == trump);
-}
-
-const char* CardName(int card) {
-  static const char suit_names[] = "SHDC";
-  static const char rank_names[] = "23456789TJQKA";
-  static char card_name[3];
-  card_name[0] = suit_names[SuitOf(card)];
-  card_name[1] = rank_names[RankOf(card)];
-  card_name[2] = '\0';
-  return card_name;
 }
 
 struct Options {
@@ -89,7 +106,7 @@ class Cards {
 
     void Show() const {
       for (int card = Begin(); card != End(); card = After(card))
-        printf("%s ", CardName(card));
+        printf("%s ", NameOf(card));
       printf("\n");
     }
 
@@ -240,16 +257,13 @@ struct Trick {
   int LeadSuit() const { return SuitOf(cards[lead_seat]); }
   int WinningCard() const { return cards[winning_seat]; }
   bool OnLead(int seat_to_play) const { return seat_to_play == lead_seat; }
-  bool CompleteAfter(int seat) const { return NextSeatToPlay(seat) == lead_seat; }
+  bool CompleteAfter(int seat) const { return NextSeat(seat) == lead_seat; }
   void Show(int depth, int ns_tricks) const {
-    char card_names[NUM_SEATS][3];
-    for (int i = 0; i < NUM_SEATS; ++i) {
-      int seat = (lead_seat + i) % NUM_SEATS;
-      strcpy(card_names[i], CardName(cards[seat]));
-    }
     printf("%*d: %c %s %s %s %s => %d\n", depth * 2 + 2, depth,
-           seat_names[lead_seat][0], card_names[0], card_names[1], card_names[2],card_names[3],
-           ns_tricks);
+           SeatLetter(lead_seat), NameOf(cards[lead_seat]),
+           NameOf(cards[NextSeat(lead_seat, 1)]),
+           NameOf(cards[NextSeat(lead_seat, 2)]),
+           NameOf(cards[NextSeat(lead_seat, 3)]), ns_tricks);
   }
 };
 
@@ -359,7 +373,7 @@ void Node::GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEAT
   for (int suit = 0; suit < NUM_SUITS; ++suit) {
     Cards suit_cards = all_cards.Suit(suit);
     for (int card = suit_cards.Begin(); card != suit_cards.End(); card = suit_cards.After(card)) {
-      pattern_hands[card_holder[card]].Add(CardFromSuitRank(suit, relative_ranks[suit]));
+      pattern_hands[card_holder[card]].Add(CardOf(suit, relative_ranks[suit]));
       --relative_ranks[suit];
     }
   }
@@ -369,7 +383,7 @@ int Node::CollectLastTrick(int seat_to_play) {
   current_trick->cards[seat_to_play] = hands[seat_to_play].Begin();
   current_trick->winning_seat = seat_to_play;
   for (int i = 1; i < NUM_SEATS; ++i) {
-    seat_to_play = NextSeatToPlay(seat_to_play);
+    seat_to_play = NextSeat(seat_to_play);
     int card_to_play = hands[seat_to_play].Begin();
     current_trick->cards[seat_to_play] = card_to_play;
     if (WinOver(card_to_play, current_trick->WinningCard(), trump)) {
@@ -408,7 +422,7 @@ int Node::Play(int seat_to_play, int card_to_play, State *state) {
     ++current_trick;
     next_seat_to_play = current_trick->lead_seat;
   } else {
-    next_seat_to_play = NextSeatToPlay(seat_to_play);
+    next_seat_to_play = NextSeat(seat_to_play);
   }
 
   // remove played card from hand
@@ -452,7 +466,7 @@ int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
     Unplay(seat_to_play, card_to_play, state);
     if (depth < options.displaying_depth)
       printf("%*d: %c %s => %d (%d, %d)\n", depth * 2 + 2, depth,
-             seat_names[seat_to_play][0], CardName(card_to_play), ns_tricks, alpha, beta);
+             SeatLetter(seat_to_play), NameOf(card_to_play), ns_tricks, alpha, beta);
 
     if (IsNS(seat_to_play)) {
       max_ns_tricks = std::max(max_ns_tricks, ns_tricks);
@@ -487,13 +501,13 @@ int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
     if (bound.lower >= beta) {
       if (depth <= options.displaying_depth)
         printf("%*d: %c beta cut %d\n", depth * 2 + 2, depth,
-               seat_names[seat_to_play][0], bound.lower);
+               SeatLetter(seat_to_play), bound.lower);
       return bound.lower;
     }
     if (bound.upper <= alpha) {
       if (depth <= options.displaying_depth)
         printf("%*d: %c alpha cut %d\n", depth * 2 + 2, depth,
-               seat_names[seat_to_play][0], bound.upper);
+               SeatLetter(seat_to_play), bound.upper);
       return bound.upper;
     }
     alpha = std::max(alpha, bound.lower);
@@ -569,9 +583,9 @@ Cards ParseHand(char *line) {
     while (line[0] && isspace(line[0])) ++line;
     while (line[0] && !isspace(line[0]) && line[0] != '-') {
       int rank = CharToRank(line[0]);
-      int card = CardFromSuitRank(suit, rank);
+      int card = CardOf(suit, rank);
       if (all_cards.Have(card)) {
-        printf("%s showed up twice.\n", CardName(card));
+        printf("%s showed up twice.\n", NameOf(card));
         exit(-1);
       }
       all_cards.Add(card);
@@ -642,8 +656,7 @@ int main(int argc, char* argv[]) {
     else
       if (num_tricks != hands[seat].Size()) {
         printf("%s has %d cards, while %s has %d.\n",
-               seat_names[seat], hands[seat].Size(),
-               seat_names[0], num_tricks);
+               SeatName(seat), hands[seat].Size(), SeatName(0), num_tricks);
         exit(-1);
       }
   }
