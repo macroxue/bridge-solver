@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/time.h>
 #include <unistd.h>
 #include <algorithm>
@@ -258,12 +259,29 @@ struct Trick {
   int WinningCard() const { return cards[winning_seat]; }
   bool OnLead(int seat_to_play) const { return seat_to_play == lead_seat; }
   bool CompleteAfter(int seat) const { return NextSeat(seat) == lead_seat; }
-  void Show(int depth, int ns_tricks) const {
-    printf("%*d: %c %s %s %s %s => %d\n", depth * 2 + 2, depth,
+
+  void Show() const {
+    printf(" %c %s %s %s %s",
            SeatLetter(lead_seat), NameOf(cards[lead_seat]),
            NameOf(cards[NextSeat(lead_seat, 1)]),
            NameOf(cards[NextSeat(lead_seat, 2)]),
-           NameOf(cards[NextSeat(lead_seat, 3)]), ns_tricks);
+           NameOf(cards[NextSeat(lead_seat, 3)]));
+  }
+  void Show(int num_cards) const {
+    if (num_cards == 4) {
+      Show();
+      return;
+    }
+    char output[64] = { ' ', SeatLetter(lead_seat), ' ' };
+    int pos = 3;
+    for (int seat = lead_seat; num_cards > 0; seat = NextSeat(seat), --num_cards) {
+      strcpy(output + pos, NameOf(cards[seat]));
+      output[pos + 2] = ' ';
+      pos += 3;
+    }
+    if (pos == 3) pos = 0;
+    output[pos] = '\0';
+    printf("%s", output);
   }
 };
 
@@ -274,6 +292,7 @@ class Node {
     int MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth);
 
   private:
+    void ShowTricks(int alpha, int beta, int seat_to_play, int depth, int ns_tricks) const;
     int CollectLastTrick(int seat_to_play);
     Cards CombineEquivalentCards(Cards cards) const;
     Cards GetPlayableCards(int seat_to_play) const;
@@ -305,6 +324,16 @@ Node::Node(Cards h[NUM_SEATS], int t, int seat_to_play)
     all_cards.Add(hands[seat]);
   }
   current_trick->lead_seat = seat_to_play;
+}
+
+void Node::ShowTricks(int alpha, int beta, int seat_to_play, int depth, int ns_tricks) const {
+  ++depth;
+  printf("%2d:", depth);
+  for (const Trick* trick = tricks; trick <= current_trick; ++trick) {
+    trick->Show(depth > 4 ? 4 : depth);
+    depth -= 4;
+  }
+  printf(" -> %d (%d %d)\n", ns_tricks, alpha, beta);
 }
 
 Cards Node::CombineEquivalentCards(Cards cards) const {
@@ -449,7 +478,7 @@ int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
   if (all_cards.Size() == 4) {
     int ns_tricks = CollectLastTrick(seat_to_play);
     if (depth < options.displaying_depth)
-      current_trick->Show(depth, ns_tricks);
+      ShowTricks(alpha, beta, seat_to_play, depth + 3, ns_tricks);
     return ns_tricks;
   }
 
@@ -465,8 +494,7 @@ int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
     int ns_tricks = MinMaxWithMemory(alpha, beta, next_seat_to_play, depth + 1);
     Unplay(seat_to_play, card_to_play, state);
     if (depth < options.displaying_depth)
-      printf("%*d: %c %s => %d (%d, %d)\n", depth * 2 + 2, depth,
-             SeatLetter(seat_to_play), NameOf(card_to_play), ns_tricks, alpha, beta);
+      ShowTricks(alpha, beta, seat_to_play, depth, ns_tricks);
 
     if (IsNS(seat_to_play)) {
       max_ns_tricks = std::max(max_ns_tricks, ns_tricks);
@@ -500,14 +528,12 @@ int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
     bound.upper += ns_tricks_won;
     if (bound.lower >= beta) {
       if (depth <= options.displaying_depth)
-        printf("%*d: %c beta cut %d\n", depth * 2 + 2, depth,
-               SeatLetter(seat_to_play), bound.lower);
+        printf("%2d: %c beta cut %d\n", depth, SeatLetter(seat_to_play), bound.lower);
       return bound.lower;
     }
     if (bound.upper <= alpha) {
       if (depth <= options.displaying_depth)
-        printf("%*d: %c alpha cut %d\n", depth * 2 + 2, depth,
-               SeatLetter(seat_to_play), bound.upper);
+        printf("%2d: %c alpha cut %d\n", depth, SeatLetter(seat_to_play), bound.upper);
       return bound.upper;
     }
     alpha = std::max(alpha, bound.lower);
