@@ -95,10 +95,6 @@ class Cards {
     Cards Suit(int suit) const { return Slice(suit * SUIT_SIZE, (suit + 1) * SUIT_SIZE); }
     Cards Bottom() const { return  Cards().Add(BitSize(bits) - 1 - __builtin_clzll(bits)); }
 
-    int Begin() const { return After(-1); }
-    int After(int card) const { return __builtin_ctzll(Slice(card + 1, End()).Add(End()).bits); }
-    int End() const { return TOTAL_CARDS; }
-
     Cards Add(int card) { bits |= Bit(card); return bits; }
     Cards Remove(int card) { bits &= ~Bit(card); return bits; }
 
@@ -106,13 +102,29 @@ class Cards {
     Cards Remove(const Cards& c) { bits &= ~c.bits; return bits; }
 
     void Show() const {
-      for (int card = Begin(); card != End(); card = After(card))
+      for (int card : *this)
         printf("%s ", NameOf(card));
       printf("\n");
     }
 
+    class Iterator {
+      public:
+        Iterator() : pos(TOTAL_CARDS) {}
+        Iterator(uint64_t b) : bits(b | Bit(TOTAL_CARDS)), pos(__builtin_ctzll(bits)) {}
+        void operator ++() { pos = __builtin_ctzll(bits &= ~Bit(pos)); }
+        bool operator !=(const Iterator& it) const { return pos != *it; }
+        int operator *() const { return pos; }
+
+      private:
+        uint64_t bits;
+        int pos;
+    };
+
+    Iterator begin() const { return Iterator(bits); }
+    Iterator end() const { return Iterator(); }
+
   private:
-    uint64_t Bit(int index) const { return uint64_t(1) << index; }
+    static uint64_t Bit(int index) { return uint64_t(1) << index; }
 
     uint64_t bits;
 };
@@ -343,16 +355,14 @@ Cards Node::CombineEquivalentCards(Cards cards) const {
   // Two cards in one suit are equivalent when their relative ranks are next to
   // each other. Only need to keep one of them.
   Cards redundant_cards;
-  int prev_card = cards.Begin();
-  int cur_card = cards.After(prev_card);
-  while (cur_card != cards.End()) {
+  int prev_card = *cards.begin();
+  for (int cur_card : cards.Slice(prev_card + 1, TOTAL_CARDS)) {
     if (cards.Slice(prev_card, cur_card + 1) == all_cards.Slice(prev_card, cur_card + 1) ||
         (RankOf(prev_card) <= options.small_card && RankOf(cur_card) <= options.small_card)) {
       redundant_cards.Add(cur_card);
     } else {
       prev_card = cur_card;
     }
-    cur_card = cards.After(cur_card);
   }
   return cards.Remove(redundant_cards);
 }
@@ -395,13 +405,13 @@ void Node::GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEAT
     relative_ranks[seat] = ACE;
     Cards hand = hands[seat];
     all_cards.Add(hand);
-    for (int card = hand.Begin(); card != hand.End(); card = hand.After(card))
+    for (int card : hand)
       card_holder[card] = seat;
   }
 
   for (int suit = 0; suit < NUM_SUITS; ++suit) {
     Cards suit_cards = all_cards.Suit(suit);
-    for (int card = suit_cards.Begin(); card != suit_cards.End(); card = suit_cards.After(card)) {
+    for (int card : suit_cards) {
       pattern_hands[card_holder[card]].Add(CardOf(suit, relative_ranks[suit]));
       --relative_ranks[suit];
     }
@@ -409,11 +419,11 @@ void Node::GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEAT
 }
 
 int Node::CollectLastTrick(int seat_to_play) {
-  current_trick->cards[seat_to_play] = hands[seat_to_play].Begin();
+  current_trick->cards[seat_to_play] = *hands[seat_to_play].begin();
   current_trick->winning_seat = seat_to_play;
   for (int i = 1; i < NUM_SEATS; ++i) {
     seat_to_play = NextSeat(seat_to_play);
-    int card_to_play = hands[seat_to_play].Begin();
+    int card_to_play = *hands[seat_to_play].begin();
     current_trick->cards[seat_to_play] = card_to_play;
     if (WinOver(card_to_play, current_trick->WinningCard(), trump)) {
       current_trick->winning_seat = seat_to_play;
@@ -487,9 +497,7 @@ int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
   // TODO: reorder playable cards
   int max_ns_tricks = 0;
   int min_ns_tricks = TOTAL_TRICKS;
-  for (int card_to_play = playable_cards.Begin(); card_to_play != playable_cards.End();
-       card_to_play = playable_cards.After(card_to_play)) {
-
+  for (int card_to_play : playable_cards) {
     int next_seat_to_play = Play(seat_to_play, card_to_play, &state);
     int ns_tricks = MinMaxWithMemory(alpha, beta, next_seat_to_play, depth + 1);
     Unplay(seat_to_play, card_to_play, state);

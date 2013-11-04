@@ -1,3 +1,3 @@
 all: solver
 solver: solver.cc
-	g++ -Wall -O3 -o $@ $^
+	g++ -std=c++0x -Wall -O3 -o $@ $^
