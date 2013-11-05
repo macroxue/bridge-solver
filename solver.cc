@@ -40,13 +40,18 @@ uint64_t MaskOf(int suit) { return mask_of[suit]; }
 const char* NameOf(int card) { return name_of[card]; }
 
 struct CardInitializer {
-  CardInitializer() {
+  CardInitializer(bool rank_first) {
     static const char suit_names[] = "SHDC";
     static const char rank_names[] = "23456789TJQKA";
     memset(mask_of, 0, sizeof(mask_of));
     for (int card = 0; card < TOTAL_CARDS; ++card) {
-      suit_of[card] = card / SUIT_SIZE;
-      rank_of[card] = SUIT_SIZE - 1 - card % SUIT_SIZE;
+      if (rank_first) {
+        suit_of[card] = card & (NUM_SUITS - 1);
+        rank_of[card] = SUIT_SIZE - 1 - card / NUM_SUITS;
+      } else {
+        suit_of[card] = card / SUIT_SIZE;
+        rank_of[card] = SUIT_SIZE - 1 - card % SUIT_SIZE;
+      }
       card_of[SuitOf(card)][RankOf(card)] = card;
       mask_of[SuitOf(card)] |= uint64_t(1) << card;
       name_of[card][0] = suit_names[SuitOf(card)];
@@ -54,7 +59,7 @@ struct CardInitializer {
       name_of[card][2] = '\0';
     }
   }
-} card_initializer;
+};
 
 int NextSeat(int seat, int count = 1) { return (seat + count) % NUM_SEATS; }
 bool IsNS(int seat) { return seat % 2; }
@@ -72,10 +77,12 @@ struct Options {
   int  small_card;
   int  displaying_depth;
   bool discard_suit_bottom;
+  bool rank_first;
 
   Options()
     : alpha(0), beta(TOTAL_TRICKS), use_cache(false), use_test_driver(false),
-      small_card(TWO), displaying_depth(4), discard_suit_bottom(false) {}
+      small_card(TWO), displaying_depth(4), discard_suit_bottom(false),
+      rank_first(false) {}
 } options;
 
 template <class T> int BitSize(T v) { return sizeof(v) * 8; }
@@ -665,17 +672,20 @@ int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
 
 int main(int argc, char* argv[]) {
   int c;
-  while ((c = getopt(argc, argv, "a:b:cd:s:tD")) != -1) {
+  while ((c = getopt(argc, argv, "a:b:cd:rs:tD")) != -1) {
     switch (c) {
       case 'a': options.alpha = atoi(optarg); break;
       case 'b': options.beta = atoi(optarg); break;
       case 'c': options.use_cache = true; break;
       case 'd': options.displaying_depth = atoi(optarg); break;
+      case 'r': options.rank_first = true; break;
       case 's': options.small_card = CharToRank(optarg[0]); break;
       case 't': options.use_test_driver = true; break;
       case 'D': options.discard_suit_bottom = true; break;
     }
   }
+
+  CardInitializer card_initializer(options.rank_first);
 
   // read hands
   char line[NUM_SEATS][80];
