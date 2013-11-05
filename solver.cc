@@ -30,27 +30,29 @@ char SeatLetter(int seat) { return SeatName(seat)[0]; }
 char suit_of[TOTAL_CARDS];
 char rank_of[TOTAL_CARDS];
 char card_of[NUM_SUITS][16];
+uint64_t mask_of[NUM_SUITS];
 char name_of[TOTAL_CARDS][4];
 
 int SuitOf(int card) { return suit_of[card]; }
 int RankOf(int card) { return rank_of[card]; }
 int CardOf(int suit, int rank) { return card_of[suit][rank]; }
+uint64_t MaskOf(int suit) { return mask_of[suit]; }
 const char* NameOf(int card) { return name_of[card]; }
 
 struct CardInitializer {
   CardInitializer() {
     static const char suit_names[] = "SHDC";
     static const char rank_names[] = "23456789TJQKA";
+    memset(mask_of, 0, sizeof(mask_of));
     for (int card = 0; card < TOTAL_CARDS; ++card) {
       suit_of[card] = card / SUIT_SIZE;
       rank_of[card] = SUIT_SIZE - 1 - card % SUIT_SIZE;
+      card_of[SuitOf(card)][RankOf(card)] = card;
+      mask_of[SuitOf(card)] |= uint64_t(1) << card;
       name_of[card][0] = suit_names[SuitOf(card)];
       name_of[card][1] = rank_names[RankOf(card)];
       name_of[card][2] = '\0';
     }
-    for (int suit = 0; suit < NUM_SUITS; ++suit)
-      for (int rank = 0; rank < NUM_RANKS; ++rank)
-        card_of[suit][rank] = suit * SUIT_SIZE + SUIT_SIZE - 1 - rank;
   }
 } card_initializer;
 
@@ -92,7 +94,7 @@ class Cards {
     bool operator ==(const Cards& c) const { return bits == c.bits; }
 
     Cards Slice(int begin, int end) const { return bits & (Bit(end) - Bit(begin)); }
-    Cards Suit(int suit) const { return Slice(suit * SUIT_SIZE, (suit + 1) * SUIT_SIZE); }
+    Cards Suit(int suit) const { return bits & MaskOf(suit); }
     Cards Bottom() const { return  Cards().Add(BitSize(bits) - 1 - __builtin_clzll(bits)); }
 
     Cards Add(int card) { bits |= Bit(card); return bits; }
@@ -306,7 +308,7 @@ class Node {
   private:
     void ShowTricks(int alpha, int beta, int seat_to_play, int depth, int ns_tricks) const;
     int CollectLastTrick(int seat_to_play);
-    Cards CombineEquivalentCards(Cards cards) const;
+    Cards CombineEquivalentCards(Cards cards, Cards all_cards) const;
     Cards GetPlayableCards(int seat_to_play) const;
     void GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEATS]);
 
@@ -348,7 +350,7 @@ void Node::ShowTricks(int alpha, int beta, int seat_to_play, int depth, int ns_t
   printf(" -> %d (%d %d)\n", ns_tricks, alpha, beta);
 }
 
-Cards Node::CombineEquivalentCards(Cards cards) const {
+Cards Node::CombineEquivalentCards(Cards cards, Cards all_cards) const {
   if (cards.Size() <= 1)
     return cards;
 
@@ -370,9 +372,10 @@ Cards Node::CombineEquivalentCards(Cards cards) const {
 Cards Node::GetPlayableCards(int seat_to_play) const {
   const Cards& hand = hands[seat_to_play];
   if (!current_trick->OnLead(seat_to_play)) {
-    Cards suit_cards = hand.Suit(current_trick->LeadSuit());
+    int lead_suit = current_trick->LeadSuit();
+    Cards suit_cards = hand.Suit(lead_suit);
     if (!suit_cards.Empty())
-      return CombineEquivalentCards(suit_cards);
+      return CombineEquivalentCards(suit_cards, all_cards.Suit(lead_suit));
   }
   Cards playable_cards;
   for (int suit = 0; suit < NUM_SUITS; ++suit) {
@@ -380,7 +383,7 @@ Cards Node::GetPlayableCards(int seat_to_play) const {
     if (suit_cards.Empty()) continue;
     if (suit == trump || current_trick->OnLead(seat_to_play) ||
         !options.discard_suit_bottom) {
-      playable_cards.Add(CombineEquivalentCards(suit_cards));
+      playable_cards.Add(CombineEquivalentCards(suit_cards, all_cards.Suit(suit)));
     } else {
       // Discard only the bottom card in a suit. It's very rare that discarding
       // a higher ranked card in the same suit is necessary. One example,
