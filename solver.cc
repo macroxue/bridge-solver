@@ -104,6 +104,9 @@ class Cards {
     Cards Suit(int suit) const { return bits & MaskOf(suit); }
     int Bottom() const { return  BitSize(bits) - 1 - __builtin_clzll(bits); }
 
+    Cards Intersect(const Cards& c) const { return bits & c.bits; }
+    Cards Different(const Cards& c) const { return bits & ~c.bits; }
+
     Cards Add(int card) { bits |= Bit(card); return bits; }
     Cards Remove(int card) { bits &= ~Bit(card); return bits; }
 
@@ -318,6 +321,8 @@ class Node {
     State SaveState() const;
     int Play(int seat_to_play, int card_to_play, State *state);
     void Unplay(int seat_to_play, int card_to_play, const State& state);
+    bool CutOff(int alpha, int beta, int seat_to_play, int depth, int card_to_play,
+                State* state, int* bounded_ns_tricks);
 
     int    trump;
     int    ns_tricks_won;
@@ -325,6 +330,7 @@ class Node {
     Cards  all_cards;
     Trick  tricks[TOTAL_TRICKS];
     Trick* current_trick;
+    Cards  killer_cards[TOTAL_CARDS][NUM_SEATS];
 };
 
 Node::Node(Cards h[NUM_SEATS], int t, int seat_to_play)
@@ -481,6 +487,33 @@ void Node::Unplay(int seat_to_play, int card_to_play, const State& state) {
   current_trick->winning_seat = state.winning_seat;
 }
 
+inline
+bool Node::CutOff(int alpha, int beta, int seat_to_play, int depth, int card_to_play,
+                  State* state, int* bounded_ns_tricks) {
+  int next_seat_to_play = Play(seat_to_play, card_to_play, state);
+  int ns_tricks = MinMaxWithMemory(alpha, beta, next_seat_to_play, depth + 1);
+  Unplay(seat_to_play, card_to_play, *state);
+  if (depth < options.displaying_depth)
+    ShowTricks(alpha, beta, seat_to_play, depth, ns_tricks);
+
+  if (IsNS(seat_to_play)) {
+    *bounded_ns_tricks = std::max(*bounded_ns_tricks, ns_tricks);
+    if (*bounded_ns_tricks >= beta) {
+      killer_cards[depth][seat_to_play] = Cards().Add(card_to_play);
+      return true;  // beta cut-off
+    }
+    alpha = std::max(alpha, ns_tricks);
+  } else {
+    *bounded_ns_tricks = std::min(*bounded_ns_tricks, ns_tricks);
+    if (*bounded_ns_tricks <= alpha) {
+      //killer_cards[depth][seat_to_play] = Cards().Add(card_to_play);
+      return true;  // alpha cut-off
+    }
+    beta = std::min(beta, ns_tricks);
+  }
+  return false;  // no cut-off
+}
+
 int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
   if (all_cards.Size() == 4) {
     int ns_tricks = CollectLastTrick(seat_to_play);
@@ -492,28 +525,14 @@ int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
   State state = SaveState();
   Cards playable_cards = GetPlayableCards(seat_to_play);
   // TODO: reorder playable cards
-  int max_ns_tricks = 0;
-  int min_ns_tricks = TOTAL_TRICKS;
-  for (int card_to_play : playable_cards) {
-    int next_seat_to_play = Play(seat_to_play, card_to_play, &state);
-    int ns_tricks = MinMaxWithMemory(alpha, beta, next_seat_to_play, depth + 1);
-    Unplay(seat_to_play, card_to_play, state);
-    if (depth < options.displaying_depth)
-      ShowTricks(alpha, beta, seat_to_play, depth, ns_tricks);
-
-    if (IsNS(seat_to_play)) {
-      max_ns_tricks = std::max(max_ns_tricks, ns_tricks);
-      if (max_ns_tricks >= beta)
-        break;
-      alpha = std::max(alpha, ns_tricks);
-    } else {
-      min_ns_tricks = std::min(min_ns_tricks, ns_tricks);
-      if (min_ns_tricks <= alpha)
-        break;
-      beta = std::min(beta, ns_tricks);
-    }
-  }
-  return IsNS(seat_to_play) ? max_ns_tricks : min_ns_tricks;
+  int bounded_ns_tricks = IsNS(seat_to_play) ? 0 : TOTAL_TRICKS;
+  for (int card_to_play : playable_cards.Intersect(killer_cards[depth][seat_to_play]))
+    if (CutOff(alpha, beta, seat_to_play, depth, card_to_play, &state, &bounded_ns_tricks))
+      return bounded_ns_tricks;
+  for (int card_to_play : playable_cards.Different(killer_cards[depth][seat_to_play]))
+    if (CutOff(alpha, beta, seat_to_play, depth, card_to_play, &state, &bounded_ns_tricks))
+      return bounded_ns_tricks;
+  return bounded_ns_tricks;
 }
 
 int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
