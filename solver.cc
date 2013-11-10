@@ -102,7 +102,7 @@ class Cards {
 
     Cards Slice(int begin, int end) const { return bits & (Bit(end) - Bit(begin)); }
     Cards Suit(int suit) const { return bits & MaskOf(suit); }
-    Cards Bottom() const { return  Cards().Add(BitSize(bits) - 1 - __builtin_clzll(bits)); }
+    int Bottom() const { return  BitSize(bits) - 1 - __builtin_clzll(bits); }
 
     Cards Add(int card) { bits |= Bit(card); return bits; }
     Cards Remove(int card) { bits &= ~Bit(card); return bits; }
@@ -147,7 +147,7 @@ class Cache {
   public:
     Cache() : lookup_count(0), hit_count(0), update_count(0), collision_count(0) {
       for (int i = 0; i < size; ++i)
-        entries_[i].hands[0].key = 0;
+        entries_[i].hash = 0;
 
       srand(1);
       for (int i = 0; i < NUM_SEATS; ++i)
@@ -157,7 +157,7 @@ class Cache {
     ~Cache() {
       int loaded_count = 0;
       for (int i = 0; i < size; ++i)
-        loaded_count += (entries_[i].hands[0].key != 0);
+        loaded_count += (entries_[i].hash != 0);
 
       puts("\n--- Cache Statistics ---");
       printf("lookups: %8d   hits:     %8d (%5.2f%%)\n",
@@ -172,16 +172,16 @@ class Cache {
     bool Lookup(const Cards hands[NUM_SEATS], int lead_seat, Bound* bound) const {
       ++lookup_count;
 
-      Entry input;
-      ComputeKeys(hands, &input);
+      uint64_t hash = Hash(hands);
+      if (hash == 0) return false;
+      uint64_t index = hash >> (BitSize(hash) - bits);
 
-      uint64_t hash = Hash(input);
       for (int d = 0; d < probe_distance; ++d) {
-        const Entry& entry = entries_[(hash + d) & (size - 1)];
-        if (SameKeys(entry, input)) {
+        const Entry& entry = entries_[(index + d) & (size - 1)];
+        if (entry.hash == hash) {
           ++hit_count;
-          bound->lower = entry.hands[lead_seat].lower;
-          bound->upper = entry.hands[lead_seat].upper;
+          bound->lower = entry.bounds[lead_seat].lower;
+          bound->upper = entry.bounds[lead_seat].upper;
           return true;
         }
       }
@@ -191,76 +191,63 @@ class Cache {
     void Update(const Cards hands[NUM_SEATS], int lead_seat, const Bound& bound) {
       ++update_count;
 
-      Entry input;
-      ComputeKeys(hands, &input);
-      input.hands[lead_seat].lower = bound.lower;
-      input.hands[lead_seat].upper = bound.upper;
+      uint64_t hash = Hash(hands);
+      if (hash == 0) return;
+      uint64_t index = hash >> (BitSize(hash) - bits);
 
       // Linear probing benefits from hardware prefetch and thus is faster
       // than collision resolution with multiple hash functions.
-      uint64_t hash = Hash(input);
       for (int d = 0; d < probe_distance; ++d) {
-        Entry& entry = entries_[(hash + d) & (size - 1)];
-        bool same_keys = SameKeys(entry, input);
-        bool collided = entry.hands[0].key != 0 && !same_keys;
+        Entry& entry = entries_[(index + d) & (size - 1)];
+        bool collided = entry.hash != 0 && entry.hash != hash;
         if (!collided || d == probe_distance - 1) {
           collision_count += collided;
-          if (!same_keys) {
+          if (entry.hash != hash) {
+            entry.hash = hash;
             for (int i = 0; i < NUM_SEATS; ++i) {
-              entry.hands[i].key = input.hands[i].key;
-              entry.hands[i].lower = 0;
-              entry.hands[i].upper = TOTAL_TRICKS;
+              entry.bounds[i].lower = 0;
+              entry.bounds[i].upper = TOTAL_TRICKS;
             }
           }
-          entry.hands[lead_seat].lower = bound.lower;
-          entry.hands[lead_seat].upper = bound.upper;
+          entry.bounds[lead_seat].lower = bound.lower;
+          entry.bounds[lead_seat].upper = bound.upper;
           return;
         }
       }
     }
 
   private:
-    void ComputeKeys(const Cards hands[NUM_SEATS], Entry* entry) const {
+    uint64_t Hash(const Cards hands[NUM_SEATS]) const {
+      uint64_t sum = 0;
       for (int i = 0; i < NUM_SEATS; ++i)
-        entry->hands[i].key = hands[i].Value();
+        sum += hands[i].Value() * hash_rand[i];
+      return sum;
     }
 
-    bool SameKeys(const Entry& entry, const Entry& input) const {
-      for (int i = 0; i < NUM_SEATS; ++i)
-        if (entry.hands[i].key != input.hands[i].key)
-          return false;
-      return true;
-    }
-
-    __uint128_t GenerateHashRandom() {
+    uint64_t GenerateHashRandom() {
       static const int BITS_PER_RAND = 32;
-      __uint128_t r = 0;
+      uint64_t r = 0;
       for (int i = 0; i < BitSize(r) / BITS_PER_RAND; ++i)
         r = (r << BITS_PER_RAND) + rand();
       return r | 1;
     }
 
-    uint64_t Hash(const Entry& entry) const {
-      __uint128_t sum = 0;
-      for (int i = 0; i < NUM_SEATS; ++i)
-        sum += entry.hands[i].key * hash_rand[i];
-      return sum >> (BitSize(sum) - bits);
-    }
-
-    __uint128_t hash_rand[NUM_SEATS];
+    uint64_t hash_rand[NUM_SEATS];
 
     static const int probe_distance = 16;
     static const int bits = 22;
     static const int size = 1 << bits;
 
-    struct Hand {
-      uint64_t key : TOTAL_CARDS;
-      int64_t lower : 5;  // lowerbound when this hand is on lead
-      int64_t upper : 5;  // upperbound when this hand is on lead
-    };
 
     struct Entry {
-      Hand hands[NUM_SEATS];
+      // Save only the hash instead of full hands to save memory.
+      // The chance of getting a hash collision is practically zero.
+      uint64_t hash;
+      // Bounds depending on the lead seat.
+      struct {
+        int16_t lower : 5;
+        int16_t upper : 5;
+      } bounds[NUM_SEATS];
     } entries_[size];
 
     mutable int lookup_count;
@@ -419,12 +406,10 @@ void Node::GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEAT
       card_holder[card] = seat;
   }
 
-  for (int suit = 0; suit < NUM_SUITS; ++suit) {
-    Cards suit_cards = all_cards.Suit(suit);
-    for (int card : suit_cards) {
-      pattern_hands[card_holder[card]].Add(CardOf(suit, relative_ranks[suit]));
-      --relative_ranks[suit];
-    }
+  for (int card : all_cards) {
+    int suit = SuitOf(card);
+    pattern_hands[card_holder[card]].Add(CardOf(suit, relative_ranks[suit]));
+    --relative_ranks[suit];
   }
 }
 
