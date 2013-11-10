@@ -138,7 +138,7 @@ class Cards {
     uint64_t bits;
 };
 
-struct Bound {
+struct Bounds {
   int lower;
   int upper;
 };
@@ -169,7 +169,7 @@ class Cache {
     }
 
     struct Entry;
-    bool Lookup(const Cards hands[NUM_SEATS], int lead_seat, Bound* bound) const {
+    bool Lookup(const Cards hands[NUM_SEATS], int lead_seat, Bounds* bounds) const {
       ++lookup_count;
 
       uint64_t hash = Hash(hands);
@@ -180,15 +180,15 @@ class Cache {
         const Entry& entry = entries_[(index + d) & (size - 1)];
         if (entry.hash == hash) {
           ++hit_count;
-          bound->lower = entry.bounds[lead_seat].lower;
-          bound->upper = entry.bounds[lead_seat].upper;
+          bounds->lower = entry.bounds[lead_seat].lower;
+          bounds->upper = entry.bounds[lead_seat].upper;
           return true;
         }
       }
       return false;
     }
 
-    void Update(const Cards hands[NUM_SEATS], int lead_seat, const Bound& bound) {
+    void Update(const Cards hands[NUM_SEATS], int lead_seat, const Bounds& bounds) {
       ++update_count;
 
       uint64_t hash = Hash(hands);
@@ -209,8 +209,8 @@ class Cache {
               entry.bounds[i].upper = TOTAL_TRICKS;
             }
           }
-          entry.bounds[lead_seat].lower = bound.lower;
-          entry.bounds[lead_seat].upper = bound.upper;
+          entry.bounds[lead_seat].lower = bounds.lower;
+          entry.bounds[lead_seat].upper = bounds.upper;
           return;
         }
       }
@@ -522,37 +522,37 @@ int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
   Cards pattern_hands[4];
   GetPattern(hands, pattern_hands);
 
-  Bound bound;
-  bound.lower = 0;
-  bound.upper = TOTAL_TRICKS;
+  Bounds bounds;
+  bounds.lower = 0;
+  bounds.upper = TOTAL_TRICKS;
 
-  if (cache.Lookup(pattern_hands, seat_to_play, &bound)) {
-    bound.lower += ns_tricks_won;
-    bound.upper += ns_tricks_won;
-    if (bound.lower >= beta) {
+  if (cache.Lookup(pattern_hands, seat_to_play, &bounds)) {
+    bounds.lower += ns_tricks_won;
+    bounds.upper += ns_tricks_won;
+    if (bounds.lower >= beta) {
       if (depth <= options.displaying_depth)
-        printf("%2d: %c beta cut %d\n", depth, SeatLetter(seat_to_play), bound.lower);
-      return bound.lower;
+        printf("%2d: %c beta cut %d\n", depth, SeatLetter(seat_to_play), bounds.lower);
+      return bounds.lower;
     }
-    if (bound.upper <= alpha) {
+    if (bounds.upper <= alpha) {
       if (depth <= options.displaying_depth)
-        printf("%2d: %c alpha cut %d\n", depth, SeatLetter(seat_to_play), bound.upper);
-      return bound.upper;
+        printf("%2d: %c alpha cut %d\n", depth, SeatLetter(seat_to_play), bounds.upper);
+      return bounds.upper;
     }
-    alpha = std::max(alpha, bound.lower);
-    beta = std::min(beta, bound.upper);
+    alpha = std::max(alpha, bounds.lower);
+    beta = std::min(beta, bounds.upper);
   }
 
   int ns_tricks = MinMax(alpha, beta, seat_to_play, depth);
   if (ns_tricks <= alpha)
-    bound.upper = ns_tricks;
+    bounds.upper = ns_tricks;
   else if (ns_tricks < beta)
-    bound.upper = bound.lower = ns_tricks;
+    bounds.upper = bounds.lower = ns_tricks;
   else
-    bound.lower = ns_tricks;
-  bound.lower -= ns_tricks_won;
-  bound.upper -= ns_tricks_won;
-  cache.Update(pattern_hands, seat_to_play, bound);
+    bounds.lower = ns_tricks;
+  bounds.lower -= ns_tricks_won;
+  bounds.upper -= ns_tricks_won;
+  cache.Update(pattern_hands, seat_to_play, bounds);
   return ns_tricks;
 }
 
