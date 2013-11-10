@@ -238,17 +238,19 @@ class Cache {
     static const int bits = 22;
     static const int size = 1 << bits;
 
-
+    // Align to 4-byte boundary so not to waste memory.
+#pragma pack(push, 4)
     struct Entry {
       // Save only the hash instead of full hands to save memory.
       // The chance of getting a hash collision is practically zero.
       uint64_t hash;
       // Bounds depending on the lead seat.
       struct {
-        int16_t lower : 5;
-        int16_t upper : 5;
+        uint8_t lower : 4;
+        uint8_t upper : 4;
       } bounds[NUM_SEATS];
     } entries_[size];
+#pragma pack(pop)
 
     mutable int lookup_count;
     mutable int hit_count;
@@ -529,6 +531,7 @@ int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
   if (cache.Lookup(pattern_hands, seat_to_play, &bounds)) {
     bounds.lower += ns_tricks_won;
     bounds.upper += ns_tricks_won;
+    if (bounds.upper > TOTAL_TRICKS) bounds.upper = TOTAL_TRICKS;
     if (bounds.lower >= beta) {
       if (depth <= options.displaying_depth)
         printf("%2d: %c beta cut %d\n", depth, SeatLetter(seat_to_play), bounds.lower);
@@ -552,6 +555,7 @@ int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
     bounds.lower = ns_tricks;
   bounds.lower -= ns_tricks_won;
   bounds.upper -= ns_tricks_won;
+  if (bounds.lower < 0) bounds.lower = 0;
   cache.Update(pattern_hands, seat_to_play, bounds);
   return ns_tricks;
 }
