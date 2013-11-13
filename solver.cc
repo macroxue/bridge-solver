@@ -502,14 +502,12 @@ bool Node::CutOff(int alpha, int beta, int seat_to_play, int depth, int card_to_
       killer_cards[depth][seat_to_play] = Cards().Add(card_to_play);
       return true;  // beta cut-off
     }
-    alpha = std::max(alpha, ns_tricks);
   } else {
     *bounded_ns_tricks = std::min(*bounded_ns_tricks, ns_tricks);
     if (*bounded_ns_tricks <= alpha) {
       //killer_cards[depth][seat_to_play] = Cards().Add(card_to_play);
       return true;  // alpha cut-off
     }
-    beta = std::min(beta, ns_tricks);
   }
   return false;  // no cut-off
 }
