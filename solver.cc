@@ -17,9 +17,8 @@ enum { TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT, NINE, TEN,
        JACK, QUEEN, KING, ACE, NUM_RANKS };
 enum { WEST, NORTH, EAST, SOUTH, NUM_SEATS };
 
-const int SUIT_SIZE = 13;
-const int TOTAL_TRICKS = 13;
-const int TOTAL_CARDS = 52;
+const int TOTAL_TRICKS = NUM_RANKS;
+const int TOTAL_CARDS = NUM_RANKS * NUM_SUITS;
 
 const char* SeatName(int seat) {
   static const char *seat_names[NUM_SEATS] = { "West", "North", "East", "South" };
@@ -47,10 +46,10 @@ struct CardInitializer {
     for (int card = 0; card < TOTAL_CARDS; ++card) {
       if (rank_first) {
         suit_of[card] = card & (NUM_SUITS - 1);
-        rank_of[card] = SUIT_SIZE - 1 - card / NUM_SUITS;
+        rank_of[card] = NUM_RANKS - 1 - card / NUM_SUITS;
       } else {
-        suit_of[card] = card / SUIT_SIZE;
-        rank_of[card] = SUIT_SIZE - 1 - card % SUIT_SIZE;
+        suit_of[card] = card / NUM_RANKS;
+        rank_of[card] = NUM_RANKS - 1 - card % NUM_RANKS;
       }
       card_of[SuitOf(card)][RankOf(card)] = card;
       mask_of[SuitOf(card)] |= uint64_t(1) << card;
