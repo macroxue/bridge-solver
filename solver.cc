@@ -65,8 +65,7 @@ int NextSeat(int seat, int count = 1) { return (seat + count) % NUM_SEATS; }
 bool IsNS(int seat) { return seat % 2; }
 
 bool WinOver(int c1, int c2, int trump) {
-  return (SuitOf(c1) == SuitOf(c2) && RankOf(c1) > RankOf(c2)) ||
-         (SuitOf(c1) != SuitOf(c2) && SuitOf(c1) == trump);
+  return SuitOf(c1) == SuitOf(c2) ? RankOf(c1) > RankOf(c2) : SuitOf(c1) == trump;
 }
 
 struct Options {
