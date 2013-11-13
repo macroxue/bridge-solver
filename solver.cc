@@ -296,11 +296,11 @@ struct Trick {
   }
 };
 
-class Node {
+class MinMax {
   public:
-    Node(Cards h[NUM_SEATS], int t, int seat_to_play);
-    int MinMax(int alpha, int beta, int seat_to_play, int depth);
-    int MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth);
+    MinMax(Cards h[NUM_SEATS], int t, int seat_to_play);
+    int Search(int alpha, int beta, int seat_to_play, int depth);
+    int SearchWithCache(int alpha, int beta, int seat_to_play, int depth);
 
   private:
     void ShowTricks(int alpha, int beta, int seat_to_play, int depth, int ns_tricks) const;
@@ -331,7 +331,7 @@ class Node {
     Cards  killer_cards[TOTAL_CARDS][NUM_SEATS];
 };
 
-Node::Node(Cards h[NUM_SEATS], int t, int seat_to_play)
+MinMax::MinMax(Cards h[NUM_SEATS], int t, int seat_to_play)
   : trump(t), ns_tricks_won(0), current_trick(tricks) {
   for (int seat = 0; seat < NUM_SEATS; ++seat) {
     hands[seat] = h[seat];
@@ -340,7 +340,7 @@ Node::Node(Cards h[NUM_SEATS], int t, int seat_to_play)
   current_trick->lead_seat = seat_to_play;
 }
 
-void Node::ShowTricks(int alpha, int beta, int seat_to_play, int depth, int ns_tricks) const {
+void MinMax::ShowTricks(int alpha, int beta, int seat_to_play, int depth, int ns_tricks) const {
   ++depth;
   printf("%2d:", depth);
   for (const Trick* trick = tricks; trick <= current_trick; ++trick) {
@@ -350,7 +350,7 @@ void Node::ShowTricks(int alpha, int beta, int seat_to_play, int depth, int ns_t
   printf(" -> %d (%d %d)\n", ns_tricks, alpha, beta);
 }
 
-Cards Node::CombineEquivalentCards(Cards cards, Cards all_cards) const {
+Cards MinMax::CombineEquivalentCards(Cards cards, Cards all_cards) const {
   if (cards.Size() <= 1)
     return cards;
 
@@ -369,7 +369,7 @@ Cards Node::CombineEquivalentCards(Cards cards, Cards all_cards) const {
   return cards.Remove(redundant_cards);
 }
 
-Cards Node::GetPlayableCards(int seat_to_play) const {
+Cards MinMax::GetPlayableCards(int seat_to_play) const {
   const Cards& hand = hands[seat_to_play];
   if (!current_trick->OnLead(seat_to_play)) {
     int lead_suit = current_trick->LeadSuit();
@@ -397,7 +397,7 @@ Cards Node::GetPlayableCards(int seat_to_play) const {
   return playable_cards;
 }
 
-void Node::GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEATS]) {
+void MinMax::GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEATS]) {
   // Create the pattern using relative ranks. For example, when all the cards
   // remaining in a suit are J, 8, 7 and 2, they are treated as A, K, Q and J
   // respectively.
@@ -419,7 +419,7 @@ void Node::GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEAT
   }
 }
 
-int Node::CollectLastTrick(int seat_to_play) {
+int MinMax::CollectLastTrick(int seat_to_play) {
   current_trick->cards[seat_to_play] = *hands[seat_to_play].begin();
   current_trick->winning_seat = seat_to_play;
   for (int i = 1; i < NUM_SEATS; ++i) {
@@ -433,7 +433,7 @@ int Node::CollectLastTrick(int seat_to_play) {
   return ns_tricks_won += IsNS(current_trick->winning_seat);
 }
 
-Node::State Node::SaveState() const {
+MinMax::State MinMax::SaveState() const {
   State state;
   state.ns_tricks_won = ns_tricks_won;
   state.winning_seat = current_trick->winning_seat;
@@ -441,7 +441,7 @@ Node::State Node::SaveState() const {
   return state;
 }
 
-int Node::Play(int seat_to_play, int card_to_play, int depth) {
+int MinMax::Play(int seat_to_play, int card_to_play, int depth) {
   current_trick->cards[seat_to_play] = card_to_play;
 
   // who's winning?
@@ -469,7 +469,7 @@ int Node::Play(int seat_to_play, int card_to_play, int depth) {
   return next_seat_to_play;
 }
 
-void Node::Unplay(int seat_to_play, int card_to_play, int depth, const State& state) {
+void MinMax::Unplay(int seat_to_play, int card_to_play, int depth, const State& state) {
   // add played card back to hand
   hands[seat_to_play].Add(card_to_play);
 
@@ -485,10 +485,10 @@ void Node::Unplay(int seat_to_play, int card_to_play, int depth, const State& st
 }
 
 inline
-bool Node::CutOff(int alpha, int beta, int seat_to_play, int depth, int card_to_play,
+bool MinMax::CutOff(int alpha, int beta, int seat_to_play, int depth, int card_to_play,
                   State* state, int* bounded_ns_tricks) {
   int next_seat_to_play = Play(seat_to_play, card_to_play, depth);
-  int ns_tricks = MinMaxWithMemory(alpha, beta, next_seat_to_play, depth + 1);
+  int ns_tricks = SearchWithCache(alpha, beta, next_seat_to_play, depth + 1);
   Unplay(seat_to_play, card_to_play, depth, *state);
   if (depth < options.displaying_depth)
     ShowTricks(alpha, beta, seat_to_play, depth, ns_tricks);
@@ -509,7 +509,7 @@ bool Node::CutOff(int alpha, int beta, int seat_to_play, int depth, int card_to_
   return false;  // no cut-off
 }
 
-int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
+int MinMax::Search(int alpha, int beta, int seat_to_play, int depth) {
   if (all_cards.Size() == 4) {
     int ns_tricks = CollectLastTrick(seat_to_play);
     if (depth < options.displaying_depth)
@@ -530,10 +530,10 @@ int Node::MinMax(int alpha, int beta, int seat_to_play, int depth) {
   return bounded_ns_tricks;
 }
 
-int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
+int MinMax::SearchWithCache(int alpha, int beta, int seat_to_play, int depth) {
   if (!options.use_cache || (!current_trick->OnLead(seat_to_play) && depth >= 4) ||
       all_cards.Size() == 4)
-    return MinMax(alpha, beta, seat_to_play, depth);
+    return Search(alpha, beta, seat_to_play, depth);
 
   Cards pattern_hands[4];
   GetPattern(hands, pattern_hands);
@@ -560,7 +560,7 @@ int Node::MinMaxWithMemory(int alpha, int beta, int seat_to_play, int depth) {
     beta = std::min(beta, bounds.upper);
   }
 
-  int ns_tricks = MinMax(alpha, beta, seat_to_play, depth);
+  int ns_tricks = Search(alpha, beta, seat_to_play, depth);
   if (ns_tricks <= alpha)
     bounds.upper = ns_tricks;
   else if (ns_tricks < beta)
@@ -659,9 +659,9 @@ int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
   int lowerbound = 0;
   int ns_tricks = num_tricks;
   while (lowerbound < upperbound) {
-    Node node(hands, trump, seat_to_play);
+    MinMax min_max(hands, trump, seat_to_play);
     int beta = (ns_tricks == lowerbound ? ns_tricks + 1 : ns_tricks);
-    ns_tricks = node.MinMaxWithMemory(beta - 1, beta, seat_to_play, 0);
+    ns_tricks = min_max.SearchWithCache(beta - 1, beta, seat_to_play, 0);
     if (ns_tricks < beta)
       upperbound = ns_tricks;
     else
@@ -725,8 +725,8 @@ int main(int argc, char* argv[]) {
   if (options.use_test_driver) {
     ns_tricks = MemoryEnhancedTestDriver(hands, trump, seat_to_play, beta);
   } else {
-    Node node(hands, trump, seat_to_play);
-    ns_tricks = node.MinMaxWithMemory(alpha, beta, seat_to_play, 0);
+    MinMax min_max(hands, trump, seat_to_play);
+    ns_tricks = min_max.SearchWithCache(alpha, beta, seat_to_play, 0);
   }
   printf("NS tricks: %d\tEW tricks: %d\n", ns_tricks, num_tricks - ns_tricks);
   struct timeval finish;
