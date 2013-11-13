@@ -315,12 +315,12 @@ class Node {
       int ns_tricks_won;
       int winning_seat;
       Cards all_cards;
-      bool trick_completed;
     };
 
     State SaveState() const;
-    int Play(int seat_to_play, int card_to_play, State *state);
-    void Unplay(int seat_to_play, int card_to_play, const State& state);
+    bool TrickCompletedAt(int depth) const { return depth % 4 == 3; }
+    int Play(int seat_to_play, int card_to_play, int depth);
+    void Unplay(int seat_to_play, int card_to_play, int depth, const State& state);
     bool CutOff(int alpha, int beta, int seat_to_play, int depth, int card_to_play,
                 State* state, int* bounded_ns_tricks);
 
@@ -443,7 +443,7 @@ Node::State Node::SaveState() const {
   return state;
 }
 
-int Node::Play(int seat_to_play, int card_to_play, State *state) {
+int Node::Play(int seat_to_play, int card_to_play, int depth) {
   current_trick->cards[seat_to_play] = card_to_play;
 
   // who's winning?
@@ -454,8 +454,7 @@ int Node::Play(int seat_to_play, int card_to_play, State *state) {
 
   // who won?
   int next_seat_to_play;
-  state->trick_completed = current_trick->CompleteAfter(seat_to_play);
-  if (state->trick_completed) {
+  if (TrickCompletedAt(depth)) {
     (current_trick + 1)->lead_seat = current_trick->winning_seat;
     ns_tricks_won += IsNS(current_trick->winning_seat);
     // remove cards from global suits
@@ -472,11 +471,11 @@ int Node::Play(int seat_to_play, int card_to_play, State *state) {
   return next_seat_to_play;
 }
 
-void Node::Unplay(int seat_to_play, int card_to_play, const State& state) {
+void Node::Unplay(int seat_to_play, int card_to_play, int depth, const State& state) {
   // add played card back to hand
   hands[seat_to_play].Add(card_to_play);
 
-  if (state.trick_completed) {
+  if (TrickCompletedAt(depth)) {
     --current_trick;
     // add cards back to global suits
     all_cards = state.all_cards;
@@ -490,9 +489,9 @@ void Node::Unplay(int seat_to_play, int card_to_play, const State& state) {
 inline
 bool Node::CutOff(int alpha, int beta, int seat_to_play, int depth, int card_to_play,
                   State* state, int* bounded_ns_tricks) {
-  int next_seat_to_play = Play(seat_to_play, card_to_play, state);
+  int next_seat_to_play = Play(seat_to_play, card_to_play, depth);
   int ns_tricks = MinMaxWithMemory(alpha, beta, next_seat_to_play, depth + 1);
-  Unplay(seat_to_play, card_to_play, *state);
+  Unplay(seat_to_play, card_to_play, depth, *state);
   if (depth < options.displaying_depth)
     ShowTricks(alpha, beta, seat_to_play, depth, ns_tricks);
 
