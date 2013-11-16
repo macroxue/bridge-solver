@@ -545,6 +545,15 @@ int MinMax::Search(int alpha, int beta, int seat_to_play, int depth) {
 }
 
 int MinMax::SearchWithCache(int alpha, int beta, int seat_to_play, int depth) {
+  if (current_trick->OnLead(seat_to_play)) {
+    // Shortcut if winning all remaining tricks doesn't help.
+    if (ns_tricks_won + hands[0].Size() <= alpha)
+      return ns_tricks_won + hands[0].Size();
+    // Shortcut if losing all remaining tricks doesn't matter.
+    if (ns_tricks_won >= beta)
+      return ns_tricks_won;
+  }
+
   if (!options.use_cache || (!current_trick->OnLead(seat_to_play) && depth >= 4) ||
       all_cards.Size() == 4)
     return Search(alpha, beta, seat_to_play, depth);
