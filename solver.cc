@@ -9,6 +9,11 @@
 #include <algorithm>
 
 #define CHECK(statement)  if (!(statement)) printf("CHECK("#statement") failed")
+#ifdef _DEBUG
+#define DEBUG(statement)  statement
+#else
+#define DEBUG(statement)
+#endif
 
 namespace {
 
@@ -114,7 +119,6 @@ class Cards {
     void Show() const {
       for (int card : *this)
         printf("%s ", NameOf(card));
-      printf("\n");
     }
 
     class Iterator {
@@ -212,12 +216,22 @@ class Cache {
           }
           entry.bounds[lead_seat].lower = bounds.lower;
           entry.bounds[lead_seat].upper = bounds.upper;
+          DEBUG(ShowUpdate(hands, lead_seat, bounds, hash));
           return;
         }
       }
     }
 
   private:
+    void ShowUpdate(const Cards hands[NUM_SEATS], int lead_seat, const Bounds& bounds,
+                    uint64_t hash) {
+      for (int seat = 0; seat < NUM_SEATS; ++seat) {
+        hands[seat].Show();
+        printf(", ");
+      }
+      printf("%c (%d %d) %lx\n", SeatLetter(lead_seat), bounds.lower, bounds.upper, hash);
+    }
+
     uint64_t Hash(const Cards hands[NUM_SEATS]) const {
       uint64_t sum = 0;
       for (int i = 0; i < NUM_SEATS; ++i)
