@@ -105,8 +105,10 @@ class Cards {
 
     Cards Slice(int begin, int end) const { return bits & (Bit(end) - Bit(begin)); }
     Cards Suit(int suit) const { return bits & MaskOf(suit); }
+    int Top() const { return __builtin_ctzll(bits); }
     int Bottom() const { return  BitSize(bits) - 1 - __builtin_clzll(bits); }
 
+    Cards Union(const Cards& c) const { return bits | c.bits; }
     Cards Intersect(const Cards& c) const { return bits & c.bits; }
     Cards Different(const Cards& c) const { return bits & ~c.bits; }
 
@@ -322,6 +324,7 @@ class MinMax {
     Cards CombineEquivalentCards(Cards cards, Cards all_cards) const;
     Cards GetPlayableCards(int seat_to_play) const;
     void GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEATS]);
+    int FastTricks(int seat_to_play) const;
 
     struct State {
       int ns_tricks_won;
@@ -544,14 +547,30 @@ int MinMax::Search(int alpha, int beta, int seat_to_play, int depth) {
   return bounded_ns_tricks;
 }
 
+int MinMax::FastTricks(int seat_to_play) const {
+  Cards both_hands = hands[seat_to_play].Union(hands[NextSeat(seat_to_play, 2)]);
+  int fast_tricks = 0;
+  if (trump == NOTRUMP || all_cards.Suit(trump) == both_hands.Suit(trump)) {
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      Cards my_suit_cards = hands[seat_to_play].Suit(suit);
+      for (int card : all_cards.Suit(suit))
+        if (my_suit_cards.Have(card))
+          ++fast_tricks;
+        else
+          break;
+    }
+  }
+  return fast_tricks;
+}
+
 int MinMax::SearchWithCache(int alpha, int beta, int seat_to_play, int depth) {
   if (current_trick->OnLead(seat_to_play)) {
-    // Shortcut if winning all remaining tricks doesn't help.
-    if (ns_tricks_won + hands[0].Size() <= alpha)
-      return ns_tricks_won + hands[0].Size();
-    // Shortcut if losing all remaining tricks doesn't matter.
-    if (ns_tricks_won >= beta)
-      return ns_tricks_won;
+    int fast_tricks = FastTricks(seat_to_play);
+    if (IsNS(seat_to_play) && ns_tricks_won + fast_tricks >= beta)
+      return ns_tricks_won + fast_tricks;
+    int remaining_tricks = hands[0].Size();
+    if (!IsNS(seat_to_play) && ns_tricks_won + (remaining_tricks - fast_tricks) <= alpha)
+      return ns_tricks_won + (remaining_tricks - fast_tricks);
   }
 
   if (!options.use_cache || (!current_trick->OnLead(seat_to_play) && depth >= 4) ||
