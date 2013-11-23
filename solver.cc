@@ -281,11 +281,28 @@ struct Trick {
   int lead_seat;
   int winning_seat;
   int cards[NUM_SEATS];
+  char equivalence[TOTAL_CARDS];
 
   int LeadSuit() const { return SuitOf(cards[lead_seat]); }
   int WinningCard() const { return cards[winning_seat]; }
   bool OnLead(int seat_to_play) const { return seat_to_play == lead_seat; }
   bool CompleteAfter(int seat) const { return NextSeat(seat) == lead_seat; }
+
+  void IdentifyEquivalentCards(Cards cards, Cards all_cards) {
+    // Two cards in one suit are equivalent when their relative ranks are next to
+    // each other.
+    int prev_card = *cards.begin();
+    equivalence[prev_card] = prev_card;
+    for (int cur_card : cards.Slice(prev_card + 1, TOTAL_CARDS)) {
+      if (cards.Slice(prev_card, cur_card + 1) == all_cards.Slice(prev_card, cur_card + 1) ||
+          std::max(RankOf(prev_card), RankOf(cur_card)) <= options.small_card) {
+        // This one is equivalent to the previous one.
+      } else {
+        prev_card = cur_card;
+      }
+      equivalence[cur_card] = prev_card;
+    }
+  }
 
   void Show() const {
     printf(" %c %s %s %s %s",
@@ -321,8 +338,6 @@ class MinMax {
   private:
     void ShowTricks(int alpha, int beta, int seat_to_play, int depth, int ns_tricks) const;
     int CollectLastTrick(int seat_to_play);
-    void IdentifyEquivalentCards(Cards cards, Cards all_cards,
-                                 char equivalence[TOTAL_CARDS]) const;
     Cards GetPlayableCards(int seat_to_play, const char equivalence[TOTAL_CARDS]) const;
     void GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEATS]);
     int FastTricks(int seat_to_play) const;
@@ -347,7 +362,6 @@ class MinMax {
     Trick  tricks[TOTAL_TRICKS];
     Trick* current_trick;
     Cards  killer_cards[TOTAL_CARDS][NUM_SEATS];
-    char   equivalence[TOTAL_TRICKS][TOTAL_CARDS];
 };
 
 MinMax::MinMax(Cards h[NUM_SEATS], int t, int seat_to_play)
@@ -367,23 +381,6 @@ void MinMax::ShowTricks(int alpha, int beta, int seat_to_play, int depth, int ns
     depth -= 4;
   }
   printf(" -> %d (%d %d)\n", ns_tricks, alpha, beta);
-}
-
-void MinMax::IdentifyEquivalentCards(Cards cards, Cards all_cards,
-                                     char equivalence[TOTAL_CARDS]) const {
-  // Two cards in one suit are equivalent when their relative ranks are next to
-  // each other.
-  int prev_card = *cards.begin();
-  equivalence[prev_card] = prev_card;
-  for (int cur_card : cards.Slice(prev_card + 1, TOTAL_CARDS)) {
-    if (cards.Slice(prev_card, cur_card + 1) == all_cards.Slice(prev_card, cur_card + 1) ||
-        std::max(RankOf(prev_card), RankOf(cur_card)) <= options.small_card) {
-      // This one is equivalent to the previous one.
-    } else {
-      prev_card = cur_card;
-    }
-    equivalence[cur_card] = prev_card;
-  }
 }
 
 Cards MinMax::GetPlayableCards(int seat_to_play, const char equivalence[TOTAL_CARDS]) const {
@@ -534,24 +531,23 @@ int MinMax::Search(int alpha, int beta, int seat_to_play, int depth) {
     return ns_tricks;
   }
 
-  int trick_index = current_trick - tricks;
   if (current_trick->OnLead(seat_to_play))
     for (int seat = 0; seat < NUM_SEATS; ++seat)
       for (int suit = 0; suit < NUM_SUITS; ++suit)
-        IdentifyEquivalentCards(hands[seat].Suit(suit), all_cards.Suit(suit),
-                                equivalence[trick_index]);
+        current_trick->IdentifyEquivalentCards(hands[seat].Suit(suit),
+                                               all_cards.Suit(suit));
 
   State state = SaveState();
-  Cards playable_cards = GetPlayableCards(seat_to_play, equivalence[trick_index]);
+  Cards playable_cards = GetPlayableCards(seat_to_play, current_trick->equivalence);
   // TODO: reorder playable cards
   int bounded_ns_tricks = IsNS(seat_to_play) ? 0 : TOTAL_TRICKS;
   for (int card_to_play : playable_cards.Intersect(killer_cards[depth][seat_to_play])) {
-    if (equivalence[trick_index][card_to_play] != card_to_play) continue;
+    if (current_trick->equivalence[card_to_play] != card_to_play) continue;
     if (CutOff(alpha, beta, seat_to_play, depth, card_to_play, &state, &bounded_ns_tricks))
       return bounded_ns_tricks;
   }
   for (int card_to_play : playable_cards.Different(killer_cards[depth][seat_to_play])) {
-    if (equivalence[trick_index][card_to_play] != card_to_play) continue;
+    if (current_trick->equivalence[card_to_play] != card_to_play) continue;
     if (CutOff(alpha, beta, seat_to_play, depth, card_to_play, &state, &bounded_ns_tricks))
       return bounded_ns_tricks;
   }
