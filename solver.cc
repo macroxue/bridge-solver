@@ -321,8 +321,9 @@ class MinMax {
   private:
     void ShowTricks(int alpha, int beta, int seat_to_play, int depth, int ns_tricks) const;
     int CollectLastTrick(int seat_to_play);
-    Cards CombineEquivalentCards(Cards cards, Cards all_cards) const;
-    Cards GetPlayableCards(int seat_to_play) const;
+    void IdentifyEquivalentCards(Cards cards, Cards all_cards,
+                                 char equivalence[TOTAL_CARDS]) const;
+    Cards GetPlayableCards(int seat_to_play, const char equivalence[TOTAL_CARDS]) const;
     void GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEATS]);
     int FastTricks(int seat_to_play) const;
 
@@ -346,6 +347,7 @@ class MinMax {
     Trick  tricks[TOTAL_TRICKS];
     Trick* current_trick;
     Cards  killer_cards[TOTAL_CARDS][NUM_SEATS];
+    char   equivalence[TOTAL_TRICKS][TOTAL_CARDS];
 };
 
 MinMax::MinMax(Cards h[NUM_SEATS], int t, int seat_to_play)
@@ -367,32 +369,30 @@ void MinMax::ShowTricks(int alpha, int beta, int seat_to_play, int depth, int ns
   printf(" -> %d (%d %d)\n", ns_tricks, alpha, beta);
 }
 
-Cards MinMax::CombineEquivalentCards(Cards cards, Cards all_cards) const {
-  if (cards.Size() <= 1)
-    return cards;
-
+void MinMax::IdentifyEquivalentCards(Cards cards, Cards all_cards,
+                                     char equivalence[TOTAL_CARDS]) const {
   // Two cards in one suit are equivalent when their relative ranks are next to
-  // each other. Only need to keep one of them.
-  Cards redundant_cards;
+  // each other.
   int prev_card = *cards.begin();
+  equivalence[prev_card] = prev_card;
   for (int cur_card : cards.Slice(prev_card + 1, TOTAL_CARDS)) {
     if (cards.Slice(prev_card, cur_card + 1) == all_cards.Slice(prev_card, cur_card + 1) ||
-        (RankOf(prev_card) <= options.small_card && RankOf(cur_card) <= options.small_card)) {
-      redundant_cards.Add(cur_card);
+        std::max(RankOf(prev_card), RankOf(cur_card)) <= options.small_card) {
+      // This one is equivalent to the previous one.
     } else {
       prev_card = cur_card;
     }
+    equivalence[cur_card] = prev_card;
   }
-  return cards.Remove(redundant_cards);
 }
 
-Cards MinMax::GetPlayableCards(int seat_to_play) const {
+Cards MinMax::GetPlayableCards(int seat_to_play, const char equivalence[TOTAL_CARDS]) const {
   const Cards& hand = hands[seat_to_play];
   if (!current_trick->OnLead(seat_to_play)) {
     int lead_suit = current_trick->LeadSuit();
     Cards suit_cards = hand.Suit(lead_suit);
     if (!suit_cards.Empty())
-      return CombineEquivalentCards(suit_cards, all_cards.Suit(lead_suit));
+      return suit_cards;
   }
   Cards playable_cards;
   for (int suit = 0; suit < NUM_SUITS; ++suit) {
@@ -400,7 +400,7 @@ Cards MinMax::GetPlayableCards(int seat_to_play) const {
     if (suit_cards.Empty()) continue;
     if (suit == trump || current_trick->OnLead(seat_to_play) ||
         !options.discard_suit_bottom) {
-      playable_cards.Add(CombineEquivalentCards(suit_cards, all_cards.Suit(suit)));
+      playable_cards.Add(suit_cards);
     } else {
       // Discard only the bottom card in a suit. It's very rare that discarding
       // a higher ranked card in the same suit is necessary. One example,
@@ -408,7 +408,7 @@ Cards MinMax::GetPlayableCards(int seat_to_play) const {
       //                 AK83 AK A65432 K
       //  65 QJT876 KT9 AJ               JT92 54 Q 765432
       //                 Q74 932 J87 QT98
-      playable_cards.Add(suit_cards.Bottom());
+      playable_cards.Add(equivalence[suit_cards.Bottom()]);
     }
   }
   return playable_cards;
@@ -534,16 +534,27 @@ int MinMax::Search(int alpha, int beta, int seat_to_play, int depth) {
     return ns_tricks;
   }
 
+  int trick_index = current_trick - tricks;
+  if (current_trick->OnLead(seat_to_play))
+    for (int seat = 0; seat < NUM_SEATS; ++seat)
+      for (int suit = 0; suit < NUM_SUITS; ++suit)
+        IdentifyEquivalentCards(hands[seat].Suit(suit), all_cards.Suit(suit),
+                                equivalence[trick_index]);
+
   State state = SaveState();
-  Cards playable_cards = GetPlayableCards(seat_to_play);
+  Cards playable_cards = GetPlayableCards(seat_to_play, equivalence[trick_index]);
   // TODO: reorder playable cards
   int bounded_ns_tricks = IsNS(seat_to_play) ? 0 : TOTAL_TRICKS;
-  for (int card_to_play : playable_cards.Intersect(killer_cards[depth][seat_to_play]))
+  for (int card_to_play : playable_cards.Intersect(killer_cards[depth][seat_to_play])) {
+    if (equivalence[trick_index][card_to_play] != card_to_play) continue;
     if (CutOff(alpha, beta, seat_to_play, depth, card_to_play, &state, &bounded_ns_tricks))
       return bounded_ns_tricks;
-  for (int card_to_play : playable_cards.Different(killer_cards[depth][seat_to_play]))
+  }
+  for (int card_to_play : playable_cards.Different(killer_cards[depth][seat_to_play])) {
+    if (equivalence[trick_index][card_to_play] != card_to_play) continue;
     if (CutOff(alpha, beta, seat_to_play, depth, card_to_play, &state, &bounded_ns_tricks))
       return bounded_ns_tricks;
+  }
   return bounded_ns_tricks;
 }
 
