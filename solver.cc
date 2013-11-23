@@ -539,18 +539,17 @@ int MinMax::Search(int alpha, int beta, int seat_to_play, int depth) {
 
   State state = SaveState();
   Cards playable_cards = GetPlayableCards(seat_to_play, current_trick->equivalence);
-  // TODO: reorder playable cards
+  Cards sets_of_playables[2] = {
+    playable_cards.Intersect(killer_cards[depth][seat_to_play]),
+    playable_cards.Different(killer_cards[depth][seat_to_play])
+  };
   int bounded_ns_tricks = IsNS(seat_to_play) ? 0 : TOTAL_TRICKS;
-  for (int card_to_play : playable_cards.Intersect(killer_cards[depth][seat_to_play])) {
-    if (current_trick->equivalence[card_to_play] != card_to_play) continue;
-    if (CutOff(alpha, beta, seat_to_play, depth, card_to_play, &state, &bounded_ns_tricks))
-      return bounded_ns_tricks;
-  }
-  for (int card_to_play : playable_cards.Different(killer_cards[depth][seat_to_play])) {
-    if (current_trick->equivalence[card_to_play] != card_to_play) continue;
-    if (CutOff(alpha, beta, seat_to_play, depth, card_to_play, &state, &bounded_ns_tricks))
-      return bounded_ns_tricks;
-  }
+  for (Cards playables : sets_of_playables)
+    for (int card : playables) {
+      if (current_trick->equivalence[card] != card) continue;
+      if (CutOff(alpha, beta, seat_to_play, depth, card, &state, &bounded_ns_tricks))
+        return bounded_ns_tricks;
+    }
   return bounded_ns_tricks;
 }
 
