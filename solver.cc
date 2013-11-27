@@ -385,18 +385,22 @@ void MinMax::ShowTricks(int alpha, int beta, int seat_to_play, int depth, int ns
 
 Cards MinMax::GetPlayableCards(int seat_to_play, const char equivalence[TOTAL_CARDS]) const {
   const Cards& hand = hands[seat_to_play];
-  if (!current_trick->OnLead(seat_to_play)) {
-    int lead_suit = current_trick->LeadSuit();
-    Cards suit_cards = hand.Suit(lead_suit);
-    if (!suit_cards.Empty())
-      return suit_cards;
-  }
+  if (current_trick->OnLead(seat_to_play))
+    return hand;
+
+  int lead_suit = current_trick->LeadSuit();
+  Cards suit_cards = hand.Suit(lead_suit);
+  if (!suit_cards.Empty())
+    return suit_cards;
+
+  if (!options.discard_suit_bottom)
+    return hand;
+
   Cards playable_cards;
   for (int suit = 0; suit < NUM_SUITS; ++suit) {
     Cards suit_cards = hand.Suit(suit);
     if (suit_cards.Empty()) continue;
-    if (suit == trump || current_trick->OnLead(seat_to_play) ||
-        !options.discard_suit_bottom) {
+    if (suit == trump) {
       playable_cards.Add(suit_cards);
     } else {
       // Discard only the bottom card in a suit. It's very rare that discarding
