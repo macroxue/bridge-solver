@@ -149,7 +149,8 @@ template <class Entry, int input_size, int bits>
 class Cache {
   public:
     Cache(const char* name)
-      : cache_name(name), lookup_count(0), hit_count(0), update_count(0), collision_count(0) {
+      : cache_name(name), probe_distance(0),
+        lookup_count(0), hit_count(0), update_count(0), collision_count(0) {
       for (int i = 0; i < size; ++i)
         entries_[i].hash = 0;
 
@@ -164,8 +165,8 @@ class Cache {
         loaded_count += (entries_[i].hash != 0);
 
       printf("--- %s Statistics ---\n", cache_name);
-      printf("lookups: %8d   hits:     %8d (%5.2f%%)\n",
-             lookup_count, hit_count, hit_count * 100.0 / lookup_count);
+      printf("lookups: %8d   hits:     %8d (%5.2f%%)   probe distance: %d\n",
+             lookup_count, hit_count, hit_count * 100.0 / lookup_count, probe_distance);
       printf("updates: %8d   collisions: %6d (%5.2f%%)\n",
              update_count, collision_count, collision_count * 100.0 / update_count);
       printf("entries: %8d   loaded:   %8d (%5.2f%%)\n",
@@ -198,10 +199,11 @@ class Cache {
 
       // Linear probing benefits from hardware prefetch and thus is faster
       // than collision resolution with multiple hash functions.
-      for (int d = 0; d < probe_distance; ++d) {
+      for (int d = 0; d < max_probe_distance; ++d) {
         Entry& entry = entries_[(index + d) & (size - 1)];
         bool collided = entry.hash != 0 && entry.hash != hash;
-        if (!collided || d == probe_distance - 1) {
+        if (!collided || d == max_probe_distance - 1) {
+          probe_distance = std::max(probe_distance, d + 1);
           collision_count += collided;
           if (entry.hash != hash)
             entry.Reset(hash);
@@ -227,10 +229,11 @@ class Cache {
       return r | 1;
     }
 
-    static const int probe_distance = 16;
+    static const int max_probe_distance = 16;
     static const int size = 1 << bits;
 
     const char* cache_name;
+    int probe_distance;
     uint64_t hash_rand[input_size];
     Entry entries_[size];
 
