@@ -312,6 +312,7 @@ struct Trick {
            NameOf(cards[NextSeat(lead_seat, 2)]),
            NameOf(cards[NextSeat(lead_seat, 3)]));
   }
+
   void Show(int num_cards) const {
     if (num_cards == 4) {
       Show();
@@ -340,7 +341,7 @@ class MinMax {
     void ShowTricks(int alpha, int beta, int seat_to_play, int depth, int ns_tricks) const;
     int CollectLastTrick(int seat_to_play);
     Cards GetPlayableCards(int seat_to_play, const char equivalence[TOTAL_CARDS]) const;
-    void GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEATS]);
+    void GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEATS]) const;
     int FastTricks(int seat_to_play) const;
 
     struct State {
@@ -353,8 +354,8 @@ class MinMax {
     bool TrickCompletedAt(int depth) const { return (depth & 3) == 3; }
     int Play(int seat_to_play, int card_to_play, int depth);
     void Unplay(int seat_to_play, int card_to_play, int depth, const State& state);
-    Cards LookupCutoffCards(int seat_to_play);
-    void SaveCutoffCard(int seat_to_play, int cutoff_card);
+    Cards LookupCutoffCards(int seat_to_play) const;
+    void SaveCutoffCard(int seat_to_play, int cutoff_card) const;
     bool Cutoff(int alpha, int beta, int seat_to_play, int depth, int card_to_play,
                 State* state, int* bounded_ns_tricks);
 
@@ -417,7 +418,7 @@ Cards MinMax::GetPlayableCards(int seat_to_play, const char equivalence[TOTAL_CA
   return playable_cards;
 }
 
-void MinMax::GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEATS]) {
+void MinMax::GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEATS]) const {
   // Create the pattern using relative ranks. For example, when all the cards
   // remaining in a suit are J, 8, 7 and 2, they are treated as A, K, Q and J
   // respectively.
@@ -505,7 +506,7 @@ void MinMax::Unplay(int seat_to_play, int card_to_play, int depth, const State& 
 }
 
 inline
-Cards MinMax::LookupCutoffCards(int seat_to_play) {
+Cards MinMax::LookupCutoffCards(int seat_to_play) const {
   Cards cutoff_cards;
   if (current_trick->OnLead(seat_to_play)) {
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
@@ -524,7 +525,7 @@ Cards MinMax::LookupCutoffCards(int seat_to_play) {
 }
 
 inline
-void MinMax::SaveCutoffCard(int seat_to_play, int cutoff_card) {
+void MinMax::SaveCutoffCard(int seat_to_play, int cutoff_card) const {
   int prev_card = current_trick->OnLead(seat_to_play) ?
     TOTAL_CARDS : current_trick->cards[NextSeat(seat_to_play, 3)];
   Cards suit_cards = all_cards.Suit(current_trick->LeadSuit());
