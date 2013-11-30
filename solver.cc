@@ -509,22 +509,14 @@ Cards MinMax::LookupCutoffCards(int seat_to_play) {
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       Cards suit_cards = all_cards.Suit(suit);
       if (suit_cards.Empty()) continue;
-      const auto* cutoff_entry = cutoff_cache.Lookup(&suit_cards);
-      if (cutoff_entry) {
-        int cutoff_card = cutoff_entry->card[TOTAL_CARDS][current_trick->lead_seat][seat_to_play];
-        if (cutoff_card != TOTAL_CARDS)
-           cutoff_cards.Add(cutoff_card);
-      }
+      if (const auto* entry = cutoff_cache.Lookup(&suit_cards))
+        cutoff_cards.Add(entry->card[TOTAL_CARDS][current_trick->lead_seat][seat_to_play]);
     }
   } else {
-    Cards suit_cards = all_cards.Suit(current_trick->LeadSuit());
     int prev_card = current_trick->cards[NextSeat(seat_to_play, 3)];
-    const auto* cutoff_entry = cutoff_cache.Lookup(&suit_cards);
-    if (cutoff_entry) {
-      int cutoff_card = cutoff_entry->card[prev_card][current_trick->lead_seat][seat_to_play];
-      if (cutoff_card != TOTAL_CARDS)
-        cutoff_cards.Add(cutoff_card);
-    }
+    Cards suit_cards = all_cards.Suit(current_trick->LeadSuit());
+    if (const auto* entry = cutoff_cache.Lookup(&suit_cards))
+      cutoff_cards.Add(entry->card[prev_card][current_trick->lead_seat][seat_to_play]);
   }
   return cutoff_cards;
 }
@@ -533,12 +525,12 @@ inline
 void MinMax::SaveCutoffCard(int seat_to_play, int cutoff_card) {
   Cards suit_cards = all_cards.Suit(current_trick->LeadSuit());
   if (current_trick->OnLead(seat_to_play)) {
-    auto* cutoff_entry = cutoff_cache.Update(&suit_cards);
-    cutoff_entry->card[TOTAL_CARDS][current_trick->lead_seat][seat_to_play] = cutoff_card;
+    auto* entry = cutoff_cache.Update(&suit_cards);
+    entry->card[TOTAL_CARDS][current_trick->lead_seat][seat_to_play] = cutoff_card;
   } else {
     int prev_card = current_trick->cards[NextSeat(seat_to_play, 3)];
-    auto* cutoff_entry = cutoff_cache.Update(&suit_cards);
-    cutoff_entry->card[prev_card][current_trick->lead_seat][seat_to_play] = cutoff_card;
+    auto* entry = cutoff_cache.Update(&suit_cards);
+    entry->card[prev_card][current_trick->lead_seat][seat_to_play] = cutoff_card;
   }
 }
 
