@@ -65,8 +65,8 @@ struct CardInitializer {
   }
 };
 
-int NextSeat(int seat, int count = 1) { return (seat + count) % NUM_SEATS; }
-bool IsNS(int seat) { return seat % 2; }
+int NextSeat(int seat, int count = 1) { return (seat + count) & (NUM_SEATS -1 ); }
+bool IsNS(int seat) { return seat & 1; }
 
 bool WinOver(int c1, int c2, int trump) {
   return SuitOf(c1) == SuitOf(c2) ? RankOf(c1) > RankOf(c2) : SuitOf(c1) == trump;
@@ -350,7 +350,7 @@ class MinMax {
     };
 
     State SaveState() const;
-    bool TrickCompletedAt(int depth) const { return depth % 4 == 3; }
+    bool TrickCompletedAt(int depth) const { return (depth & 3) == 3; }
     int Play(int seat_to_play, int card_to_play, int depth);
     void Unplay(int seat_to_play, int card_to_play, int depth, const State& state);
     Cards LookupCutoffCards(int seat_to_play);
