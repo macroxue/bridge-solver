@@ -351,7 +351,8 @@ class MinMax {
     bool TrickCompletedAt(int depth) const { return depth % 4 == 3; }
     int Play(int seat_to_play, int card_to_play, int depth);
     void Unplay(int seat_to_play, int card_to_play, int depth, const State& state);
-    void SaveCutoffCard(int seat_to_play, int card_to_play);
+    Cards LookupCutoffCards(int seat_to_play);
+    void SaveCutoffCard(int seat_to_play, int cutoff_card);
     bool Cutoff(int alpha, int beta, int seat_to_play, int depth, int card_to_play,
                 State* state, int* bounded_ns_tricks);
 
@@ -502,15 +503,42 @@ void MinMax::Unplay(int seat_to_play, int card_to_play, int depth, const State& 
 }
 
 inline
-void MinMax::SaveCutoffCard(int seat_to_play, int card_to_play) {
+Cards MinMax::LookupCutoffCards(int seat_to_play) {
+  Cards cutoff_cards;
+  if (current_trick->OnLead(seat_to_play)) {
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      Cards suit_cards = all_cards.Suit(suit);
+      if (suit_cards.Empty()) continue;
+      const auto* cutoff_entry = cutoff_cache.Lookup(&suit_cards);
+      if (cutoff_entry) {
+        int cutoff_card = cutoff_entry->card[TOTAL_CARDS][current_trick->lead_seat][seat_to_play];
+        if (cutoff_card != TOTAL_CARDS)
+           cutoff_cards.Add(cutoff_card);
+      }
+    }
+  } else {
+    Cards suit_cards = all_cards.Suit(current_trick->LeadSuit());
+    int prev_card = current_trick->cards[NextSeat(seat_to_play, 3)];
+    const auto* cutoff_entry = cutoff_cache.Lookup(&suit_cards);
+    if (cutoff_entry) {
+      int cutoff_card = cutoff_entry->card[prev_card][current_trick->lead_seat][seat_to_play];
+      if (cutoff_card != TOTAL_CARDS)
+        cutoff_cards.Add(cutoff_card);
+    }
+  }
+  return cutoff_cards;
+}
+
+inline
+void MinMax::SaveCutoffCard(int seat_to_play, int cutoff_card) {
   Cards suit_cards = all_cards.Suit(current_trick->LeadSuit());
   if (current_trick->OnLead(seat_to_play)) {
     auto* cutoff_entry = cutoff_cache.Update(&suit_cards);
-    cutoff_entry->card[TOTAL_CARDS][current_trick->lead_seat][seat_to_play] = card_to_play;
+    cutoff_entry->card[TOTAL_CARDS][current_trick->lead_seat][seat_to_play] = cutoff_card;
   } else {
     int prev_card = current_trick->cards[NextSeat(seat_to_play, 3)];
     auto* cutoff_entry = cutoff_cache.Update(&suit_cards);
-    cutoff_entry->card[prev_card][current_trick->lead_seat][seat_to_play] = card_to_play;
+    cutoff_entry->card[prev_card][current_trick->lead_seat][seat_to_play] = cutoff_card;
   }
 }
 
@@ -525,16 +553,12 @@ bool MinMax::Cutoff(int alpha, int beta, int seat_to_play, int depth, int card_t
 
   if (IsNS(seat_to_play)) {
     *bounded_ns_tricks = std::max(*bounded_ns_tricks, ns_tricks);
-    if (*bounded_ns_tricks >= beta) {
-      SaveCutoffCard(seat_to_play, card_to_play);
+    if (*bounded_ns_tricks >= beta)
       return true;  // beta cut-off
-    }
   } else {
     *bounded_ns_tricks = std::min(*bounded_ns_tricks, ns_tricks);
-    if (*bounded_ns_tricks <= alpha) {
-      SaveCutoffCard(seat_to_play, card_to_play);
+    if (*bounded_ns_tricks <= alpha)
       return true;  // alpha cut-off
-    }
   }
   return false;  // no cut-off
 }
@@ -555,27 +579,7 @@ int MinMax::Search(int alpha, int beta, int seat_to_play, int depth) {
 
   State state = SaveState();
   Cards playable_cards = GetPlayableCards(seat_to_play, current_trick->equivalence);
-  Cards cutoff_cards;
-  int card_to_play;
-  if (current_trick->OnLead(seat_to_play)) {
-    for (int suit = 0; suit < NUM_SUITS; ++suit) {
-      Cards suit_cards = all_cards.Suit(suit);
-      const auto* cutoff_entry = cutoff_cache.Lookup(&suit_cards);
-      if (cutoff_entry &&
-          (card_to_play = cutoff_entry->card[TOTAL_CARDS][current_trick->lead_seat][seat_to_play],
-           card_to_play != TOTAL_CARDS))
-        cutoff_cards.Add(card_to_play);
-    }
-  } else {
-    Cards suit_cards = all_cards.Suit(current_trick->LeadSuit());
-    int prev_card = current_trick->cards[NextSeat(seat_to_play, 3)];
-    const auto* cutoff_entry = cutoff_cache.Lookup(&suit_cards);
-    if (cutoff_entry &&
-        (card_to_play = cutoff_entry->card[prev_card][current_trick->lead_seat][seat_to_play],
-         card_to_play != TOTAL_CARDS))
-      cutoff_cards.Add(card_to_play);
-  }
-
+  Cards cutoff_cards = LookupCutoffCards(seat_to_play);
   Cards sets_of_playables[2] = {
     playable_cards.Intersect(cutoff_cards),
     playable_cards.Different(cutoff_cards)
@@ -584,8 +588,10 @@ int MinMax::Search(int alpha, int beta, int seat_to_play, int depth) {
   for (Cards playables : sets_of_playables)
     for (int card : playables) {
       if (current_trick->equivalence[card] != card) continue;
-      if (Cutoff(alpha, beta, seat_to_play, depth, card, &state, &bounded_ns_tricks))
+      if (Cutoff(alpha, beta, seat_to_play, depth, card, &state, &bounded_ns_tricks)) {
+        SaveCutoffCard(seat_to_play, card);
         return bounded_ns_tricks;
+      }
     }
   return bounded_ns_tricks;
 }
