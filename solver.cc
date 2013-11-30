@@ -166,7 +166,7 @@ class Cache {
       for (int i = 0; i < size; ++i)
         loaded_count += (entries_[i].hash != 0);
 
-      puts("\n--- Cache Statistics ---");
+      puts("--- Cache Statistics ---");
       printf("lookups: %8d   hits:     %8d (%5.2f%%)\n",
              lookup_count, hit_count, hit_count * 100.0 / lookup_count);
       printf("updates: %8d   collisions: %6d (%5.2f%%)\n",
@@ -277,6 +277,107 @@ class Cache {
 
 Cache cache;
 
+class CutOffCache {
+  public:
+    CutOffCache() : lookup_count(0), hit_count(0), update_count(0), collision_count(0) {
+      for (int i = 0; i < size; ++i)
+        entries_[i].hash = 0;
+
+      srand(1);
+      hash_rand = GenerateHashRandom();
+    }
+
+    ~CutOffCache() {
+      int loaded_count = 0;
+      for (int i = 0; i < size; ++i)
+        loaded_count += (entries_[i].hash != 0);
+
+      puts("--- CutOffCache Statistics ---");
+      printf("lookups: %8d   hits:     %8d (%5.2f%%)\n",
+             lookup_count, hit_count, hit_count * 100.0 / lookup_count);
+      printf("updates: %8d   collisions: %6d (%5.2f%%)\n",
+             update_count, collision_count, collision_count * 100.0 / update_count);
+      printf("entries: %8d   loaded:   %8d (%5.2f%%)\n",
+             size, loaded_count, loaded_count * 100.0 / size);
+    }
+
+    struct Entry;
+    bool Lookup(Cards suit_cards, int lead_seat, int seat_to_play, int prev_card,
+                int* card_to_play) const {
+      ++lookup_count;
+
+      uint64_t hash = Hash(suit_cards);
+      if (hash == 0) return false;
+      uint64_t index = hash >> (BitSize(hash) - bits);
+
+      for (int d = 0; d < probe_distance; ++d) {
+        const Entry& entry = entries_[(index + d) & (size - 1)];
+        if (entry.hash == hash) {
+          ++hit_count;
+          *card_to_play = entry.card[prev_card][lead_seat][seat_to_play];
+          return true;
+        }
+      }
+      return false;
+    }
+
+    void Update(Cards suit_cards, int lead_seat, int seat_to_play, int prev_card,
+                int card_to_play) {
+      ++update_count;
+
+      uint64_t hash = Hash(suit_cards);
+      if (hash == 0) return;
+      uint64_t index = hash >> (BitSize(hash) - bits);
+
+      // Linear probing benefits from hardware prefetch and thus is faster
+      // than collision resolution with multiple hash functions.
+      for (int d = 0; d < probe_distance; ++d) {
+        Entry& entry = entries_[(index + d) & (size - 1)];
+        bool collided = entry.hash != 0 && entry.hash != hash;
+        if (!collided || d == probe_distance - 1) {
+          collision_count += collided;
+          if (entry.hash != hash) {
+            entry.hash = hash;
+            memset(entry.card, TOTAL_CARDS, sizeof(entry.card));
+          }
+          entry.card[prev_card][lead_seat][seat_to_play] = card_to_play;
+          return;
+        }
+      }
+    }
+
+  private:
+    uint64_t Hash(Cards suit_cards) const {
+      return suit_cards.Value() * hash_rand;
+    }
+
+    uint64_t GenerateHashRandom() {
+      static const int BITS_PER_RAND = 32;
+      uint64_t r = 0;
+      for (int i = 0; i < BitSize(r) / BITS_PER_RAND; ++i)
+        r = (r << BITS_PER_RAND) + rand();
+      return r | 1;
+    }
+
+    uint64_t hash_rand;
+
+    static const int probe_distance = 16;
+    static const int bits = 14;
+    static const int size = 1 << bits;
+
+    struct Entry {
+      uint64_t hash;
+      char card[TOTAL_CARDS + 1][NUM_SEATS][NUM_SEATS];
+    } entries_[size];
+
+    mutable int lookup_count;
+    mutable int hit_count;
+    mutable int update_count;
+    mutable int collision_count;
+};
+
+CutOffCache cutoff_cache;
+
 struct Trick {
   int lead_seat;
   int winning_seat;
@@ -352,6 +453,7 @@ class MinMax {
     bool TrickCompletedAt(int depth) const { return depth % 4 == 3; }
     int Play(int seat_to_play, int card_to_play, int depth);
     void Unplay(int seat_to_play, int card_to_play, int depth, const State& state);
+    void SaveKillerCard(int seat_to_play, int card_to_play);
     bool CutOff(int alpha, int beta, int seat_to_play, int depth, int card_to_play,
                 State* state, int* bounded_ns_tricks);
 
@@ -361,7 +463,6 @@ class MinMax {
     Cards  all_cards;
     Trick  tricks[TOTAL_TRICKS];
     Trick* current_trick;
-    Cards  killer_cards[TOTAL_CARDS][NUM_SEATS];
 };
 
 MinMax::MinMax(Cards h[NUM_SEATS], int t, int seat_to_play)
@@ -503,6 +604,19 @@ void MinMax::Unplay(int seat_to_play, int card_to_play, int depth, const State& 
 }
 
 inline
+void MinMax::SaveKillerCard(int seat_to_play, int card_to_play) {
+  int suit = current_trick->LeadSuit();
+  if (current_trick->OnLead(seat_to_play)) {
+    cutoff_cache.Update(all_cards.Suit(suit), current_trick->lead_seat, seat_to_play,
+                        TOTAL_CARDS, card_to_play);
+  } else {
+    int prev_card = current_trick->cards[NextSeat(seat_to_play, 3)];
+    cutoff_cache.Update(all_cards.Suit(suit), current_trick->lead_seat, seat_to_play,
+                        prev_card, card_to_play);
+  }
+}
+
+inline
 bool MinMax::CutOff(int alpha, int beta, int seat_to_play, int depth, int card_to_play,
                   State* state, int* bounded_ns_tricks) {
   int next_seat_to_play = Play(seat_to_play, card_to_play, depth);
@@ -514,13 +628,13 @@ bool MinMax::CutOff(int alpha, int beta, int seat_to_play, int depth, int card_t
   if (IsNS(seat_to_play)) {
     *bounded_ns_tricks = std::max(*bounded_ns_tricks, ns_tricks);
     if (*bounded_ns_tricks >= beta) {
-      killer_cards[depth][seat_to_play] = Cards().Add(card_to_play);
+      SaveKillerCard(seat_to_play, card_to_play);
       return true;  // beta cut-off
     }
   } else {
     *bounded_ns_tricks = std::min(*bounded_ns_tricks, ns_tricks);
     if (*bounded_ns_tricks <= alpha) {
-      //killer_cards[depth][seat_to_play] = Cards().Add(card_to_play);
+      SaveKillerCard(seat_to_play, card_to_play);
       return true;  // alpha cut-off
     }
   }
@@ -543,9 +657,25 @@ int MinMax::Search(int alpha, int beta, int seat_to_play, int depth) {
 
   State state = SaveState();
   Cards playable_cards = GetPlayableCards(seat_to_play, current_trick->equivalence);
+  Cards cutoff_cards;
+  int card_to_play;
+  if (current_trick->OnLead(seat_to_play)) {
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      if (cutoff_cache.Lookup(all_cards.Suit(suit), current_trick->lead_seat, seat_to_play,
+                              TOTAL_CARDS, &card_to_play) && card_to_play != TOTAL_CARDS)
+        cutoff_cards.Add(card_to_play);
+    }
+  } else {
+    int suit = current_trick->LeadSuit();
+    int prev_card = current_trick->cards[NextSeat(seat_to_play, 3)];
+    if (cutoff_cache.Lookup(all_cards.Suit(suit), current_trick->lead_seat, seat_to_play,
+                            prev_card, &card_to_play) && card_to_play != TOTAL_CARDS)
+      cutoff_cards.Add(card_to_play);
+  }
+
   Cards sets_of_playables[2] = {
-    playable_cards.Intersect(killer_cards[depth][seat_to_play]),
-    playable_cards.Different(killer_cards[depth][seat_to_play])
+    playable_cards.Intersect(cutoff_cards),
+    playable_cards.Different(cutoff_cards)
   };
   int bounded_ns_tricks = IsNS(seat_to_play) ? 0 : TOTAL_TRICKS;
   for (Cards playables : sets_of_playables)
