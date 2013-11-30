@@ -588,13 +588,13 @@ int MinMax::Search(int alpha, int beta, int seat_to_play, int depth) {
 }
 
 int MinMax::FastTricks(int seat_to_play) const {
-  Cards both_hands = hands[seat_to_play].Union(hands[NextSeat(seat_to_play, 2)]);
+  Cards my_cards = hands[seat_to_play];
+  Cards both_hands = my_cards.Union(hands[NextSeat(seat_to_play, 2)]);
   int fast_tricks = 0;
   if (trump == NOTRUMP || all_cards.Suit(trump) == both_hands.Suit(trump)) {
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
-      Cards my_suit_cards = hands[seat_to_play].Suit(suit);
       for (int card : all_cards.Suit(suit))
-        if (my_suit_cards.Have(card))
+        if (my_cards.Have(card))
           ++fast_tricks;
         else
           break;
