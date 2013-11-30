@@ -145,19 +145,16 @@ class Cards {
     uint64_t bits;
 };
 
-struct Bounds {
-  int lower;
-  int upper;
-};
-
+template <class Entry, int input_size, int bits>
 class Cache {
   public:
-    Cache() : lookup_count(0), hit_count(0), update_count(0), collision_count(0) {
+    Cache(const char* name)
+      : cache_name(name), lookup_count(0), hit_count(0), update_count(0), collision_count(0) {
       for (int i = 0; i < size; ++i)
         entries_[i].hash = 0;
 
       srand(1);
-      for (int i = 0; i < NUM_SEATS; ++i)
+      for (int i = 0; i < input_size; ++i)
         hash_rand[i] = GenerateHashRandom();
     }
 
@@ -166,7 +163,7 @@ class Cache {
       for (int i = 0; i < size; ++i)
         loaded_count += (entries_[i].hash != 0);
 
-      puts("--- Cache Statistics ---");
+      printf("--- %s Statistics ---\n", cache_name);
       printf("lookups: %8d   hits:     %8d (%5.2f%%)\n",
              lookup_count, hit_count, hit_count * 100.0 / lookup_count);
       printf("updates: %8d   collisions: %6d (%5.2f%%)\n",
@@ -175,31 +172,28 @@ class Cache {
              size, loaded_count, loaded_count * 100.0 / size);
     }
 
-    struct Entry;
-    bool Lookup(const Cards hands[NUM_SEATS], int lead_seat, Bounds* bounds) const {
+    const Entry* Lookup(Cards cards[input_size]) const {
       ++lookup_count;
 
-      uint64_t hash = Hash(hands);
-      if (hash == 0) return false;
+      uint64_t hash = Hash(cards);
+      if (hash == 0) return NULL;
       uint64_t index = hash >> (BitSize(hash) - bits);
 
       for (int d = 0; d < probe_distance; ++d) {
         const Entry& entry = entries_[(index + d) & (size - 1)];
         if (entry.hash == hash) {
           ++hit_count;
-          bounds->lower = entry.bounds[lead_seat].lower;
-          bounds->upper = entry.bounds[lead_seat].upper;
-          return true;
+          return &entry;
         }
       }
-      return false;
+      return NULL;
     }
 
-    void Update(const Cards hands[NUM_SEATS], int lead_seat, const Bounds& bounds) {
+    Entry* Update(Cards cards[input_size]) {
       ++update_count;
 
-      uint64_t hash = Hash(hands);
-      if (hash == 0) return;
+      uint64_t hash = Hash(cards);
+      if (hash == 0) return NULL;
       uint64_t index = hash >> (BitSize(hash) - bits);
 
       // Linear probing benefits from hardware prefetch and thus is faster
@@ -209,35 +203,19 @@ class Cache {
         bool collided = entry.hash != 0 && entry.hash != hash;
         if (!collided || d == probe_distance - 1) {
           collision_count += collided;
-          if (entry.hash != hash) {
-            entry.hash = hash;
-            for (int i = 0; i < NUM_SEATS; ++i) {
-              entry.bounds[i].lower = 0;
-              entry.bounds[i].upper = TOTAL_TRICKS;
-            }
-          }
-          entry.bounds[lead_seat].lower = bounds.lower;
-          entry.bounds[lead_seat].upper = bounds.upper;
-          DEBUG(ShowUpdate(hands, lead_seat, bounds, hash));
-          return;
+          if (entry.hash != hash)
+            entry.Reset(hash);
+          return &entry;
         }
       }
+      return NULL;
     }
 
   private:
-    void ShowUpdate(const Cards hands[NUM_SEATS], int lead_seat, const Bounds& bounds,
-                    uint64_t hash) {
-      for (int seat = 0; seat < NUM_SEATS; ++seat) {
-        hands[seat].Show();
-        printf(", ");
-      }
-      printf("%c (%d %d) %lx\n", SeatLetter(lead_seat), bounds.lower, bounds.upper, hash);
-    }
-
-    uint64_t Hash(const Cards hands[NUM_SEATS]) const {
+    uint64_t Hash(Cards cards[input_size]) const {
       uint64_t sum = 0;
-      for (int i = 0; i < NUM_SEATS; ++i)
-        sum += hands[i].Value() * hash_rand[i];
+      for (int i = 0; i < input_size; ++i)
+        sum += cards[i].Value() * hash_rand[i];
       return sum;
     }
 
@@ -249,134 +227,54 @@ class Cache {
       return r | 1;
     }
 
-    uint64_t hash_rand[NUM_SEATS];
-
     static const int probe_distance = 16;
-    static const int bits = 22;
     static const int size = 1 << bits;
 
-    // Align to 4-byte boundary so not to waste memory.
+    const char* cache_name;
+    uint64_t hash_rand[input_size];
+    Entry entries_[size];
+
+    mutable int lookup_count;
+    mutable int hit_count;
+    mutable int update_count;
+    mutable int collision_count;
+};
+
 #pragma pack(push, 4)
-    struct Entry {
-      // Save only the hash instead of full hands to save memory.
-      // The chance of getting a hash collision is practically zero.
-      uint64_t hash;
-      // Bounds depending on the lead seat.
-      struct {
-        uint8_t lower : 4;
-        uint8_t upper : 4;
-      } bounds[NUM_SEATS];
-    } entries_[size];
+struct BoundsEntry {
+  // Save only the hash instead of full hands to save memory.
+  // The chance of getting a hash collision is practically zero.
+  uint64_t hash;
+  // Bounds depending on the lead seat.
+  struct {
+    uint8_t lower : 4;
+    uint8_t upper : 4;
+  } bounds[NUM_SEATS];
+
+  void Reset(uint64_t hash_in) {
+    hash = hash_in;
+    for (int i = 0; i < NUM_SEATS; ++i) {
+      bounds[i].lower = 0;
+      bounds[i].upper = TOTAL_TRICKS;
+    }
+  }
+};
 #pragma pack(pop)
 
-    mutable int lookup_count;
-    mutable int hit_count;
-    mutable int update_count;
-    mutable int collision_count;
+Cache<BoundsEntry, 4, 22> bounds_cache("Bounds Cache");
+
+struct CutoffEntry {
+  uint64_t hash;
+  // Cut-off card depending on the leading seat and the previous card.
+  char card[TOTAL_CARDS + 1][NUM_SEATS][NUM_SEATS];
+
+  void Reset(uint64_t hash_in) {
+    hash = hash_in;
+    memset(card, TOTAL_CARDS, sizeof(card));
+  }
 };
 
-Cache cache;
-
-class CutOffCache {
-  public:
-    CutOffCache() : lookup_count(0), hit_count(0), update_count(0), collision_count(0) {
-      for (int i = 0; i < size; ++i)
-        entries_[i].hash = 0;
-
-      srand(1);
-      hash_rand = GenerateHashRandom();
-    }
-
-    ~CutOffCache() {
-      int loaded_count = 0;
-      for (int i = 0; i < size; ++i)
-        loaded_count += (entries_[i].hash != 0);
-
-      puts("--- CutOffCache Statistics ---");
-      printf("lookups: %8d   hits:     %8d (%5.2f%%)\n",
-             lookup_count, hit_count, hit_count * 100.0 / lookup_count);
-      printf("updates: %8d   collisions: %6d (%5.2f%%)\n",
-             update_count, collision_count, collision_count * 100.0 / update_count);
-      printf("entries: %8d   loaded:   %8d (%5.2f%%)\n",
-             size, loaded_count, loaded_count * 100.0 / size);
-    }
-
-    struct Entry;
-    bool Lookup(Cards suit_cards, int lead_seat, int seat_to_play, int prev_card,
-                int* card_to_play) const {
-      ++lookup_count;
-
-      uint64_t hash = Hash(suit_cards);
-      if (hash == 0) return false;
-      uint64_t index = hash >> (BitSize(hash) - bits);
-
-      for (int d = 0; d < probe_distance; ++d) {
-        const Entry& entry = entries_[(index + d) & (size - 1)];
-        if (entry.hash == hash) {
-          ++hit_count;
-          *card_to_play = entry.card[prev_card][lead_seat][seat_to_play];
-          return true;
-        }
-      }
-      return false;
-    }
-
-    void Update(Cards suit_cards, int lead_seat, int seat_to_play, int prev_card,
-                int card_to_play) {
-      ++update_count;
-
-      uint64_t hash = Hash(suit_cards);
-      if (hash == 0) return;
-      uint64_t index = hash >> (BitSize(hash) - bits);
-
-      // Linear probing benefits from hardware prefetch and thus is faster
-      // than collision resolution with multiple hash functions.
-      for (int d = 0; d < probe_distance; ++d) {
-        Entry& entry = entries_[(index + d) & (size - 1)];
-        bool collided = entry.hash != 0 && entry.hash != hash;
-        if (!collided || d == probe_distance - 1) {
-          collision_count += collided;
-          if (entry.hash != hash) {
-            entry.hash = hash;
-            memset(entry.card, TOTAL_CARDS, sizeof(entry.card));
-          }
-          entry.card[prev_card][lead_seat][seat_to_play] = card_to_play;
-          return;
-        }
-      }
-    }
-
-  private:
-    uint64_t Hash(Cards suit_cards) const {
-      return suit_cards.Value() * hash_rand;
-    }
-
-    uint64_t GenerateHashRandom() {
-      static const int BITS_PER_RAND = 32;
-      uint64_t r = 0;
-      for (int i = 0; i < BitSize(r) / BITS_PER_RAND; ++i)
-        r = (r << BITS_PER_RAND) + rand();
-      return r | 1;
-    }
-
-    uint64_t hash_rand;
-
-    static const int probe_distance = 16;
-    static const int bits = 14;
-    static const int size = 1 << bits;
-
-    struct Entry {
-      uint64_t hash;
-      char card[TOTAL_CARDS + 1][NUM_SEATS][NUM_SEATS];
-    } entries_[size];
-
-    mutable int lookup_count;
-    mutable int hit_count;
-    mutable int update_count;
-    mutable int collision_count;
-};
-
-CutOffCache cutoff_cache;
+Cache<CutoffEntry, 1, 14> cutoff_cache("Cut-off Cache");
 
 struct Trick {
   int lead_seat;
@@ -453,8 +351,8 @@ class MinMax {
     bool TrickCompletedAt(int depth) const { return depth % 4 == 3; }
     int Play(int seat_to_play, int card_to_play, int depth);
     void Unplay(int seat_to_play, int card_to_play, int depth, const State& state);
-    void SaveKillerCard(int seat_to_play, int card_to_play);
-    bool CutOff(int alpha, int beta, int seat_to_play, int depth, int card_to_play,
+    void SaveCutoffCard(int seat_to_play, int card_to_play);
+    bool Cutoff(int alpha, int beta, int seat_to_play, int depth, int card_to_play,
                 State* state, int* bounded_ns_tricks);
 
     int    trump;
@@ -604,20 +502,20 @@ void MinMax::Unplay(int seat_to_play, int card_to_play, int depth, const State& 
 }
 
 inline
-void MinMax::SaveKillerCard(int seat_to_play, int card_to_play) {
-  int suit = current_trick->LeadSuit();
+void MinMax::SaveCutoffCard(int seat_to_play, int card_to_play) {
+  Cards suit_cards = all_cards.Suit(current_trick->LeadSuit());
   if (current_trick->OnLead(seat_to_play)) {
-    cutoff_cache.Update(all_cards.Suit(suit), current_trick->lead_seat, seat_to_play,
-                        TOTAL_CARDS, card_to_play);
+    auto* cutoff_entry = cutoff_cache.Update(&suit_cards);
+    cutoff_entry->card[TOTAL_CARDS][current_trick->lead_seat][seat_to_play] = card_to_play;
   } else {
     int prev_card = current_trick->cards[NextSeat(seat_to_play, 3)];
-    cutoff_cache.Update(all_cards.Suit(suit), current_trick->lead_seat, seat_to_play,
-                        prev_card, card_to_play);
+    auto* cutoff_entry = cutoff_cache.Update(&suit_cards);
+    cutoff_entry->card[prev_card][current_trick->lead_seat][seat_to_play] = card_to_play;
   }
 }
 
 inline
-bool MinMax::CutOff(int alpha, int beta, int seat_to_play, int depth, int card_to_play,
+bool MinMax::Cutoff(int alpha, int beta, int seat_to_play, int depth, int card_to_play,
                   State* state, int* bounded_ns_tricks) {
   int next_seat_to_play = Play(seat_to_play, card_to_play, depth);
   int ns_tricks = SearchWithCache(alpha, beta, next_seat_to_play, depth + 1);
@@ -628,13 +526,13 @@ bool MinMax::CutOff(int alpha, int beta, int seat_to_play, int depth, int card_t
   if (IsNS(seat_to_play)) {
     *bounded_ns_tricks = std::max(*bounded_ns_tricks, ns_tricks);
     if (*bounded_ns_tricks >= beta) {
-      SaveKillerCard(seat_to_play, card_to_play);
+      SaveCutoffCard(seat_to_play, card_to_play);
       return true;  // beta cut-off
     }
   } else {
     *bounded_ns_tricks = std::min(*bounded_ns_tricks, ns_tricks);
     if (*bounded_ns_tricks <= alpha) {
-      SaveKillerCard(seat_to_play, card_to_play);
+      SaveCutoffCard(seat_to_play, card_to_play);
       return true;  // alpha cut-off
     }
   }
@@ -661,15 +559,20 @@ int MinMax::Search(int alpha, int beta, int seat_to_play, int depth) {
   int card_to_play;
   if (current_trick->OnLead(seat_to_play)) {
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
-      if (cutoff_cache.Lookup(all_cards.Suit(suit), current_trick->lead_seat, seat_to_play,
-                              TOTAL_CARDS, &card_to_play) && card_to_play != TOTAL_CARDS)
+      Cards suit_cards = all_cards.Suit(suit);
+      const auto* cutoff_entry = cutoff_cache.Lookup(&suit_cards);
+      if (cutoff_entry &&
+          (card_to_play = cutoff_entry->card[TOTAL_CARDS][current_trick->lead_seat][seat_to_play],
+           card_to_play != TOTAL_CARDS))
         cutoff_cards.Add(card_to_play);
     }
   } else {
-    int suit = current_trick->LeadSuit();
+    Cards suit_cards = all_cards.Suit(current_trick->LeadSuit());
     int prev_card = current_trick->cards[NextSeat(seat_to_play, 3)];
-    if (cutoff_cache.Lookup(all_cards.Suit(suit), current_trick->lead_seat, seat_to_play,
-                            prev_card, &card_to_play) && card_to_play != TOTAL_CARDS)
+    const auto* cutoff_entry = cutoff_cache.Lookup(&suit_cards);
+    if (cutoff_entry &&
+        (card_to_play = cutoff_entry->card[prev_card][current_trick->lead_seat][seat_to_play],
+         card_to_play != TOTAL_CARDS))
       cutoff_cards.Add(card_to_play);
   }
 
@@ -681,7 +584,7 @@ int MinMax::Search(int alpha, int beta, int seat_to_play, int depth) {
   for (Cards playables : sets_of_playables)
     for (int card : playables) {
       if (current_trick->equivalence[card] != card) continue;
-      if (CutOff(alpha, beta, seat_to_play, depth, card, &state, &bounded_ns_tricks))
+      if (Cutoff(alpha, beta, seat_to_play, depth, card, &state, &bounded_ns_tricks))
         return bounded_ns_tricks;
     }
   return bounded_ns_tricks;
@@ -720,13 +623,15 @@ int MinMax::SearchWithCache(int alpha, int beta, int seat_to_play, int depth) {
   Cards pattern_hands[4];
   GetPattern(hands, pattern_hands);
 
-  Bounds bounds;
-  bounds.lower = 0;
-  bounds.upper = TOTAL_TRICKS;
+  struct Bounds {
+    int lower;
+    int upper;
+  } bounds = { 0, TOTAL_TRICKS };
 
-  if (cache.Lookup(pattern_hands, seat_to_play, &bounds)) {
-    bounds.lower += ns_tricks_won;
-    bounds.upper += ns_tricks_won;
+  const auto* bounds_entry = bounds_cache.Lookup(pattern_hands);
+  if (bounds_entry) {
+    bounds.lower = bounds_entry->bounds[seat_to_play].lower + ns_tricks_won;
+    bounds.upper = bounds_entry->bounds[seat_to_play].upper + ns_tricks_won;
     if (bounds.upper > TOTAL_TRICKS) bounds.upper = TOTAL_TRICKS;
     if (bounds.lower >= beta) {
       if (depth <= options.displaying_depth)
@@ -752,7 +657,9 @@ int MinMax::SearchWithCache(int alpha, int beta, int seat_to_play, int depth) {
   bounds.lower -= ns_tricks_won;
   bounds.upper -= ns_tricks_won;
   if (bounds.lower < 0) bounds.lower = 0;
-  cache.Update(pattern_hands, seat_to_play, bounds);
+  auto* new_bounds_entry = bounds_cache.Update(pattern_hands);
+  new_bounds_entry->bounds[seat_to_play].lower = bounds.lower;
+  new_bounds_entry->bounds[seat_to_play].upper = bounds.upper;
   return ns_tricks;
 }
 
