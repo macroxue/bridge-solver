@@ -259,21 +259,20 @@ struct BoundsEntry {
     }
   }
 };
-#pragma pack(pop)
-
-Cache<BoundsEntry, 4, 22> bounds_cache("Bounds Cache");
 
 struct CutoffEntry {
   uint64_t hash;
   // Cut-off card depending on the leading seat and the previous card.
-  char card[TOTAL_CARDS + 1][NUM_SEATS][NUM_SEATS];
+  char card[TOTAL_CARDS + 1][NUM_SEATS];
 
   void Reset(uint64_t hash_in) {
     hash = hash_in;
     memset(card, TOTAL_CARDS, sizeof(card));
   }
 };
+#pragma pack(pop)
 
+Cache<BoundsEntry, 4, 22> bounds_cache("Bounds Cache");
 Cache<CutoffEntry, 1, 14> cutoff_cache("Cut-off Cache");
 
 struct Trick {
@@ -510,13 +509,13 @@ Cards MinMax::LookupCutoffCards(int seat_to_play) {
       Cards suit_cards = all_cards.Suit(suit);
       if (suit_cards.Empty()) continue;
       if (const auto* entry = cutoff_cache.Lookup(&suit_cards))
-        cutoff_cards.Add(entry->card[TOTAL_CARDS][current_trick->lead_seat][seat_to_play]);
+        cutoff_cards.Add(entry->card[TOTAL_CARDS][current_trick->lead_seat]);
     }
   } else {
     int prev_card = current_trick->cards[NextSeat(seat_to_play, 3)];
     Cards suit_cards = all_cards.Suit(current_trick->LeadSuit());
     if (const auto* entry = cutoff_cache.Lookup(&suit_cards))
-      cutoff_cards.Add(entry->card[prev_card][current_trick->lead_seat][seat_to_play]);
+      cutoff_cards.Add(entry->card[prev_card][current_trick->lead_seat]);
   }
   return cutoff_cards;
 }
@@ -526,11 +525,11 @@ void MinMax::SaveCutoffCard(int seat_to_play, int cutoff_card) {
   Cards suit_cards = all_cards.Suit(current_trick->LeadSuit());
   if (current_trick->OnLead(seat_to_play)) {
     auto* entry = cutoff_cache.Update(&suit_cards);
-    entry->card[TOTAL_CARDS][current_trick->lead_seat][seat_to_play] = cutoff_card;
+    entry->card[TOTAL_CARDS][current_trick->lead_seat] = cutoff_card;
   } else {
     int prev_card = current_trick->cards[NextSeat(seat_to_play, 3)];
     auto* entry = cutoff_cache.Update(&suit_cards);
-    entry->card[prev_card][current_trick->lead_seat][seat_to_play] = cutoff_card;
+    entry->card[prev_card][current_trick->lead_seat] = cutoff_card;
   }
 }
 
@@ -581,7 +580,8 @@ int MinMax::Search(int alpha, int beta, int seat_to_play, int depth) {
     for (int card : playables) {
       if (current_trick->equivalence[card] != card) continue;
       if (Cutoff(alpha, beta, seat_to_play, depth, card, &state, &bounded_ns_tricks)) {
-        SaveCutoffCard(seat_to_play, card);
+        //if (!cutoff_cards.Have(card))
+          SaveCutoffCard(seat_to_play, card);
         return bounded_ns_tricks;
       }
     }
