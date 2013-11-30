@@ -525,15 +525,11 @@ Cards MinMax::LookupCutoffCards(int seat_to_play) {
 
 inline
 void MinMax::SaveCutoffCard(int seat_to_play, int cutoff_card) {
+  int prev_card = current_trick->OnLead(seat_to_play) ?
+    TOTAL_CARDS : current_trick->cards[NextSeat(seat_to_play, 3)];
   Cards suit_cards = all_cards.Suit(current_trick->LeadSuit());
-  if (current_trick->OnLead(seat_to_play)) {
-    auto* entry = cutoff_cache.Update(&suit_cards);
-    entry->card[TOTAL_CARDS][current_trick->lead_seat] = cutoff_card;
-  } else {
-    int prev_card = current_trick->cards[NextSeat(seat_to_play, 3)];
-    auto* entry = cutoff_cache.Update(&suit_cards);
-    entry->card[prev_card][current_trick->lead_seat] = cutoff_card;
-  }
+  auto* entry = cutoff_cache.Update(&suit_cards);
+  entry->card[prev_card][current_trick->lead_seat] = cutoff_card;
 }
 
 inline
