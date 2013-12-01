@@ -265,8 +265,8 @@ struct BoundsEntry {
 
 struct CutoffEntry {
   uint64_t hash;
-  // Cut-off card depending on the leading seat and the previous card.
-  char card[TOTAL_CARDS + 1][NUM_SEATS];
+  // Cut-off card depending on the seat to play.
+  char card[NUM_SEATS];
 
   void Reset(uint64_t hash_in) {
     hash = hash_in;
@@ -276,7 +276,7 @@ struct CutoffEntry {
 #pragma pack(pop)
 
 Cache<BoundsEntry, 4, 22> bounds_cache("Bounds Cache");
-Cache<CutoffEntry, 1, 14> cutoff_cache("Cut-off Cache");
+Cache<CutoffEntry, 2, 19> cutoff_cache("Cut-off Cache");
 
 struct Trick {
   int lead_seat;
@@ -510,27 +510,29 @@ Cards MinMax::LookupCutoffCards(int seat_to_play) const {
   Cards cutoff_cards;
   if (current_trick->OnLead(seat_to_play)) {
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
-      Cards suit_cards = all_cards.Suit(suit);
-      if (suit_cards.Empty()) continue;
-      if (const auto* entry = cutoff_cache.Lookup(&suit_cards))
-        cutoff_cards.Add(entry->card[TOTAL_CARDS][current_trick->lead_seat]);
+      Cards suit_cards[2] = { all_cards.Suit(suit) };
+      if (suit_cards[0].Empty()) continue;
+      if (const auto* entry = cutoff_cache.Lookup(suit_cards))
+        cutoff_cards.Add(entry->card[seat_to_play]);
     }
   } else {
-    int prev_card = current_trick->cards[NextSeat(seat_to_play, 3)];
-    Cards suit_cards = all_cards.Suit(current_trick->LeadSuit());
-    if (const auto* entry = cutoff_cache.Lookup(&suit_cards))
-      cutoff_cards.Add(entry->card[prev_card][current_trick->lead_seat]);
+    Cards suit_cards[2] = { all_cards.Suit(current_trick->LeadSuit()) };
+    for (int seat = 0; seat < NUM_SEATS; ++seat)
+      suit_cards[1].Add(hands[seat].Suit(current_trick->LeadSuit()));
+    if (const auto* entry = cutoff_cache.Lookup(suit_cards))
+      cutoff_cards.Add(entry->card[seat_to_play]);
   }
   return cutoff_cards;
 }
 
 inline
 void MinMax::SaveCutoffCard(int seat_to_play, int cutoff_card) const {
-  int prev_card = current_trick->OnLead(seat_to_play) ?
-    TOTAL_CARDS : current_trick->cards[NextSeat(seat_to_play, 3)];
-  Cards suit_cards = all_cards.Suit(current_trick->LeadSuit());
-  auto* entry = cutoff_cache.Update(&suit_cards);
-  entry->card[prev_card][current_trick->lead_seat] = cutoff_card;
+  Cards suit_cards[2] = { all_cards.Suit(current_trick->LeadSuit()) };
+  if (!current_trick->OnLead(seat_to_play))
+    for (int seat = 0; seat < NUM_SEATS; ++seat)
+      suit_cards[1].Add(hands[seat].Suit(current_trick->LeadSuit()));
+  auto* entry = cutoff_cache.Update(suit_cards);
+  entry->card[seat_to_play] = cutoff_card;
 }
 
 inline
@@ -580,7 +582,7 @@ int MinMax::Search(int alpha, int beta, int seat_to_play, int depth) {
     for (int card : playables) {
       if (current_trick->equivalence[card] != card) continue;
       if (Cutoff(alpha, beta, seat_to_play, depth, card, &state, &bounded_ns_tricks)) {
-        //if (!cutoff_cards.Have(card))
+        if (!cutoff_cards.Have(card))
           SaveCutoffCard(seat_to_play, card);
         return bounded_ns_tricks;
       }
