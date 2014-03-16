@@ -732,7 +732,16 @@ int main(int argc, char* argv[]) {
   char line[NUM_SEATS][80];
   CHECK(fgets(line[NORTH], sizeof(line[NORTH]), stdin));
   CHECK(fgets(line[WEST],  sizeof(line[WEST]),  stdin));
-  CHECK(fgets(line[EAST],  sizeof(line[EAST]),  stdin));
+  char* gap = strstr(line[WEST], "    ");
+  if (!gap)
+    gap = strstr(line[WEST], "\t");
+  if (gap != NULL && gap != line[WEST]) {
+    // East hand is on the same line as West.
+    strcpy(line[EAST], gap);
+    *gap = '\0';
+  } else {
+    CHECK(fgets(line[EAST],  sizeof(line[EAST]),  stdin));
+  }
   CHECK(fgets(line[SOUTH], sizeof(line[SOUTH]), stdin));
 
   Cards hands[NUM_SEATS];
