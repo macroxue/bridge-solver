@@ -286,8 +286,6 @@ struct Trick {
 
   int LeadSuit() const { return SuitOf(cards[lead_seat]); }
   int WinningCard() const { return cards[winning_seat]; }
-  bool OnLead(int seat_to_play) const { return seat_to_play == lead_seat; }
-  bool CompleteAfter(int seat) const { return NextSeat(seat) == lead_seat; }
 
   void IdentifyEquivalentCards(Cards cards, Cards all_cards) {
     // Two cards in one suit are equivalent when their relative ranks are next to
@@ -340,7 +338,7 @@ class MinMax {
   private:
     void ShowTricks(int alpha, int beta, int seat_to_play, int depth, int ns_tricks) const;
     int CollectLastTrick(int seat_to_play);
-    Cards GetPlayableCards(int seat_to_play, const char equivalence[TOTAL_CARDS]) const;
+    Cards GetPlayableCards(int depth, int seat_to_play, const char equivalence[TOTAL_CARDS]) const;
     void GetPattern(const Cards hands[NUM_SEATS], Cards pattern_hands[NUM_SEATS]) const;
     int FastTricks(int seat_to_play) const;
 
@@ -351,11 +349,12 @@ class MinMax {
     };
 
     State SaveState() const;
+    bool TrickStartingAt(int depth) const { return (depth & 3) == 0; }
     bool TrickCompletedAt(int depth) const { return (depth & 3) == 3; }
     int Play(int seat_to_play, int card_to_play, int depth);
     void Unplay(int seat_to_play, int card_to_play, int depth, const State& state);
-    Cards LookupCutoffCards(int seat_to_play) const;
-    void SaveCutoffCard(int seat_to_play, int cutoff_card) const;
+    Cards LookupCutoffCards(int depth, int seat_to_play) const;
+    void SaveCutoffCard(int depth, int seat_to_play, int cutoff_card) const;
     bool Cutoff(int alpha, int beta, int seat_to_play, int depth, int card_to_play,
                 State* state, int* bounded_ns_tricks);
 
@@ -386,9 +385,9 @@ void MinMax::ShowTricks(int alpha, int beta, int seat_to_play, int depth, int ns
   printf(" -> %d (%d %d)\n", ns_tricks, alpha, beta);
 }
 
-Cards MinMax::GetPlayableCards(int seat_to_play, const char equivalence[TOTAL_CARDS]) const {
+Cards MinMax::GetPlayableCards(int depth, int seat_to_play, const char equivalence[TOTAL_CARDS]) const {
   const Cards& hand = hands[seat_to_play];
-  if (current_trick->OnLead(seat_to_play))
+  if (TrickStartingAt(depth))
     return hand;
 
   int lead_suit = current_trick->LeadSuit();
@@ -466,7 +465,7 @@ int MinMax::Play(int seat_to_play, int card_to_play, int depth) {
   current_trick->cards[seat_to_play] = card_to_play;
 
   // who's winning?
-  if (current_trick->OnLead(seat_to_play) ||
+  if (TrickStartingAt(depth) ||
       WinOver(card_to_play, current_trick->WinningCard(), trump)) {
     current_trick->winning_seat = seat_to_play;
   }
@@ -506,9 +505,9 @@ void MinMax::Unplay(int seat_to_play, int card_to_play, int depth, const State& 
 }
 
 inline
-Cards MinMax::LookupCutoffCards(int seat_to_play) const {
+Cards MinMax::LookupCutoffCards(int depth, int seat_to_play) const {
   Cards cutoff_cards;
-  if (current_trick->OnLead(seat_to_play)) {
+  if (TrickStartingAt(depth)) {
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       Cards suit_cards[2] = { all_cards.Suit(suit) };
       if (suit_cards[0].Empty()) continue;
@@ -526,9 +525,9 @@ Cards MinMax::LookupCutoffCards(int seat_to_play) const {
 }
 
 inline
-void MinMax::SaveCutoffCard(int seat_to_play, int cutoff_card) const {
+void MinMax::SaveCutoffCard(int depth, int seat_to_play, int cutoff_card) const {
   Cards suit_cards[2] = { all_cards.Suit(current_trick->LeadSuit()) };
-  if (!current_trick->OnLead(seat_to_play))
+  if (!TrickStartingAt(depth))
     for (int seat = 0; seat < NUM_SEATS; ++seat)
       suit_cards[1].Add(hands[seat].Suit(current_trick->LeadSuit()));
   auto* entry = cutoff_cache.Update(suit_cards);
@@ -564,15 +563,15 @@ int MinMax::Search(int alpha, int beta, int seat_to_play, int depth) {
     return ns_tricks;
   }
 
-  if (current_trick->OnLead(seat_to_play))
+  if (TrickStartingAt(depth))
     for (int seat = 0; seat < NUM_SEATS; ++seat)
       for (int suit = 0; suit < NUM_SUITS; ++suit)
         current_trick->IdentifyEquivalentCards(hands[seat].Suit(suit),
                                                all_cards.Suit(suit));
 
   State state = SaveState();
-  Cards playable_cards = GetPlayableCards(seat_to_play, current_trick->equivalence);
-  Cards cutoff_cards = LookupCutoffCards(seat_to_play);
+  Cards playable_cards = GetPlayableCards(depth, seat_to_play, current_trick->equivalence);
+  Cards cutoff_cards = LookupCutoffCards(depth, seat_to_play);
   Cards sets_of_playables[2] = {
     playable_cards.Intersect(cutoff_cards),
     playable_cards.Different(cutoff_cards)
@@ -583,7 +582,7 @@ int MinMax::Search(int alpha, int beta, int seat_to_play, int depth) {
       if (current_trick->equivalence[card] != card) continue;
       if (Cutoff(alpha, beta, seat_to_play, depth, card, &state, &bounded_ns_tricks)) {
         if (!cutoff_cards.Have(card))
-          SaveCutoffCard(seat_to_play, card);
+          SaveCutoffCard(depth, seat_to_play, card);
         return bounded_ns_tricks;
       }
     }
@@ -607,7 +606,7 @@ int MinMax::FastTricks(int seat_to_play) const {
 }
 
 int MinMax::SearchWithCache(int alpha, int beta, int seat_to_play, int depth) {
-  if (current_trick->OnLead(seat_to_play)) {
+  if (TrickStartingAt(depth)) {
     int fast_tricks = FastTricks(seat_to_play);
     if (IsNS(seat_to_play) && ns_tricks_won + fast_tricks >= beta)
       return ns_tricks_won + fast_tricks;
@@ -616,7 +615,7 @@ int MinMax::SearchWithCache(int alpha, int beta, int seat_to_play, int depth) {
       return ns_tricks_won + (remaining_tricks - fast_tricks);
   }
 
-  if (!options.use_cache || (!current_trick->OnLead(seat_to_play) && depth >= 4) ||
+  if (!options.use_cache || (!TrickStartingAt(depth) && depth >= 4) ||
       all_cards.Size() == 4)
     return Search(alpha, beta, seat_to_play, depth);
 
