@@ -7,6 +7,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <algorithm>
+#include <vector>
 
 #define CHECK(statement)  if (!(statement)) printf("CHECK("#statement") failed")
 #ifdef _DEBUG
@@ -30,6 +31,11 @@ const char* SeatName(int seat) {
   return seat_names[seat];
 }
 char SeatLetter(int seat) { return SeatName(seat)[0]; }
+
+const char* SuitName(int suit) {
+  static const char* suit_names[NUM_SUITS + 1] = { "Spade", "Heart", "Diamond", "Club", "No" };
+  return suit_names[suit];
+}
 
 char suit_of[TOTAL_CARDS];
 char rank_of[TOTAL_CARDS];
@@ -151,15 +157,18 @@ class Cache {
     Cache(const char* name)
       : cache_name(name), probe_distance(0),
         lookup_count(0), hit_count(0), update_count(0), collision_count(0) {
-      for (int i = 0; i < size; ++i)
-        entries_[i].hash = 0;
-
       srand(1);
       for (int i = 0; i < input_size; ++i)
         hash_rand[i] = GenerateHashRandom();
+      Reset();
     }
 
-    ~Cache() {
+    void Reset() {
+      for (int i = 0; i < size; ++i)
+        entries_[i].hash = 0;
+    }
+
+    void ShowStatistics() const {
       int loaded_count = 0;
       for (int i = 0; i < size; ++i)
         loaded_count += (entries_[i].hash != 0);
@@ -704,7 +713,8 @@ int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
       upperbound = ns_tricks;
     else
       lowerbound = ns_tricks;
-    printf("lowerbound: %d\tupperbound: %d\n", lowerbound, upperbound);
+    if (options.displaying_depth >= 0)
+      printf("lowerbound: %d\tupperbound: %d\n", lowerbound, upperbound);
   }
   return ns_tricks;
 }
@@ -758,27 +768,43 @@ int main(int argc, char* argv[]) {
       }
   }
 
-  CHECK(fgets(line[0], sizeof(line[0]), stdin));
-  int trump = CharToSuit(line[0][0]);
-  CHECK(fgets(line[0], sizeof(line[0]), stdin));
-  int seat_to_play = CharToSeat(line[0][0]);
+  std::vector<int> trumps;
+  if (fgets(line[0], sizeof(line[0]), stdin))
+    trumps.push_back(CharToSuit(line[0][0]));
+  else
+    trumps = { SPADE, HEART, DIAMOND, CLUB, NOTRUMP };
+
+  std::vector<int> lead_seats;
+  if (fgets(line[0], sizeof(line[0]), stdin))
+    lead_seats.push_back(CharToSeat(line[0][0]));
+  else
+    lead_seats = { WEST, NORTH, EAST, SOUTH };
 
   struct timeval start;
   gettimeofday(&start, NULL);
   printf("Solving ...\n");
-  int ns_tricks;
-  int alpha = options.alpha;
-  int beta = std::min(options.beta, num_tricks);
-  if (options.use_test_driver) {
-    ns_tricks = MemoryEnhancedTestDriver(hands, trump, seat_to_play, beta);
-  } else {
-    MinMax min_max(hands, trump, seat_to_play);
-    ns_tricks = min_max.Search(alpha, beta);
+  for (int trump : trumps) {
+    for (int seat_to_play : lead_seats) {
+      printf("---- %s trump, %s to lead ----\n", SuitName(trump), SeatName(seat_to_play));
+      int ns_tricks;
+      int alpha = options.alpha;
+      int beta = std::min(options.beta, num_tricks);
+      if (options.use_test_driver) {
+        ns_tricks = MemoryEnhancedTestDriver(hands, trump, seat_to_play, beta);
+      } else {
+        MinMax min_max(hands, trump, seat_to_play);
+        ns_tricks = min_max.Search(alpha, beta);
+      }
+      printf("NS tricks: %d\tEW tricks: %d\t", ns_tricks, num_tricks - ns_tricks);
+      struct timeval finish;
+      gettimeofday(&finish, NULL);
+      printf("time: %.3fs\n", (finish.tv_sec - start.tv_sec) +
+          (double(finish.tv_usec) - start.tv_usec) * 1e-6);
+    }
+    bounds_cache.Reset();
+    cutoff_cache.Reset();
   }
-  printf("NS tricks: %d\tEW tricks: %d\n", ns_tricks, num_tricks - ns_tricks);
-  struct timeval finish;
-  gettimeofday(&finish, NULL);
-  printf("time: %.3fs\n", (finish.tv_sec - start.tv_sec) +
-         (double(finish.tv_usec) - start.tv_usec) * 1e-6);
+  bounds_cache.ShowStatistics();
+  cutoff_cache.ShowStatistics();
   return 0;
 }
