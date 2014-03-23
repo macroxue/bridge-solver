@@ -88,11 +88,12 @@ struct Options {
   bool discard_suit_bottom;
   bool rank_first;
   bool show_stats;
+  bool full_analysis;
 
   Options()
     : alpha(0), beta(TOTAL_TRICKS), use_cache(true), use_test_driver(true),
       small_card(TWO), displaying_depth(0), discard_suit_bottom(true),
-      rank_first(false), show_stats(false) {}
+      rank_first(false), show_stats(false), full_analysis(false) {}
 } options;
 
 template <class T> int BitSize(T v) { return sizeof(v) * 8; }
@@ -724,12 +725,13 @@ int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
 
 int main(int argc, char* argv[]) {
   int c;
-  while ((c = getopt(argc, argv, "a:b:cdrs:tD:S")) != -1) {
+  while ((c = getopt(argc, argv, "a:b:cdfrs:tD:S")) != -1) {
     switch (c) {
       case 'a': options.alpha = atoi(optarg); break;
       case 'b': options.beta = atoi(optarg); break;
       case 'c': options.use_cache = false; break;
       case 'd': options.discard_suit_bottom = false; break;
+      case 'f': options.full_analysis = true; break;
       case 'r': options.rank_first = true; break;
       case 's': options.small_card = CharToRank(optarg[0]); break;
       case 't': options.use_test_driver = false; break;
@@ -771,13 +773,13 @@ int main(int argc, char* argv[]) {
   }
 
   std::vector<int> trumps;
-  if (scanf(" %s ", line[0]) == 1)
+  if (!options.full_analysis && scanf(" %s ", line[0]) == 1)
     trumps.push_back(CharToSuit(line[0][0]));
   else
     trumps = { SPADE, HEART, DIAMOND, CLUB, NOTRUMP };
 
   std::vector<int> lead_seats;
-  if (scanf(" %s ", line[0]) == 1)
+  if (!options.full_analysis && scanf(" %s ", line[0]) == 1)
     lead_seats.push_back(CharToSeat(line[0][0]));
   else
     lead_seats = { WEST, NORTH, EAST, SOUTH };
