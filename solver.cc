@@ -87,11 +87,12 @@ struct Options {
   int  displaying_depth;
   bool discard_suit_bottom;
   bool rank_first;
+  bool show_stats;
 
   Options()
-    : alpha(0), beta(TOTAL_TRICKS), use_cache(false), use_test_driver(false),
-      small_card(TWO), displaying_depth(4), discard_suit_bottom(false),
-      rank_first(false) {}
+    : alpha(0), beta(TOTAL_TRICKS), use_cache(true), use_test_driver(true),
+      small_card(TWO), displaying_depth(0), discard_suit_bottom(true),
+      rank_first(false), show_stats(false) {}
 } options;
 
 template <class T> int BitSize(T v) { return sizeof(v) * 8; }
@@ -713,7 +714,7 @@ int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
       upperbound = ns_tricks;
     else
       lowerbound = ns_tricks;
-    if (options.displaying_depth >= 0)
+    if (options.displaying_depth > 0)
       printf("lowerbound: %d\tupperbound: %d\n", lowerbound, upperbound);
   }
   return ns_tricks;
@@ -723,16 +724,17 @@ int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
 
 int main(int argc, char* argv[]) {
   int c;
-  while ((c = getopt(argc, argv, "a:b:cd:rs:tD")) != -1) {
+  while ((c = getopt(argc, argv, "a:b:cdrs:tD:S")) != -1) {
     switch (c) {
       case 'a': options.alpha = atoi(optarg); break;
       case 'b': options.beta = atoi(optarg); break;
-      case 'c': options.use_cache = true; break;
-      case 'd': options.displaying_depth = atoi(optarg); break;
+      case 'c': options.use_cache = false; break;
+      case 'd': options.discard_suit_bottom = false; break;
       case 'r': options.rank_first = true; break;
       case 's': options.small_card = CharToRank(optarg[0]); break;
-      case 't': options.use_test_driver = true; break;
-      case 'D': options.discard_suit_bottom = true; break;
+      case 't': options.use_test_driver = false; break;
+      case 'D': options.displaying_depth = atoi(optarg); break;
+      case 'S': options.show_stats = true; break;
     }
   }
 
@@ -769,23 +771,21 @@ int main(int argc, char* argv[]) {
   }
 
   std::vector<int> trumps;
-  if (fgets(line[0], sizeof(line[0]), stdin))
+  if (scanf(" %s ", line[0]) == 1)
     trumps.push_back(CharToSuit(line[0][0]));
   else
     trumps = { SPADE, HEART, DIAMOND, CLUB, NOTRUMP };
 
   std::vector<int> lead_seats;
-  if (fgets(line[0], sizeof(line[0]), stdin))
+  if (scanf(" %s ", line[0]) == 1)
     lead_seats.push_back(CharToSeat(line[0][0]));
   else
     lead_seats = { WEST, NORTH, EAST, SOUTH };
 
   struct timeval start;
   gettimeofday(&start, NULL);
-  printf("Solving ...\n");
   for (int trump : trumps) {
     for (int seat_to_play : lead_seats) {
-      printf("---- %s trump, %s to lead ----\n", SuitName(trump), SeatName(seat_to_play));
       int ns_tricks;
       int alpha = options.alpha;
       int beta = std::min(options.beta, num_tricks);
@@ -795,16 +795,18 @@ int main(int argc, char* argv[]) {
         MinMax min_max(hands, trump, seat_to_play);
         ns_tricks = min_max.Search(alpha, beta);
       }
-      printf("NS tricks: %d\tEW tricks: %d\t", ns_tricks, num_tricks - ns_tricks);
-      struct timeval finish;
-      gettimeofday(&finish, NULL);
-      printf("time: %.3fs\n", (finish.tv_sec - start.tv_sec) +
-          (double(finish.tv_usec) - start.tv_usec) * 1e-6);
+      struct timeval now;
+      gettimeofday(&now, NULL);
+      printf("%s trump\t%s to lead\tNS %d\tEW %d\tTime %.3fs\n",
+             SuitName(trump), SeatName(seat_to_play), ns_tricks, num_tricks - ns_tricks,
+             (now.tv_sec - start.tv_sec) + (double(now.tv_usec) - start.tv_usec) * 1e-6);
+    }
+    if (options.show_stats) {
+      bounds_cache.ShowStatistics();
+      cutoff_cache.ShowStatistics();
     }
     bounds_cache.Reset();
     cutoff_cache.Reset();
   }
-  bounds_cache.ShowStatistics();
-  cutoff_cache.ShowStatistics();
   return 0;
 }
