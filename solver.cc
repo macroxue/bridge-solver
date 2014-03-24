@@ -488,32 +488,30 @@ class Play {
       hands[seat_to_play].Add(card_played);
     }
 
+    void BuildCutoffIndex(Cards cutoff_index[2]) const {
+      if (TrickStarting()) {
+        for (int i = (depth & ~3) - 1; i >= 0; i -= 4)
+          cutoff_index[1].Add(plays[i].WinningCard());
+      } else {
+        cutoff_index[0] = all_cards.Suit(LeadSuit());
+        cutoff_index[1].Add(PreviousPlay().WinningCard());
+      }
+    }
+
     Cards LookupCutoffCards() const {
       Cards cutoff_cards;
-      if (TrickStarting()) {
-        for (int suit = 0; suit < NUM_SUITS; ++suit) {
-          Cards suit_cards[2] = { all_cards.Suit(suit) };
-          if (suit_cards[0].Empty()) continue;
-          if (const auto* entry = cutoff_cache.Lookup(suit_cards))
-            cutoff_cards.Add(entry->card[seat_to_play]);
-        }
-      } else {
-        Cards suit_cards[2] = { all_cards.Suit(LeadSuit()) };
-        for (int seat = 0; seat < NUM_SEATS; ++seat)
-          suit_cards[1].Add(hands[seat].Suit(LeadSuit()));
-        if (const auto* entry = cutoff_cache.Lookup(suit_cards))
-          cutoff_cards.Add(entry->card[seat_to_play]);
-      }
+      Cards cutoff_index[2];
+      BuildCutoffIndex(cutoff_index);
+      if (const auto* entry = cutoff_cache.Lookup(cutoff_index))
+        cutoff_cards.Add(entry->card[seat_to_play]);
       return cutoff_cards;
     }
 
     void SaveCutoffCard(int cutoff_card) const {
-      Cards suit_cards[2] = { all_cards.Suit(LeadSuit()) };
-      if (!TrickStarting())
-        for (int seat = 0; seat < NUM_SEATS; ++seat)
-          suit_cards[1].Add(hands[seat].Suit(LeadSuit()));
-      auto* entry = cutoff_cache.Update(suit_cards);
-      entry->card[seat_to_play] = cutoff_card;
+      Cards cutoff_index[2];
+      BuildCutoffIndex(cutoff_index);
+      if (auto* entry = cutoff_cache.Update(cutoff_index))
+        entry->card[seat_to_play] = cutoff_card;
     }
 
     bool Cutoff(int alpha, int beta, int card_to_play, int* bounded_ns_tricks) {
@@ -583,8 +581,8 @@ class Play {
     int WinningSeat() const { return plays[winning_play].seat_to_play; }
     int LeadCard() const { return plays[depth & ~3].card_played; }
     int LeadSuit() const { return SuitOf(LeadCard()); }
-    Play& PreviousPlay() { return *(this - 1); }
-    Play& NextPlay() { return *(this + 1); }
+    Play& PreviousPlay() const { return plays[depth - 1]; }
+    Play& NextPlay() const { return plays[depth + 1]; }
 
     // Fixed info.
     Play* plays;
