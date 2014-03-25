@@ -490,8 +490,7 @@ class Play {
 
     void BuildCutoffIndex(Cards cutoff_index[2]) const {
       if (TrickStarting()) {
-        for (int i = (depth & ~3) - 1; i >= 0; i -= 4)
-          cutoff_index[1].Add(plays[i].WinningCard());
+        cutoff_index[0] = hands[seat_to_play];
       } else {
         cutoff_index[0] = all_cards.Suit(LeadSuit());
         cutoff_index[1].Add(PreviousPlay().WinningCard());
