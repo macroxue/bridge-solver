@@ -492,7 +492,10 @@ class Play {
       if (TrickStarting()) {
         cutoff_index[0] = hands[seat_to_play];
       } else {
-        cutoff_index[0] = all_cards.Suit(LeadSuit());
+        if (hands[seat_to_play].Suit(LeadSuit()).Empty())
+          cutoff_index[0] = hands[seat_to_play];
+        else
+          cutoff_index[0] = all_cards.Suit(LeadSuit());
         cutoff_index[1].Add(PreviousPlay().WinningCard());
       }
     }
