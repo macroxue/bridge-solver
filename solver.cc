@@ -290,7 +290,26 @@ Cache<BoundsEntry, 4, 22> bounds_cache("Bounds Cache");
 Cache<CutoffEntry, 2, 19> cutoff_cache("Cut-off Cache");
 
 struct Trick {
+  Cards pattern_hands[NUM_SEATS];
   char equivalence[TOTAL_CARDS];
+
+  void IdentifyPatternCards(Cards hands[NUM_SEATS], int suit) {
+    // Create the pattern using relative ranks. For example, when all the cards
+    // remaining in a suit are J, 8, 7 and 2, they are treated as A, K, Q and J
+    // respectively.
+    Cards all_cards;
+    int card_holder[TOTAL_CARDS];
+    for (int seat = 0; seat < NUM_SEATS; ++seat) {
+      Cards suit_cards = hands[seat].Suit(suit);
+      all_cards.Add(suit_cards);
+      for (int card : suit_cards)
+        card_holder[card] = seat;
+      pattern_hands[seat].Remove(pattern_hands[seat].Suit(suit));
+    }
+    int relative_rank = ACE;
+    for (int card : all_cards)
+      pattern_hands[card_holder[card]].Add(CardOf(suit, relative_rank--));
+  }
 
   void IdentifyEquivalentCards(Cards cards, Cards all_cards) {
     // Two cards in one suit are equivalent when their relative ranks are next to
@@ -340,8 +359,8 @@ class Play {
           all_cards.Size() == 4)
         return Search(alpha, beta);
 
-      Cards pattern_hands[4];
-      GetPattern(pattern_hands);
+      ComputePatternHands();
+      Cards* pattern_hands = trick->pattern_hands;
 
       struct Bounds {
         int lower;
@@ -414,25 +433,21 @@ class Play {
       return bounded_ns_tricks;
     }
 
-    void GetPattern(Cards pattern_hands[NUM_SEATS]) const {
-      // Create the pattern using relative ranks. For example, when all the cards
-      // remaining in a suit are J, 8, 7 and 2, they are treated as A, K, Q and J
-      // respectively.
-      Cards all_cards;
-      int relative_ranks[NUM_SUITS];
-      int card_holder[TOTAL_CARDS];
-      for (int seat = 0; seat < NUM_SEATS; ++seat) {
-        relative_ranks[seat] = ACE;
-        Cards hand = hands[seat];
-        all_cards.Add(hand);
-        for (int card : hand)
-          card_holder[card] = seat;
+    void ComputePatternHands() {
+      // Only recompute pattern for suits touched in the previous trick.
+      bool touched[NUM_SUITS] = { false, false, false, false };
+      if (depth >= 4) {
+        for (int i = depth - 4; i < depth; ++i)
+          touched[SuitOf(plays[i].card_played)] = true;
+        memcpy(trick->pattern_hands, (trick - 1)->pattern_hands, sizeof(trick->pattern_hands));
+      } else {
+        for (int suit = 0; suit < NUM_SUITS; ++suit)
+          touched[suit] = true;
+        memset(trick->pattern_hands, 0, sizeof(trick->pattern_hands));
       }
-
-      for (int card : all_cards) {
-        int suit = SuitOf(card);
-        pattern_hands[card_holder[card]].Add(CardOf(suit, relative_ranks[suit]));
-        --relative_ranks[suit];
+      for (int suit = 0; suit < NUM_SUITS; ++suit) {
+        if (!touched[suit]) continue;
+        trick->IdentifyPatternCards(hands, suit);
       }
     }
 
