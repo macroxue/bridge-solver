@@ -393,9 +393,7 @@ class Play {
       }
 
       if (TrickStarting())
-        for (int seat = 0; seat < NUM_SEATS; ++seat)
-          for (int suit = 0; suit < NUM_SUITS; ++suit)
-            trick->IdentifyEquivalentCards(hands[seat].Suit(suit), all_cards.Suit(suit));
+        ComputeEquivalence();
 
       Cards playable_cards = GetPlayableCards();
       Cards cutoff_cards = LookupCutoffCards();
@@ -435,6 +433,24 @@ class Play {
         int suit = SuitOf(card);
         pattern_hands[card_holder[card]].Add(CardOf(suit, relative_ranks[suit]));
         --relative_ranks[suit];
+      }
+    }
+
+    void ComputeEquivalence() {
+      // Only recompute equivalence for suits touched in the previous trick.
+      bool touched[NUM_SUITS] = { false, false, false, false };
+      if (depth > 0) {
+        for (int i = depth - 4; i < depth; ++i)
+          touched[SuitOf(plays[i].card_played)] = true;
+        memcpy(trick->equivalence, (trick - 1)->equivalence, sizeof(trick->equivalence));
+      } else {
+        for (int suit = 0; suit < NUM_SUITS; ++suit)
+          touched[suit] = true;
+      }
+      for (int suit = 0; suit < NUM_SUITS; ++suit) {
+        if (!touched[suit]) continue;
+        for (int seat = 0; seat < NUM_SEATS; ++seat)
+          trick->IdentifyEquivalentCards(hands[seat].Suit(suit), all_cards.Suit(suit));
       }
     }
 
