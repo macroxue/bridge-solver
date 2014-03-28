@@ -813,7 +813,7 @@ int main(int argc, char* argv[]) {
   if (!options.full_analysis && scanf(" %s ", line[0]) == 1)
     lead_seats.push_back(CharToSeat(line[0][0]));
   else
-    lead_seats = { WEST, NORTH, EAST, SOUTH };
+    lead_seats = { WEST, EAST, NORTH, SOUTH };
 
   struct timeval start;
   gettimeofday(&start, NULL);
