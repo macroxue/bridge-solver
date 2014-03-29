@@ -10,11 +10,6 @@
 #include <vector>
 
 #define CHECK(statement)  if (!(statement)) printf("CHECK("#statement") failed")
-#ifdef _DEBUG
-#define DEBUG(statement)  statement
-#else
-#define DEBUG(statement)
-#endif
 
 namespace {
 
@@ -328,6 +323,39 @@ struct Trick {
   }
 };
 
+class Stats {
+  public:
+    Stats(bool e) : enabled(e) { Clear(); }
+    void Clear() { if (enabled) memset(cutoff_at, 0, sizeof(cutoff_at)); }
+    void CutoffAt(int depth, int card_count) { if (enabled) ++cutoff_at[depth][card_count]; }
+    void Show() {
+      if (!enabled) return;
+      puts("---- Cut-off Quality ----");
+      for (int d = 0; d < TOTAL_CARDS; ++d) {
+        int sum = 0;
+        int last = TOTAL_TRICKS - 1;
+        for (int i = 0; i < TOTAL_TRICKS; ++i) {
+          if (cutoff_at[d][i] == 0) continue;
+          last = i;
+          sum += cutoff_at[d][i];
+        }
+        if (sum == 0) continue;
+
+        printf("%d: ", d);
+        printf("%.1f%% ", cutoff_at[d][0] * 100.0 / sum);
+        for (int i = 0; i <= last; ++i)
+          printf("%d ", cutoff_at[d][i]);
+        puts("");
+      }
+    }
+
+  private:
+    bool enabled;
+    int cutoff_at[TOTAL_CARDS][16];
+};
+
+Stats stats(false);
+
 class Play {
   public:
     Play() {}
@@ -421,14 +449,17 @@ class Play {
         playable_cards.Different(cutoff_cards)
       };
       int bounded_ns_tricks = NsToPlay() ? 0 : TOTAL_TRICKS;
+      int card_count = 0;
       for (Cards playables : sets_of_playables)
         for (int card : playables) {
           if (trick->equivalence[card] != card) continue;
           if (Cutoff(alpha, beta, card, &bounded_ns_tricks)) {
             if (!cutoff_cards.Have(card))
               SaveCutoffCard(card);
+            stats.CutoffAt(depth, card_count);
             return bounded_ns_tricks;
           }
+          ++card_count;
         }
       return bounded_ns_tricks;
     }
@@ -642,6 +673,11 @@ class MinMax {
 
       for (int i = 0; i < TOTAL_CARDS; ++i)
         new(&plays[i]) Play(plays, tricks + i / 4, hands, trump, i, seat_to_play);
+      new (&stats) Stats(options.show_stats);
+    }
+
+    ~MinMax() {
+      stats.Show();
     }
 
     int Search(int alpha, int beta) {
