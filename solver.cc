@@ -385,8 +385,7 @@ class Play {
         seat_to_play = NextSeat(PreviousPlay().seat_to_play);
       }
 
-      if (!options.use_cache || (!TrickStarting() && depth >= 4) ||
-          all_cards.Size() == 4)
+      if (!options.use_cache || !TrickStarting() || all_cards.Size() == 4)
         return Search(alpha, beta);
 
       ComputePatternHands();
