@@ -444,6 +444,8 @@ class Play {
 
       Cards playable_cards = GetPlayableCards();
       Cards cutoff_cards = LookupCutoffCards();
+      if (playable_cards.Intersect(cutoff_cards).Empty())
+        cutoff_cards = HeuristicPlay(playable_cards);
       Cards sets_of_playables[2] = {
         playable_cards.Intersect(cutoff_cards),
         playable_cards.Different(cutoff_cards)
@@ -462,6 +464,21 @@ class Play {
           ++card_count;
         }
       return bounded_ns_tricks;
+    }
+
+    Cards HeuristicPlay(Cards playable_cards) const {
+      if (trump != NOTRUMP) {
+        Cards my_trumps = playable_cards.Suit(trump);
+        if (!my_trumps.Empty()) {
+          if (TrickStarting())
+            // Draw high trump.
+            return Cards().Add(trick->equivalence[my_trumps.Top()]);
+          else if (LeadSuit() != trump)
+            // Ruff with low trump.
+            return Cards().Add(trick->equivalence[my_trumps.Bottom()]);
+        }
+      }
+      return Cards();
     }
 
     void ComputePatternHands() {
@@ -567,7 +584,8 @@ class Play {
       Cards cutoff_index[2];
       BuildCutoffIndex(cutoff_index);
       if (const auto* entry = cutoff_cache.Lookup(cutoff_index))
-        cutoff_cards.Add(entry->card[seat_to_play]);
+        if (entry->card[seat_to_play] != TOTAL_CARDS)
+          cutoff_cards.Add(entry->card[seat_to_play]);
       return cutoff_cards;
     }
 
@@ -866,7 +884,7 @@ int main(int argc, char* argv[]) {
       }
       struct timeval now;
       gettimeofday(&now, NULL);
-      printf("%s trump\t%s to lead\tNS %d\tEW %d\tTime %.3fs\n",
+      printf("%s trump\t%s to lead\tNS %d\tEW %d\tTime %.3f s\n",
              SuitName(trump), SeatName(seat_to_play), ns_tricks, num_tricks - ns_tricks,
              (now.tv_sec - start.tv_sec) + (double(now.tv_usec) - start.tv_usec) * 1e-6);
     }
