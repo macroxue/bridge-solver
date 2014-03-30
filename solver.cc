@@ -66,13 +66,6 @@ struct CardInitializer {
   }
 };
 
-int NextSeat(int seat, int count = 1) { return (seat + count) & (NUM_SEATS -1 ); }
-bool IsNS(int seat) { return seat & 1; }
-
-bool WinOver(int c1, int c2, int trump) {
-  return SuitOf(c1) == SuitOf(c2) ? RankOf(c1) > RankOf(c2) : SuitOf(c1) == trump;
-}
-
 struct Options {
   int  alpha;
   int  beta;
@@ -382,7 +375,7 @@ class Play {
       } else {
         all_cards = PreviousPlay().all_cards;
         ns_tricks_won = PreviousPlay().ns_tricks_won;
-        seat_to_play = NextSeat(PreviousPlay().seat_to_play);
+        seat_to_play = PreviousPlay().NextSeat();
       }
 
       if (!options.use_cache || !TrickStarting() || all_cards.Size() == 4)
@@ -556,7 +549,7 @@ class Play {
       hands[seat_to_play].Remove(card_played);
 
       // who's winning?
-      if (TrickStarting() || WinOver(card_played, PreviousPlay().WinningCard(), trump)) {
+      if (TrickStarting() || WinOver(card_played, PreviousPlay().WinningCard())) {
         winning_play = depth;
       } else {
         winning_play = PreviousPlay().winning_play;
@@ -618,7 +611,7 @@ class Play {
 
     int FastTricks() const {
       Cards my_cards = hands[seat_to_play];
-      Cards both_hands = my_cards.Union(hands[NextSeat(seat_to_play, 2)]);
+      Cards both_hands = my_cards.Union(hands[NextSeat(2)]);
       int fast_tricks = 0;
       if (trump == NOTRUMP || all_cards.Suit(trump) == both_hands.Suit(trump)) {
         for (int suit = 0; suit < NUM_SUITS; ++suit) {
@@ -636,14 +629,14 @@ class Play {
       int winning_card = *hands[seat_to_play].begin();
       int winning_seat = seat_to_play;
       for (int i = 1; i < NUM_SEATS; ++i) {
-        seat_to_play = NextSeat(seat_to_play);
+        seat_to_play = NextSeat();
         int card_to_play = *hands[seat_to_play].begin();
-        if (WinOver(card_to_play, winning_card, trump)) {
+        if (WinOver(card_to_play, winning_card)) {
           winning_card = card_to_play;
           winning_seat = seat_to_play;
         }
       }
-      return ns_tricks_won + IsNS(winning_seat);
+      return ns_tricks_won + IsNs(winning_seat);
     }
 
     void ShowTricks(int alpha, int beta, int ns_tricks) const {
@@ -658,12 +651,17 @@ class Play {
 
     bool TrickStarting() const { return (depth & 3) == 0; }
     bool TrickEnding() const { return (depth & 3) == 3; }
-    bool NsToPlay() const { return IsNS(seat_to_play); }
-    bool NsWon() const { return IsNS(WinningSeat()); }
+    bool IsNs(int seat) const { return seat & 1; }
+    bool NsToPlay() const { return IsNs(seat_to_play); }
+    bool NsWon() const { return IsNs(WinningSeat()); }
+    bool WinOver(int c1, int c2) const {
+      return SuitOf(c1) == SuitOf(c2) ? RankOf(c1) > RankOf(c2) : SuitOf(c1) == trump;
+    }
     int WinningCard() const { return plays[winning_play].card_played; }
     int WinningSeat() const { return plays[winning_play].seat_to_play; }
     int LeadCard() const { return plays[depth & ~3].card_played; }
     int LeadSuit() const { return SuitOf(LeadCard()); }
+    int NextSeat(int count = 1) const { return (seat_to_play + count) & (NUM_SEATS -1 ); }
     Play& PreviousPlay() const { return plays[depth - 1]; }
     Play& NextPlay() const { return plays[depth + 1]; }
 
