@@ -76,6 +76,7 @@ bool WinOver(int c1, int c2, int trump) {
 struct Options {
   int  alpha;
   int  beta;
+  int  guess;
   bool use_cache;
   bool use_test_driver;
   int  small_card;
@@ -86,7 +87,8 @@ struct Options {
   bool full_analysis;
 
   Options()
-    : alpha(0), beta(TOTAL_TRICKS), use_cache(true), use_test_driver(true),
+    : alpha(0), beta(TOTAL_TRICKS), guess(TOTAL_TRICKS),
+      use_cache(true), use_test_driver(true),
       small_card(TWO), displaying_depth(0), discard_suit_bottom(true),
       rank_first(false), show_stats(false), full_analysis(false) {}
 } options;
@@ -788,10 +790,10 @@ Cards ParseHand(char *line) {
 }
 
 int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
-                             int num_tricks) {
-  int upperbound = num_tricks;
+                             int guess_tricks) {
+  int upperbound = TOTAL_TRICKS;
   int lowerbound = 0;
-  int ns_tricks = num_tricks;
+  int ns_tricks = guess_tricks;
   while (lowerbound < upperbound) {
     MinMax min_max(hands, trump, seat_to_play);
     int beta = (ns_tricks == lowerbound ? ns_tricks + 1 : ns_tricks);
@@ -810,13 +812,14 @@ int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
 
 int main(int argc, char* argv[]) {
   int c;
-  while ((c = getopt(argc, argv, "a:b:cdfrs:tD:S")) != -1) {
+  while ((c = getopt(argc, argv, "a:b:cdfg:rs:tD:S")) != -1) {
     switch (c) {
       case 'a': options.alpha = atoi(optarg); break;
       case 'b': options.beta = atoi(optarg); break;
       case 'c': options.use_cache = false; break;
       case 'd': options.discard_suit_bottom = false; break;
       case 'f': options.full_analysis = true; break;
+      case 'g': options.guess = atoi(optarg); break;
       case 'r': options.rank_first = true; break;
       case 's': options.small_card = CharToRank(optarg[0]); break;
       case 't': options.use_test_driver = false; break;
@@ -872,16 +875,19 @@ int main(int argc, char* argv[]) {
   struct timeval start;
   gettimeofday(&start, NULL);
   for (int trump : trumps) {
+    // TODO: Best guess with losing trick count.
+    int guess_tricks = std::min(options.guess, num_tricks);
     for (int seat_to_play : lead_seats) {
       int ns_tricks;
       int alpha = options.alpha;
       int beta = std::min(options.beta, num_tricks);
       if (options.use_test_driver) {
-        ns_tricks = MemoryEnhancedTestDriver(hands, trump, seat_to_play, beta);
+        ns_tricks = MemoryEnhancedTestDriver(hands, trump, seat_to_play, guess_tricks);
       } else {
         MinMax min_max(hands, trump, seat_to_play);
         ns_tricks = min_max.Search(alpha, beta);
       }
+      guess_tricks = ns_tricks;
       struct timeval now;
       gettimeofday(&now, NULL);
       printf("%s trump\t%s to lead\tNS %d\tEW %d\tTime %.3f s\n",
