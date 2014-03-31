@@ -805,6 +805,10 @@ int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
   return ns_tricks;
 }
 
+double Elapse(const timeval& from, const timeval& to) {
+  return (to.tv_sec - from.tv_sec) + (double(to.tv_usec) - from.tv_usec) * 1e-6;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -869,8 +873,9 @@ int main(int argc, char* argv[]) {
   else
     lead_seats = { WEST, EAST, NORTH, SOUTH };
 
-  struct timeval start;
-  gettimeofday(&start, NULL);
+  timeval now;
+  gettimeofday(&now, NULL);
+  timeval start = now, last_round = now;
   for (int trump : trumps) {
     // TODO: Best guess with losing trick count.
     int guess_tricks = std::min(options.guess, num_tricks);
@@ -885,12 +890,15 @@ int main(int argc, char* argv[]) {
         ns_tricks = min_max.Search(alpha, beta);
       }
       guess_tricks = ns_tricks;
-      struct timeval now;
       gettimeofday(&now, NULL);
       printf("%s trump\t%s to lead\tNS %d\tEW %d\tTime %.3f s\n",
              SuitName(trump), SeatName(seat_to_play), ns_tricks, num_tricks - ns_tricks,
-             (now.tv_sec - start.tv_sec) + (double(now.tv_usec) - start.tv_usec) * 1e-6);
+             Elapse(start, now));
     }
+    if (trumps.size() > 1)
+      printf("%s trump total time %.3f s\n", SuitName(trump), Elapse(last_round, now));
+    last_round = now;
+
     if (options.show_stats) {
       bounds_cache.ShowStatistics();
       cutoff_cache.ShowStatistics();
