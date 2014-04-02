@@ -592,10 +592,12 @@ class Play {
 
     bool Cutoff(int alpha, int beta, int card_to_play, int* bounded_ns_tricks) {
       PlayCard(card_to_play);
+      if (depth < options.displaying_depth - 1)
+        ShowTricks(alpha, beta, 0, true);
       int ns_tricks = NextPlay().SearchWithCache(alpha, beta);
-      UnplayCard();
       if (depth < options.displaying_depth)
-        ShowTricks(alpha, beta, ns_tricks);
+        ShowTricks(alpha, beta, ns_tricks, false);
+      UnplayCard();
 
       if (NsToPlay()) {
         *bounded_ns_tricks = std::max(*bounded_ns_tricks, ns_tricks);
@@ -650,14 +652,17 @@ class Play {
       return ns_tricks_won + IsNs(winning_seat);
     }
 
-    void ShowTricks(int alpha, int beta, int ns_tricks) const {
+    void ShowTricks(int alpha, int beta, int ns_tricks, bool starting) const {
       printf("%2d:", depth);
       for (int i = 0; i <= depth; ++i) {
         if ((i & 3) == 0)
           printf(" %c", SeatLetter(plays[i].seat_to_play));
         printf(" %s", NameOf(plays[i].card_played));
       }
-      printf(" -> %d (%d %d)\n", ns_tricks, alpha, beta);
+      if (starting)
+        printf(" (%d %d)\n", alpha, beta);
+      else
+        printf(" (%d %d) -> %d\n", alpha, beta, ns_tricks);
     }
 
     bool TrickStarting() const { return (depth & 3) == 0; }
