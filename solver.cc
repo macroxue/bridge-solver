@@ -147,8 +147,7 @@ template <class Entry, int input_size, int bits>
 class Cache {
   public:
     Cache(const char* name)
-      : cache_name(name), probe_distance(0),
-        lookup_count(0), hit_count(0), update_count(0), collision_count(0) {
+      : cache_name(name) {
       srand(1);
       for (int i = 0; i < input_size; ++i)
         hash_rand[i] = GenerateHashRandom();
@@ -156,6 +155,8 @@ class Cache {
     }
 
     void Reset() {
+      probe_distance = 0;
+      lookup_count = hit_count = update_count = collision_count = 0;
       for (int i = 0; i < size; ++i)
         entries_[i].hash = 0;
     }
@@ -277,7 +278,7 @@ struct CutoffEntry {
 #pragma pack(pop)
 
 Cache<BoundsEntry, 4, 22> bounds_cache("Bounds Cache");
-Cache<CutoffEntry, 2, 19> cutoff_cache("Cut-off Cache");
+Cache<CutoffEntry, 2, 18> cutoff_cache("Cut-off Cache");
 
 struct Trick {
   Cards pattern_hands[NUM_SEATS];
