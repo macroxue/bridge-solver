@@ -463,13 +463,30 @@ class Play {
     Cards HeuristicPlay(Cards playable_cards) const {
       if (trump != NOTRUMP) {
         Cards my_trumps = playable_cards.Suit(trump);
+        Cards opp_hands = hands[NextSeat(1)].Union(hands[NextSeat(3)]);
         if (!my_trumps.Empty()) {
-          if (TrickStarting())
-            // Draw high trump.
-            return Cards().Add(trick->equivalence[my_trumps.Top()]);
-          else if (LeadSuit() != trump)
+          if (TrickStarting()) {
+            if (!opp_hands.Suit(trump).Empty())
+              // Draw high trump.
+              return Cards().Add(my_trumps.Top());
+          } else if (LeadSuit() != trump)
             // Ruff with low trump.
             return Cards().Add(trick->equivalence[my_trumps.Bottom()]);
+        }
+        // Don't run winners if opponents still have trumps.
+        if (!opp_hands.Suit(trump).Empty())
+          return Cards();
+      }
+      if (TrickStarting()) {
+        // Run winners.
+        int suits[] = { SPADE, HEART, DIAMOND, CLUB };
+        if (trump != NOTRUMP)
+          std::swap(suits[NUM_SUITS - 1], suits[trump]);
+        Cards our_hands = playable_cards.Union(hands[NextSeat(2)]);
+        for (int suit : suits) {
+          Cards my_suit = playable_cards.Suit(suit);
+          if (!my_suit.Empty() && our_hands.Suit(suit).Top() == all_cards.Suit(suit).Top())
+            return Cards().Add(my_suit.Top());
         }
       }
       return Cards();
