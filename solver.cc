@@ -458,7 +458,13 @@ class Play {
           }
           ++card_count;
         }
+      stats.CutoffAt(depth, TOTAL_TRICKS - 1);
       return bounded_ns_tricks;
+    }
+
+    bool CanWinByRank(int seat) const {
+      Cards suit = hands[seat].Suit(LeadSuit());
+      return !suit.Empty() && WinOver(suit.Top(), PreviousPlay().WinningCard());
     }
 
     Cards HeuristicPlay(Cards playable_cards) const {
@@ -470,9 +476,12 @@ class Play {
             if (!opp_hands.Suit(trump).Empty())
               // Draw high trump.
               return Cards().Add(my_trumps.Top());
-          } else if (LeadSuit() != trump)
-            // Ruff with low trump.
-            return Cards().Add(trick->equivalence[my_trumps.Bottom()]);
+          } else if (LeadSuit() != trump) {
+            // Don't ruff partner's winner unless opponent can win.
+            if (PreviousPlay().WinningSeat() != Partner() ||
+                (ThirdSeat() && CanWinByRank(LeftHandOpp())))
+              return Cards().Add(trick->equivalence[my_trumps.Bottom()]);
+          }
         }
         // Don't run winners if opponents still have trumps.
         if (!opp_hands.Suit(trump).Empty())
@@ -684,6 +693,8 @@ class Play {
     }
 
     bool TrickStarting() const { return (depth & 3) == 0; }
+    bool SecondSeat() const { return (depth & 3) == 1; }
+    bool ThirdSeat() const { return (depth & 3) == 2; }
     bool TrickEnding() const { return (depth & 3) == 3; }
     bool IsNs(int seat) const { return seat & 1; }
     bool NsToPlay() const { return IsNs(seat_to_play); }
@@ -696,6 +707,9 @@ class Play {
     int LeadCard() const { return plays[depth & ~3].card_played; }
     int LeadSuit() const { return SuitOf(LeadCard()); }
     int NextSeat(int count = 1) const { return (seat_to_play + count) & (NUM_SEATS -1 ); }
+    int LeftHandOpp() const { return NextSeat(1); }
+    int Partner() const { return NextSeat(2); }
+    int RightHandOpp() const { return NextSeat(3); }
     Play& PreviousPlay() const { return plays[depth - 1]; }
     Play& NextPlay() const { return plays[depth + 1]; }
 
