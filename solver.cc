@@ -848,7 +848,7 @@ int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
     else
       lowerbound = ns_tricks;
     if (options.displaying_depth > 0)
-      printf("lowerbound: %d\tupperbound: %d\n", lowerbound, upperbound);
+      printf("Lowerbound: %d\tUpperbound: %d\n", lowerbound, upperbound);
   }
   return ns_tricks;
 }
