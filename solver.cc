@@ -82,7 +82,7 @@ struct Options {
   Options()
     : alpha(0), beta(TOTAL_TRICKS), guess(TOTAL_TRICKS),
       use_cache(true), use_test_driver(true),
-      small_card(TWO), displaying_depth(0), discard_suit_bottom(true),
+      small_card(TWO), displaying_depth(-1), discard_suit_bottom(true),
       rank_first(false), show_stats(false), full_analysis(false) {}
 } options;
 
