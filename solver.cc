@@ -923,8 +923,9 @@ int main(int argc, char* argv[]) {
 
   timeval now;
   gettimeofday(&now, NULL);
-  timeval start = now, last_round = now;
+  timeval last_round = now;
   for (int trump : trumps) {
+    printf("%c", SuitName(trump)[0]);
     // TODO: Best guess with losing trick count.
     int guess_tricks = std::min(options.guess, num_tricks);
     for (int seat_to_play : lead_seats) {
@@ -938,13 +939,11 @@ int main(int argc, char* argv[]) {
         ns_tricks = min_max.Search(alpha, beta);
       }
       guess_tricks = ns_tricks;
-      gettimeofday(&now, NULL);
-      printf("%s trump\t%s to lead\tNS %d\tEW %d\tTime %.3f s\n",
-             SuitName(trump), SeatName(seat_to_play), ns_tricks, num_tricks - ns_tricks,
-             Elapse(start, now));
+      if (seat_to_play == WEST || seat_to_play == EAST) printf(" %2d", ns_tricks);
+      else printf(" %2d", num_tricks - ns_tricks);
     }
-    if (trumps.size() > 1)
-      printf("%s trump total time %.3f s\n", SuitName(trump), Elapse(last_round, now));
+    gettimeofday(&now, NULL);
+    printf(" %4.1f s\n", Elapse(last_round, now));
     last_round = now;
 
     if (options.show_stats) {
