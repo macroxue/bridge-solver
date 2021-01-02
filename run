@@ -2,6 +2,6 @@
 
 for test in fu fu*[^s]; do
   opt="$*"
-  echo "./solver.q $opt < $test"
-  ./solver.q $opt < $test
+  echo "./solver $opt < $test"
+  ./solver -d $opt < $test
 done
