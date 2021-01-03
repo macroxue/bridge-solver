@@ -95,6 +95,7 @@ class Cards {
     bool Empty() const { return bits == 0; }
     bool Have(int card) const { return bits & Bit(card); }
     bool operator ==(const Cards& c) const { return bits == c.bits; }
+    bool operator !=(const Cards& c) const { return bits != c.bits; }
 
     Cards Slice(int begin, int end) const { return bits & (Bit(end) - Bit(begin)); }
     Cards Suit(int suit) const { return bits & MaskOf(suit); }
@@ -498,38 +499,34 @@ class Play {
     }
 
     void ComputePatternHands() {
-      // Only recompute pattern for suits touched in the previous trick.
-      bool touched[NUM_SUITS] = { false, false, false, false };
-      if (depth >= 4) {
-        for (int i = depth - 4; i < depth; ++i)
-          touched[SuitOf(plays[i].card_played)] = true;
-        memcpy(trick->pattern_hands, (trick - 1)->pattern_hands, sizeof(trick->pattern_hands));
-      } else {
+      if (depth < 4) {
         for (int suit = 0; suit < NUM_SUITS; ++suit)
-          touched[suit] = true;
-        memset(trick->pattern_hands, 0, sizeof(trick->pattern_hands));
-      }
-      for (int suit = 0; suit < NUM_SUITS; ++suit) {
-        if (!touched[suit]) continue;
-        trick->IdentifyPatternCards(hands, suit);
+          trick->IdentifyPatternCards(hands, suit);
+      } else {
+        // Recompute the pattern for suits changed by the last trick.
+        memcpy(trick->pattern_hands, (trick - 1)->pattern_hands,
+               sizeof(trick->pattern_hands));
+        for (int suit = 0; suit < NUM_SUITS; ++suit) {
+          if (all_cards.Suit(suit) != plays[depth - 4].all_cards.Suit(suit))
+            trick->IdentifyPatternCards(hands, suit);
+        }
       }
     }
 
     void ComputeEquivalence() {
-      // Only recompute equivalence for suits touched in the previous trick.
-      bool touched[NUM_SUITS] = { false, false, false, false };
-      if (depth > 0) {
-        for (int i = depth - 4; i < depth; ++i)
-          touched[SuitOf(plays[i].card_played)] = true;
-        memcpy(trick->equivalence, (trick - 1)->equivalence, sizeof(trick->equivalence));
-      } else {
+      if (depth < 4) {
         for (int suit = 0; suit < NUM_SUITS; ++suit)
-          touched[suit] = true;
-      }
-      for (int suit = 0; suit < NUM_SUITS; ++suit) {
-        if (!touched[suit]) continue;
-        for (int seat = 0; seat < NUM_SEATS; ++seat)
-          trick->IdentifyEquivalentCards(hands[seat].Suit(suit), all_cards.Suit(suit));
+          for (int seat = 0; seat < NUM_SEATS; ++seat)
+            trick->IdentifyEquivalentCards(hands[seat].Suit(suit), all_cards.Suit(suit));
+      } else {
+        // Recompute the equivalence for suits changed by the last trick.
+        memcpy(trick->equivalence, (trick - 1)->equivalence,
+               sizeof(trick->equivalence));
+        for (int suit = 0; suit < NUM_SUITS; ++suit) {
+          if (all_cards.Suit(suit) != plays[depth - 4].all_cards.Suit(suit))
+            for (int seat = 0; seat < NUM_SEATS; ++seat)
+              trick->IdentifyEquivalentCards(hands[seat].Suit(suit), all_cards.Suit(suit));
+        }
       }
     }
 

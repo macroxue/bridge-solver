@@ -1,8 +1,9 @@
-all: solver.p solver solver.g
+all: solver.p solver
 
 OPTS=-std=c++0x -Wall
 
 solver.p: solver.cc
+	rm -f solver.gcda
 	g++ $(OPTS) -O3 -fprofile-generate -o $@ $^
 	./$@ < fu | tail
 solver: solver.cc
