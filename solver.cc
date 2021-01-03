@@ -67,23 +67,18 @@ struct CardInitializer {
 };
 
 struct Options {
-  int  alpha;
-  int  beta;
-  int  guess;
-  bool use_cache;
-  bool use_test_driver;
-  int  small_card;
-  int  displaying_depth;
-  bool discard_suit_bottom;
-  bool rank_first;
-  bool show_stats;
-  bool full_analysis;
-
-  Options()
-    : alpha(0), beta(TOTAL_TRICKS), guess(TOTAL_TRICKS),
-      use_cache(true), use_test_driver(true),
-      small_card(TWO), displaying_depth(-1), discard_suit_bottom(true),
-      rank_first(false), show_stats(false), full_analysis(false) {}
+  char* input = nullptr;
+  int  alpha = 0;
+  int  beta = TOTAL_TRICKS;
+  int  guess = TOTAL_TRICKS;
+  bool use_cache = true;
+  bool use_test_driver = true;
+  int  small_card = TWO;
+  int  displaying_depth = -1;
+  bool discard_suit_bottom = true;
+  bool rank_first = false;
+  bool show_stats = false;
+  bool full_analysis = false;
 } options;
 
 template <class T> int BitSize(T v) { return sizeof(v) * 8; }
@@ -861,7 +856,7 @@ double Elapse(const timeval& from, const timeval& to) {
 
 int main(int argc, char* argv[]) {
   int c;
-  while ((c = getopt(argc, argv, "a:b:cdfg:rs:tD:S")) != -1) {
+  while ((c = getopt(argc, argv, "a:b:cdfg:i:rs:tD:S")) != -1) {
     switch (c) {
       case 'a': options.alpha = atoi(optarg); break;
       case 'b': options.beta = atoi(optarg); break;
@@ -869,6 +864,7 @@ int main(int argc, char* argv[]) {
       case 'd': options.discard_suit_bottom = false; break;
       case 'f': options.full_analysis = true; break;
       case 'g': options.guess = atoi(optarg); break;
+      case 'i': options.input = optarg; break;
       case 'r': options.rank_first = true; break;
       case 's': options.small_card = CharToRank(optarg[0]); break;
       case 't': options.use_test_driver = false; break;
@@ -879,10 +875,18 @@ int main(int argc, char* argv[]) {
 
   CardInitializer card_initializer(options.rank_first);
 
+  FILE* input_file = stdin;
+  if (options.input) {
+    input_file = fopen(options.input, "rt");
+    if (!input_file) {
+      fprintf(stderr, "Input file not found: '%s'.\n", options.input);
+      exit(-1);
+    }
+  }
   // read hands
   char line[NUM_SEATS][80];
-  CHECK(fgets(line[NORTH], sizeof(line[NORTH]), stdin));
-  CHECK(fgets(line[WEST],  sizeof(line[WEST]),  stdin));
+  CHECK(fgets(line[NORTH], sizeof(line[NORTH]), input_file));
+  CHECK(fgets(line[WEST],  sizeof(line[WEST]),  input_file));
   char* gap = strstr(line[WEST], "    ");
   if (!gap)
     gap = strstr(line[WEST], "\t");
@@ -891,9 +895,9 @@ int main(int argc, char* argv[]) {
     strcpy(line[EAST], gap);
     *gap = '\0';
   } else {
-    CHECK(fgets(line[EAST],  sizeof(line[EAST]),  stdin));
+    CHECK(fgets(line[EAST],  sizeof(line[EAST]),  input_file));
   }
-  CHECK(fgets(line[SOUTH], sizeof(line[SOUTH]), stdin));
+  CHECK(fgets(line[SOUTH], sizeof(line[SOUTH]), input_file));
 
   Cards hands[NUM_SEATS];
   int num_tricks = 0;
@@ -910,16 +914,18 @@ int main(int argc, char* argv[]) {
   }
 
   std::vector<int> trumps;
-  if (!options.full_analysis && scanf(" %s ", line[0]) == 1)
+  if (!options.full_analysis && fscanf(input_file, " %s ", line[0]) == 1)
     trumps.push_back(CharToSuit(line[0][0]));
   else
     trumps = { SPADE, HEART, DIAMOND, CLUB, NOTRUMP };
 
   std::vector<int> lead_seats;
-  if (!options.full_analysis && scanf(" %s ", line[0]) == 1)
+  if (!options.full_analysis && fscanf(input_file, " %s ", line[0]) == 1)
     lead_seats.push_back(CharToSeat(line[0][0]));
   else
     lead_seats = { WEST, EAST, NORTH, SOUTH };
+
+  if (input_file != stdin) fclose(input_file);
 
   timeval now;
   gettimeofday(&now, NULL);
