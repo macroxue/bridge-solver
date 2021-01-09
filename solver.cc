@@ -8,6 +8,7 @@
 #include <termios.h>
 #include <unistd.h>
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <set>
 #include <vector>
@@ -867,15 +868,13 @@ Cards ParseHand(char *line) {
   return hand;
 }
 
-int MemoryEnhancedTestDriver(Cards hands[], int trump, int seat_to_play,
-                             int guess_tricks) {
+int MemoryEnhancedTestDriver(std::function<int(int, int)> search, int guess_tricks) {
   int upperbound = TOTAL_TRICKS;
   int lowerbound = 0;
   int ns_tricks = guess_tricks;
   while (lowerbound < upperbound) {
-    MinMax min_max(hands, trump, seat_to_play);
     int beta = (ns_tricks == lowerbound ? ns_tricks + 1 : ns_tricks);
-    ns_tricks = min_max.Search(beta - 1, beta);
+    ns_tricks = search(beta - 1, beta);
     if (ns_tricks < beta)
       upperbound = ns_tricks;
     else
@@ -1001,7 +1000,6 @@ class InteractivePlay {
     typedef std::map<int, int> CardTricks;
 
     CardTricks EvaluateCards(Play& play, int ns_tricks, bool ns_contract) {
-      bool is_ns = play.IsNs(play.seat_to_play);
       int last_suit = NOTRUMP;
       CardTricks card_tricks;
       printf("From");
@@ -1015,18 +1013,13 @@ class InteractivePlay {
         printf("%c?\b", NameOf(card)[1]);
         fflush(stdout);
 
-        // Evaluate cards by combining +1 and -1 windows.
-        play.PlayCard(card);
-        int ns_tricks_plus = play.NextPlay().SearchWithCache(ns_tricks, ns_tricks + 1);
-        play.UnplayCard();
-
-        play.PlayCard(card);
-        int ns_tricks_minus = play.NextPlay().SearchWithCache(ns_tricks - 1, ns_tricks);
-        play.UnplayCard();
-
-        int new_ns_tricks = is_ns ?
-          std::min(ns_tricks_plus, ns_tricks_minus) :
-          std::max(ns_tricks_plus, ns_tricks_minus);
+        auto search = [&play, card](int alpha, int beta) {
+          play.PlayCard(card);
+          int ns_tricks = play.NextPlay().SearchWithCache(alpha, beta);
+          play.UnplayCard();
+          return ns_tricks;
+        };
+        int new_ns_tricks = MemoryEnhancedTestDriver(search, ns_tricks);
         card_tricks[card] = new_ns_tricks;
 
         int trick_diff = ns_contract ? new_ns_tricks - target_ns_tricks
@@ -1335,10 +1328,13 @@ int main(int argc, char* argv[]) {
       int ns_tricks;
       int alpha = options.alpha;
       int beta = std::min(options.beta, num_tricks);
+      MinMax min_max(hands, trump, seat_to_play);
       if (options.use_test_driver) {
-        ns_tricks = MemoryEnhancedTestDriver(hands, trump, seat_to_play, guess_tricks);
+        auto search = [&min_max](int alpha, int beta) {
+          return min_max.Search(alpha, beta);
+        };
+        ns_tricks = MemoryEnhancedTestDriver(search, guess_tricks);
       } else {
-        MinMax min_max(hands, trump, seat_to_play);
         ns_tricks = min_max.Search(alpha, beta);
       }
       guess_tricks = ns_tricks;
