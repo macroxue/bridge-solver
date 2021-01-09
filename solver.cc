@@ -5,8 +5,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/time.h>
+#include <termios.h>
 #include <unistd.h>
 #include <algorithm>
+#include <map>
+#include <set>
 #include <vector>
 
 #define CHECK(statement)  if (!(statement)) printf("CHECK("#statement") failed")
@@ -32,6 +35,16 @@ const char* SuitName(int suit) {
   return suit_names[suit];
 }
 
+const char* SuitSign(int suit) {
+  static const char* suit_signs[NUM_SUITS + 1] = { "♠", "\e[31m♥\e[0m", "\e[31m♦\e[0m", "♣", "NT" };
+  return suit_signs[suit];
+}
+
+const char RankName(int rank) {
+  static const char rank_names[] = "23456789TJQKA";
+  return rank_names[rank];
+}
+
 char suit_of[TOTAL_CARDS];
 char rank_of[TOTAL_CARDS];
 char card_of[NUM_SUITS][16];
@@ -46,8 +59,6 @@ const char* NameOf(int card) { return name_of[card]; }
 
 struct CardInitializer {
   CardInitializer(bool rank_first) {
-    static const char suit_names[] = "SHDC";
-    static const char rank_names[] = "23456789TJQKA";
     memset(mask_of, 0, sizeof(mask_of));
     for (int card = 0; card < TOTAL_CARDS; ++card) {
       if (rank_first) {
@@ -59,8 +70,8 @@ struct CardInitializer {
       }
       card_of[SuitOf(card)][RankOf(card)] = card;
       mask_of[SuitOf(card)] |= uint64_t(1) << card;
-      name_of[card][0] = suit_names[SuitOf(card)];
-      name_of[card][1] = rank_names[RankOf(card)];
+      name_of[card][0] = SuitName(SuitOf(card))[0];
+      name_of[card][1] = RankName(RankOf(card));
       name_of[card][2] = '\0';
     }
   }
@@ -79,6 +90,7 @@ struct Options {
   bool rank_first = false;
   bool show_stats = false;
   bool full_analysis = false;
+  bool interactive = false;
 } options;
 
 template <class T> int BitSize(T v) { return sizeof(v) * 8; }
@@ -113,8 +125,20 @@ class Cards {
     Cards Remove(const Cards& c) { bits &= ~c.bits; return bits; }
 
     void Show() const {
-      for (int card : *this)
-        printf("%s ", NameOf(card));
+      for (int suit = 0; suit < NUM_SUITS; ++suit) {
+        ShowSuit(suit);
+        putchar(' ');
+      }
+    }
+
+    void ShowSuit(int suit) const {
+      Cards suit_cards = Suit(suit);
+      printf("%s ", SuitSign(suit));
+      if (suit_cards.Empty())
+        putchar('-');
+      else
+        for (int card : suit_cards)
+          putchar(NameOf(card)[1]);
     }
 
     class Iterator {
@@ -242,15 +266,17 @@ class Cache {
 };
 
 #pragma pack(push, 4)
+struct Bounds {
+  uint8_t lower : 4;
+  uint8_t upper : 4;
+};
+
 struct BoundsEntry {
   // Save only the hash instead of full hands to save memory.
   // The chance of getting a hash collision is practically zero.
   uint64_t hash;
   // Bounds depending on the lead seat.
-  struct {
-    uint8_t lower : 4;
-    uint8_t upper : 4;
-  } bounds[NUM_SEATS];
+  Bounds bounds[NUM_SEATS];
 
   void Reset(uint64_t hash_in) {
     hash = hash_in;
@@ -273,8 +299,11 @@ struct CutoffEntry {
 };
 #pragma pack(pop)
 
-Cache<BoundsEntry, 4, 22> bounds_cache("Bounds Cache");
-Cache<CutoffEntry, 2, 18> cutoff_cache("Cut-off Cache");
+// Put bounds near the root in the VIP cache which is sized to have fewer
+// collisions, so more expensive search results are cached.
+Cache<BoundsEntry, 4, 21> vip_bounds_cache("VIP Bounds Cache");
+Cache<BoundsEntry, 4, 24> common_bounds_cache("Common Bounds Cache");
+Cache<CutoffEntry, 2, 19> cutoff_cache("Cut-off Cache");
 
 struct Trick {
   Cards pattern_hands[NUM_SEATS];
@@ -375,49 +404,57 @@ class Play {
         seat_to_play = PreviousPlay().NextSeat();
       }
 
-      if (!options.use_cache || !TrickStarting() || all_cards.Size() == 4)
+      if (!options.use_cache || all_cards.Size() == 4)
         return Search(alpha, beta);
 
-      ComputePatternHands();
-      Cards* pattern_hands = trick->pattern_hands;
+      const int max_vip_depth = 20;
+      const Bounds* cached_bounds = nullptr;
+      if (TrickStarting()) {
+        ComputePatternHands();
+        const auto* bounds_entry = depth <= max_vip_depth ?
+          vip_bounds_cache.Lookup(trick->pattern_hands) :
+          common_bounds_cache.Lookup(trick->pattern_hands);
+        if (bounds_entry)
+          cached_bounds = &bounds_entry->bounds[seat_to_play];
+      }
 
-      struct Bounds {
-        int lower;
-        int upper;
-      } bounds = { 0, TOTAL_TRICKS };
-
-      const auto* bounds_entry = bounds_cache.Lookup(pattern_hands);
-      if (bounds_entry) {
-        bounds.lower = bounds_entry->bounds[seat_to_play].lower + ns_tricks_won;
-        bounds.upper = bounds_entry->bounds[seat_to_play].upper + ns_tricks_won;
-        if (bounds.upper > TOTAL_TRICKS) bounds.upper = TOTAL_TRICKS;
-        if (bounds.lower >= beta) {
+      int lower = 0, upper = TOTAL_TRICKS;
+      if (cached_bounds) {
+        lower = cached_bounds->lower + ns_tricks_won;
+        upper = cached_bounds->upper + ns_tricks_won;
+        if (upper > TOTAL_TRICKS) upper = TOTAL_TRICKS;
+        if (lower >= beta) {
           if (depth <= options.displaying_depth)
-            printf("%2d: %c beta cut %d\n", depth, SeatLetter(seat_to_play), bounds.lower);
-          return bounds.lower;
+            printf("%2d: %c beta cut %d\n", depth, SeatLetter(seat_to_play), lower);
+          return lower;
         }
-        if (bounds.upper <= alpha) {
+        if (upper <= alpha) {
           if (depth <= options.displaying_depth)
-            printf("%2d: %c alpha cut %d\n", depth, SeatLetter(seat_to_play), bounds.upper);
-          return bounds.upper;
+            printf("%2d: %c alpha cut %d\n", depth, SeatLetter(seat_to_play), upper);
+          return upper;
         }
-        alpha = std::max(alpha, bounds.lower);
-        beta = std::min(beta, bounds.upper);
+        alpha = std::max(alpha, lower);
+        beta = std::min(beta, upper);
       }
 
       int ns_tricks = Search(alpha, beta);
       if (ns_tricks <= alpha)
-        bounds.upper = ns_tricks;
+        upper = ns_tricks;
       else if (ns_tricks < beta)
-        bounds.upper = bounds.lower = ns_tricks;
+        upper = lower = ns_tricks;
       else
-        bounds.lower = ns_tricks;
-      bounds.lower -= ns_tricks_won;
-      bounds.upper -= ns_tricks_won;
-      if (bounds.lower < 0) bounds.lower = 0;
-      auto* new_bounds_entry = bounds_cache.Update(pattern_hands);
-      new_bounds_entry->bounds[seat_to_play].lower = bounds.lower;
-      new_bounds_entry->bounds[seat_to_play].upper = bounds.upper;
+        lower = ns_tricks;
+      lower -= ns_tricks_won;
+      upper -= ns_tricks_won;
+      if (lower < 0) lower = 0;
+
+      if (TrickStarting()) {
+        auto* new_bounds_entry = depth <= max_vip_depth ?
+          vip_bounds_cache.Update(trick->pattern_hands) :
+          common_bounds_cache.Update(trick->pattern_hands);
+        new_bounds_entry->bounds[seat_to_play].lower = lower;
+        new_bounds_entry->bounds[seat_to_play].upper = upper;
+      }
       return ns_tricks;
     }
 
@@ -720,6 +757,8 @@ class Play {
     int card_played;
     int winning_play;
     Cards all_cards;
+
+    friend class InteractivePlay;
 };
 
 class MinMax {
@@ -740,6 +779,8 @@ class MinMax {
     int Search(int alpha, int beta) {
       return plays[0].SearchWithCache(alpha, beta);
     }
+
+    Play& play(int i) { return plays[i]; }
 
   private:
     Cards  hands[NUM_SEATS];
@@ -851,9 +892,365 @@ double Elapse(const timeval& from, const timeval& to) {
 
 }  // namespace
 
+class InteractivePlay {
+  public:
+    InteractivePlay(Cards hands[],  int trump, int lead_seat)
+      : min_max(hands, trump, lead_seat),
+        target_ns_tricks(min_max.Search(0, TOTAL_TRICKS)),
+        num_tricks(hands[WEST].Size()),
+        trump(trump) {
+      ShowUsage();
+      DetermineContract();
+
+      int ns_tricks = target_ns_tricks;
+      for (int p = 0; p < num_tricks * 4; ++p) {
+        auto& play = min_max.play(p);
+        if (play.TrickStarting()) {
+          if (!SetupTrick(play))
+            break;
+        }
+
+        auto card_tricks = EvaluateCards(play, ns_tricks, ns_contract);
+        int card_to_play;
+        switch (SelectCard(card_tricks, play, &card_to_play)) {
+          case PLAY:
+            // Save the old NS tricks first.
+            play_history.push_back({(int)card_tricks.size(), ns_tricks});
+            ns_tricks = card_tricks[card_to_play];
+            play.PlayCard(card_to_play);
+            break;
+          case UNDO:
+            // Undo to the beginning of the previous trick.
+            while (p > 0) {
+              --p;
+              min_max.play(p).UnplayCard();
+              ns_tricks = play_history.back().ns_tricks;
+              int num_choices = play_history.back().num_choices;
+              play_history.pop_back();
+              if (num_choices > 1 && p % 4 == 0)
+                break;
+            }
+            --p;
+            break;
+          case ROTATE:
+            rotation = (rotation + 3) % 4;
+            if (!play.TrickStarting())
+              ShowHands(play.hands);
+            --p;
+            break;
+          case EXIT:
+            return;
+        }
+      }
+    }
+
+  private:
+    void ShowUsage() {
+      static bool first_time = true;
+      if (first_time) {
+        first_time = false;
+        puts("******\n"
+             "<Enter> to accept the suggestion or input another card like 'CK' or 'KC'.\n"
+             "If there is only one club or one king in the list, 'C' or 'K' works too.\n"
+             "Use 'U' to undo, 'R' to rotate the board or 'E' to exit.\n"
+             "******");
+      }
+    }
+
+    void DetermineContract() {
+      if (target_ns_tricks >= (num_tricks + 1) / 2) {
+        starting_ns_tricks = TOTAL_TRICKS - num_tricks;
+        ns_contract = true;
+        int level = (TOTAL_TRICKS - num_tricks) + target_ns_tricks - 6;
+        sprintf(contract, "%d%s by NS", level, SuitSign(trump));
+      } else {
+        starting_ew_tricks = TOTAL_TRICKS - num_tricks;
+        ns_contract = false;
+        int level = TOTAL_TRICKS - target_ns_tricks - 6;
+        sprintf(contract, "%d%s by EW", level, SuitSign(trump));
+      }
+    }
+
+    bool SetupTrick(Play& play) {
+      // TODO: Clean up! SearchWithCache() recomputes the same info.
+      play.all_cards = play.hands[WEST].Union(play.hands[NORTH]).
+        Union(play.hands[EAST]).Union(play.hands[SOUTH]);
+      if (play.depth > 0) {
+        play.ns_tricks_won = play.PreviousPlay().ns_tricks_won + play.PreviousPlay().NsWon();
+        play.seat_to_play = play.PreviousPlay().WinningSeat();
+      }
+
+      play.ComputePatternHands();
+      play.ComputeEquivalence();
+
+      int trick_index = play.depth / 4;
+      printf("------ %s: NS %d EW %d ------\n",
+             contract, starting_ns_tricks + play.ns_tricks_won,
+             starting_ew_tricks + trick_index - play.ns_tricks_won);
+      ShowHands(play.hands);
+      if (trick_index == num_tricks - 1) {
+        int ns_tricks_won = play.CollectLastTrick();
+        printf("====== %s: NS %d EW %d ======\n",
+               contract, starting_ns_tricks + ns_tricks_won,
+               starting_ew_tricks + trick_index + 1 - ns_tricks_won);
+        return false;
+      }
+      return true;
+    }
+
+    typedef std::map<int, int> CardTricks;
+
+    CardTricks EvaluateCards(Play& play, int ns_tricks, bool ns_contract) {
+      bool is_ns = play.IsNs(play.seat_to_play);
+      int last_suit = NOTRUMP;
+      CardTricks card_tricks;
+      printf("From");
+      for (int card : play.GetPlayableCards()) {
+        if (play.trick->equivalence[card] != card) continue;
+
+        if (SuitOf(card) != last_suit) {
+          last_suit = SuitOf(card);
+          printf(" %s ", SuitSign(SuitOf(card)));
+        }
+        printf("%c?\b", NameOf(card)[1]);
+        fflush(stdout);
+
+        // Evaluate cards by combining +1 and -1 windows.
+        play.PlayCard(card);
+        int ns_tricks_plus = play.NextPlay().SearchWithCache(ns_tricks, ns_tricks + 1);
+        play.UnplayCard();
+
+        play.PlayCard(card);
+        int ns_tricks_minus = play.NextPlay().SearchWithCache(ns_tricks - 1, ns_tricks);
+        play.UnplayCard();
+
+        int new_ns_tricks = is_ns ?
+          std::min(ns_tricks_plus, ns_tricks_minus) :
+          std::max(ns_tricks_plus, ns_tricks_minus);
+        card_tricks[card] = new_ns_tricks;
+
+        int trick_diff = ns_contract ? new_ns_tricks - target_ns_tricks
+          : target_ns_tricks - new_ns_tricks;
+        if (-1 <= trick_diff && trick_diff <= 1)
+          printf("%c", "-=+"[trick_diff + 1]);
+        else
+          printf("(%+d)", trick_diff);
+        fflush(stdout);
+      }
+      printf(" %s plays ", SeatName(play.seat_to_play));
+      return card_tricks;
+    }
+
+    enum Action { PLAY, UNDO, ROTATE, EXIT };
+
+    Action SelectCard(const CardTricks& card_tricks, const Play& play, int* card_to_play) {
+      // Auto-play when there is only one choice.
+      if (card_tricks.size() == 1) {
+        *card_to_play = card_tricks.begin()->first;
+        printf("%s.\n", ColoredNameOf(*card_to_play));
+        return PLAY;
+      }
+
+      // Choose the optimal play, using rank as the tie-breaker.
+      *card_to_play = -1;
+      if (play.IsNs(play.seat_to_play)) {
+        int max_ns_tricks = -1;
+        for (const auto& pair : card_tricks) {
+          if (pair.second > max_ns_tricks ||
+              (pair.second == max_ns_tricks &&
+               RankOf(pair.first) < RankOf(*card_to_play))) {
+            *card_to_play = pair.first;
+            max_ns_tricks = pair.second;
+          }
+        }
+      } else {
+        int min_ns_tricks = TOTAL_TRICKS + 1;
+        for (const auto& pair : card_tricks) {
+          if (pair.second < min_ns_tricks ||
+              (pair.second == min_ns_tricks &&
+               RankOf(pair.first) < RankOf(*card_to_play))) {
+            *card_to_play = pair.first;
+            min_ns_tricks = pair.second;
+          }
+        }
+      }
+      printf("%s?", ColoredNameOf(*card_to_play));
+      fflush(stdout);
+
+      std::set<int> playable_cards;
+      for (const auto& pair : card_tricks)
+        playable_cards.insert(pair.first);
+
+      int suit = SuitOf(*card_to_play);
+      int rank = RankOf(*card_to_play);
+      while (true) {
+        switch (int c = toupper(GetRawChar())) {
+          case '\n':
+            if (suit != -1 && rank != -1) {
+              *card_to_play = CardOf(suit, rank);
+              printf("\b.\n");
+              return PLAY;
+            }
+            break;
+          case 'R':
+            printf("\n");
+            return ROTATE;
+          case 'U':
+            if (play.depth > 0) {
+              printf("\n");
+              return UNDO;
+            }
+            break;
+          case 'E':
+            printf("\n");
+            return EXIT;
+          case 'S': case 'H': case 'D': case 'C':
+            {
+              std::set<int> matches;
+              for (const auto& card : playable_cards) {
+                if (strchr(NameOf(card), c))
+                  matches.insert(card);
+              }
+              if (matches.empty())
+                break;
+              suit = SuitOf(*matches.begin());
+              if (matches.size() == 1) {
+                rank = RankOf(*matches.begin());
+              } else if (rank != -1) {
+                if (playable_cards.find(CardOf(suit, rank)) == playable_cards.end())
+                  rank = -1;
+              }
+              break;
+            }
+          default:
+            std::set<int> matches;
+            for (const auto& card : playable_cards) {
+              if (strchr(NameOf(card), c))
+                matches.insert(card);
+            }
+            if (matches.empty())
+              break;
+            rank = RankOf(*matches.begin());
+            if (matches.size() == 1) {
+              suit = SuitOf(*matches.begin());
+            } else if (suit != -1) {
+              if (playable_cards.find(CardOf(suit, rank)) == playable_cards.end())
+                  suit = -1;
+            }
+            break;
+        }
+        if (rank == -1)
+          printf("\b\b\b\b%s  ?", SuitSign(suit));
+        else if (suit == -1)
+          printf("\b\b\b\b  %c?", RankName(rank));
+        else
+          printf("\b\b\b\b%s?", ColoredNameOf(CardOf(suit, rank)));
+        fflush(stdout);
+      }
+    }
+
+    void ShowHands(Cards hands[]) const {
+      int gap = 26;
+      int seat = (NORTH + rotation) % NUM_SEATS;
+      for (int suit = 0; suit < NUM_SUITS; ++suit) {
+        if (suit == SPADE) printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
+        else printf("%*s", gap, " ");
+        hands[seat].ShowSuit(suit);
+        printf("\n");
+      }
+      for (int suit = 0; suit < NUM_SUITS; ++suit) {
+        gap = 13;
+        seat = (WEST + rotation) % NUM_SEATS;
+        if (suit == SPADE) printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
+        else printf("%*s", gap, " ");
+        hands[seat].ShowSuit(suit);
+
+        gap = 26 - std::max(1, hands[seat].Suit(suit).Size());
+        seat = (EAST + rotation) % NUM_SEATS;
+        if (suit == SPADE) printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
+        else printf("%*s", gap, " ");
+        hands[seat].ShowSuit(suit);
+        printf("\n");
+      }
+      gap = 26;
+      seat = (SOUTH + rotation) % NUM_SEATS;
+      for (int suit = 0; suit < NUM_SUITS; ++suit) {
+        if (suit == SPADE) printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
+        else printf("%*s", gap, " ");
+        hands[seat].ShowSuit(suit);
+        printf("\n");
+      }
+    }
+
+    void ShowCompactHands(Cards hands[]) const {
+      int seat = (NORTH + rotation) % NUM_SEATS;
+      printf("%25s%c:", " ", SeatLetter(seat));
+      hands[seat].Show();
+      printf("\n");
+
+      seat = (WEST + rotation) % NUM_SEATS;
+      int num_cards = hands[seat].Size();
+      printf("%*s%c:", 14 - num_cards, " ", SeatLetter(seat));
+      hands[seat].Show();
+
+      seat = (EAST + rotation) % NUM_SEATS;
+      printf("%*s%c:", num_cards + 8, " ", SeatLetter(seat));
+      hands[seat].Show();
+      printf("\n");
+
+      seat = (SOUTH + rotation) % NUM_SEATS;
+      printf("%25s%c:", " ", SeatLetter(seat));
+      hands[seat].Show();
+      printf("\n");
+    }
+
+    char* ColoredNameOf(int card) {
+      static char name[32];
+      sprintf(name, "%s %c", SuitSign(SuitOf(card)), NameOf(card)[1]);
+      return name;
+    }
+
+    char GetRawChar() {
+      char buf = 0;
+      struct termios old = {0};
+      if (tcgetattr(0, &old) < 0)
+        perror("tcsetattr()");
+      old.c_lflag &= ~ICANON;
+      old.c_lflag &= ~ECHO;
+      old.c_cc[VMIN] = 1;
+      old.c_cc[VTIME] = 0;
+      if (tcsetattr(0, TCSANOW, &old) < 0)
+        perror("tcsetattr ICANON");
+      if (read(0, &buf, 1) < 0)
+        perror ("read()");
+      old.c_lflag |= ICANON;
+      old.c_lflag |= ECHO;
+      if (tcsetattr(0, TCSADRAIN, &old) < 0)
+        perror ("tcsetattr ~ICANON");
+      return (buf);
+    }
+
+    MinMax min_max;
+    const int target_ns_tricks;
+    const int num_tricks;
+    const int trump;
+
+    char contract[80];
+    bool ns_contract = false;
+    int starting_ns_tricks = 0;
+    int starting_ew_tricks = 0;
+    int rotation = 0;
+
+    struct PlayRecord {
+      int num_choices;
+      int ns_tricks;
+    };
+    std::vector<PlayRecord> play_history;
+};
+
 int main(int argc, char* argv[]) {
   int c;
-  while ((c = getopt(argc, argv, "a:b:cdfg:i:rs:tD:S")) != -1) {
+  while ((c = getopt(argc, argv, "a:b:cdfg:i:rs:tD:IS")) != -1) {
     switch (c) {
       case 'a': options.alpha = atoi(optarg); break;
       case 'b': options.beta = atoi(optarg); break;
@@ -866,6 +1263,7 @@ int main(int argc, char* argv[]) {
       case 's': options.small_card = CharToRank(optarg[0]); break;
       case 't': options.use_test_driver = false; break;
       case 'D': options.displaying_depth = atoi(optarg); break;
+      case 'I': options.interactive = true; break;
       case 'S': options.show_stats = true; break;
     }
   }
@@ -928,7 +1326,9 @@ int main(int argc, char* argv[]) {
   gettimeofday(&now, NULL);
   timeval last_round = now;
   for (int trump : trumps) {
-    printf("%c", SuitName(trump)[0]);
+    if (!options.interactive) {
+      printf("%c", SuitName(trump)[0]);
+    }
     // TODO: Best guess with losing trick count.
     int guess_tricks = std::min(options.guess, num_tricks);
     for (int seat_to_play : lead_seats) {
@@ -942,18 +1342,40 @@ int main(int argc, char* argv[]) {
         ns_tricks = min_max.Search(alpha, beta);
       }
       guess_tricks = ns_tricks;
-      if (seat_to_play == WEST || seat_to_play == EAST) printf(" %2d", ns_tricks);
-      else printf(" %2d", num_tricks - ns_tricks);
+
+      if (!options.interactive) {
+        if (seat_to_play == WEST || seat_to_play == EAST)
+          printf(" %2d", ns_tricks);
+        else
+          printf(" %2d", num_tricks - ns_tricks);
+        continue;
+      }
+      int num_tricks = hands[WEST].Size();
+      if (num_tricks < TOTAL_TRICKS ||
+          (num_tricks == TOTAL_TRICKS && ns_tricks >= 7 &&
+           (seat_to_play == WEST || seat_to_play == EAST)) ||
+          (num_tricks == TOTAL_TRICKS && ns_tricks < 7 &&
+           (seat_to_play == NORTH || seat_to_play == SOUTH)))
+        InteractivePlay(hands, trump, seat_to_play);
+      else {
+        int declarer = (seat_to_play + 3) % NUM_SEATS;
+        printf("%s can't make a %s contract.\n", SeatName(declarer), SuitSign(trump));
+      }
     }
-    gettimeofday(&now, NULL);
-    printf(" %4.1f s\n", Elapse(last_round, now));
-    last_round = now;
+    if (!options.interactive) {
+      gettimeofday(&now, NULL);
+      printf(" %4.1f s\n", Elapse(last_round, now));
+      last_round = now;
+    }
 
     if (options.show_stats) {
-      bounds_cache.ShowStatistics();
+      vip_bounds_cache.ShowStatistics();
+      common_bounds_cache.ShowStatistics();
       cutoff_cache.ShowStatistics();
     }
-    bounds_cache.Reset();
+
+    vip_bounds_cache.Reset();
+    common_bounds_cache.Reset();
     cutoff_cache.Reset();
   }
   return 0;
