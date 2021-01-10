@@ -1317,7 +1317,7 @@ int main(int argc, char* argv[]) {
   CardInitializer card_initializer(options.rank_first);
 
   Cards hands[NUM_SEATS];
-  std::vector<int> trumps = { SPADE, HEART, DIAMOND, CLUB, NOTRUMP };
+  std::vector<int> trumps = { NOTRUMP, SPADE, HEART, DIAMOND, CLUB };
   std::vector<int> lead_seats = { WEST, EAST, NORTH, SOUTH };
   if (options.randomize) {
     RandomizeHands(hands);
