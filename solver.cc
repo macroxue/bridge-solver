@@ -800,50 +800,28 @@ class MinMax {
 namespace {
 
 int CharToSuit(char c) {
-  switch (toupper(c)) {
-    case 'S': return SPADE;
-    case 'H': return HEART;
-    case 'D': return DIAMOND;
-    case 'C': return CLUB;
-    case 'N': return NOTRUMP;
-    default:
-              printf("Unknown suit: %c\n", c);
-              exit(-1);
-  }
+  for (int suit = SPADE; suit <= NOTRUMP; ++suit)
+    if (toupper(c) == SuitName(suit)[0])
+      return suit;
+  printf("Unknown suit: %c\n", c);
+  exit(-1);
 }
 
 int CharToRank(char c) {
-  switch (toupper(c)) {
-    case 'A': return ACE;
-    case 'K': return KING;
-    case 'Q': return QUEEN;
-    case 'J': return JACK;
-    case '1':
-    case 'T': return TEN;
-    case '9': return NINE;
-    case '8': return EIGHT;
-    case '7': return SEVEN;
-    case '6': return SIX;
-    case '5': return FIVE;
-    case '4': return FOUR;
-    case '3': return THREE;
-    case '2': return TWO;
-    default:
-              printf("Unknown rank: %c\n", c);
-              exit(-1);
-  }
+  if (c == '1') return TEN;
+  for (int rank = TWO; rank <= ACE; ++rank)
+    if (toupper(c) == RankName(rank))
+      return rank;
+  printf("Unknown rank: %c\n", c);
+  exit(-1);
 }
 
 int CharToSeat(char c) {
-  switch (toupper(c)) {
-    case 'W': return WEST;
-    case 'N': return NORTH;
-    case 'E': return EAST;
-    case 'S': return SOUTH;
-    default:
-              printf("Unknown seat: %c\n", c);
-              exit(-1);
-  }
+  for (int seat = WEST; seat <= SOUTH; ++seat)
+    if (toupper(c) == SeatLetter(seat))
+      return seat;
+  printf("Unknown seat: %c\n", c);
+  exit(-1);
 }
 
 Cards ParseHand(char *line) {
