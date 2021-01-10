@@ -921,34 +921,47 @@ void ReadHands(Cards hands[], std::vector<int>& trumps, std::vector<int>& lead_s
   if (input_file != stdin) fclose(input_file);
 }
 
+int CountPoints(Cards hand) {
+  int points = 0;
+  for (const auto& card : hand)
+    if (RankOf(card) > TEN)
+      points += RankOf(card) - TEN;
+  return points;
+}
+
+void ShowHandInfo(Cards hand, int seat, int suit, int gap) {
+  if (suit == SPADE)
+    printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
+  else if (suit == CLUB)
+    printf("%*s%2d ", gap - 3, " ", CountPoints(hand));
+  else
+    printf("%*s", gap, " ");
+}
+
 void ShowHands(Cards hands[], int rotation = 0) {
   int gap = 26;
   int seat = (NORTH + rotation) % NUM_SEATS;
   for (int suit = 0; suit < NUM_SUITS; ++suit) {
-    if (suit == SPADE) printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
-    else printf("%*s", gap, " ");
+    ShowHandInfo(hands[seat], seat, suit, gap);
     hands[seat].ShowSuit(suit);
     printf("\n");
   }
   for (int suit = 0; suit < NUM_SUITS; ++suit) {
     gap = 13;
     seat = (WEST + rotation) % NUM_SEATS;
-    if (suit == SPADE) printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
-    else printf("%*s", gap, " ");
+    ShowHandInfo(hands[seat], seat, suit, gap);
     hands[seat].ShowSuit(suit);
 
     gap = 26 - std::max(1, hands[seat].Suit(suit).Size());
     seat = (EAST + rotation) % NUM_SEATS;
-    if (suit == SPADE) printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
-    else printf("%*s", gap, " ");
+    ShowHandInfo(hands[seat], seat, suit, gap);
     hands[seat].ShowSuit(suit);
     printf("\n");
   }
   gap = 26;
   seat = (SOUTH + rotation) % NUM_SEATS;
   for (int suit = 0; suit < NUM_SUITS; ++suit) {
-    if (suit == SPADE) printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
-    else printf("%*s", gap, " ");
+    ShowHandInfo(hands[seat], seat, suit, gap);
     hands[seat].ShowSuit(suit);
     printf("\n");
   }
