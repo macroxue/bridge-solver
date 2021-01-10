@@ -680,16 +680,24 @@ class Play {
             else
               break;
         }
-      } else if (depth == 0) {
-        for (int suit = 0; suit < NUM_SUITS; ++suit) {
-          int min_suit_len = hands[0].Suit(suit).Size();
-          for (int seat = 1; seat < NUM_SEATS; ++seat)
-            min_suit_len = std::min(min_suit_len, hands[seat].Suit(suit).Size());
-          for (int card : all_cards.Suit(suit))
-            if (my_cards.Have(card) && min_suit_len--)
-              ++fast_tricks;
-            else
-              break;
+      } else {
+        for (int card : all_cards.Suit(trump))
+          if (my_cards.Have(card))
+            ++fast_tricks;
+          else
+            break;
+        if (depth == 0) {
+          for (int suit = 0; suit < NUM_SUITS; ++suit) {
+            if (suit == trump) continue;
+            int min_suit_len = hands[0].Suit(suit).Size();
+            for (int seat = 1; seat < NUM_SEATS; ++seat)
+              min_suit_len = std::min(min_suit_len, hands[seat].Suit(suit).Size());
+            for (int card : all_cards.Suit(suit))
+              if (my_cards.Have(card) && min_suit_len--)
+                ++fast_tricks;
+              else
+                break;
+          }
         }
       }
       return fast_tricks;
