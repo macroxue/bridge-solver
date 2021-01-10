@@ -88,6 +88,7 @@ struct Options {
   int  small_card = TWO;
   int  displaying_depth = -1;
   bool discard_suit_bottom = true;
+  bool randomize = false;
   bool rank_first = false;
   bool show_stats = false;
   bool full_analysis = false;
@@ -854,6 +855,127 @@ Cards ParseHand(char *line) {
   return hand;
 }
 
+void RandomizeHands(Cards hands[]) {
+  struct timeval time;
+  gettimeofday(&time, NULL);
+  srand((time.tv_sec * 1000) + (time.tv_usec / 1000));
+
+  int deck[TOTAL_CARDS];
+  for (int card = 0; card < TOTAL_CARDS; ++card)
+    deck[card] = card;
+
+  int remaining_cards = TOTAL_CARDS;
+  for (int seat = 0; seat < NUM_SEATS; ++seat)
+    for (int i = 0; i < NUM_RANKS; ++i) {
+      int r = rand() % remaining_cards;
+      hands[seat].Add(deck[r]);
+      --remaining_cards;
+      std::swap(deck[r], deck[remaining_cards]);
+    }
+}
+
+void ReadHands(Cards hands[], std::vector<int>& trumps, std::vector<int>& lead_seats) {
+  FILE* input_file = stdin;
+  if (options.input) {
+    input_file = fopen(options.input, "rt");
+    if (!input_file) {
+      fprintf(stderr, "Input file not found: '%s'.\n", options.input);
+      exit(-1);
+    }
+  }
+  // read hands
+  char line[NUM_SEATS][80];
+  CHECK(fgets(line[NORTH], sizeof(line[NORTH]), input_file));
+  CHECK(fgets(line[WEST],  sizeof(line[WEST]),  input_file));
+  char* gap = strstr(line[WEST], "    ");
+  if (!gap)
+    gap = strstr(line[WEST], "\t");
+  if (gap != NULL && gap != line[WEST]) {
+    // East hand is on the same line as West.
+    strcpy(line[EAST], gap);
+    *gap = '\0';
+  } else {
+    CHECK(fgets(line[EAST],  sizeof(line[EAST]),  input_file));
+  }
+  CHECK(fgets(line[SOUTH], sizeof(line[SOUTH]), input_file));
+
+  int num_tricks = 0;
+  for (int seat = 0; seat < NUM_SEATS; ++seat) {
+    hands[seat] = ParseHand(line[seat]);
+    if (seat == 0)
+      num_tricks = hands[seat].Size();
+    else
+      if (num_tricks != hands[seat].Size()) {
+        printf("%s has %d cards, while %s has %d.\n",
+               SeatName(seat), hands[seat].Size(), SeatName(0), num_tricks);
+        exit(-1);
+      }
+  }
+
+  if (!options.full_analysis && fscanf(input_file, " %s ", line[0]) == 1)
+    trumps = {CharToSuit(line[0][0])};
+
+  if (!options.full_analysis && fscanf(input_file, " %s ", line[0]) == 1)
+    lead_seats = {CharToSeat(line[0][0])};
+
+  if (input_file != stdin) fclose(input_file);
+}
+
+void ShowHands(Cards hands[], int rotation = 0) {
+  int gap = 26;
+  int seat = (NORTH + rotation) % NUM_SEATS;
+  for (int suit = 0; suit < NUM_SUITS; ++suit) {
+    if (suit == SPADE) printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
+    else printf("%*s", gap, " ");
+    hands[seat].ShowSuit(suit);
+    printf("\n");
+  }
+  for (int suit = 0; suit < NUM_SUITS; ++suit) {
+    gap = 13;
+    seat = (WEST + rotation) % NUM_SEATS;
+    if (suit == SPADE) printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
+    else printf("%*s", gap, " ");
+    hands[seat].ShowSuit(suit);
+
+    gap = 26 - std::max(1, hands[seat].Suit(suit).Size());
+    seat = (EAST + rotation) % NUM_SEATS;
+    if (suit == SPADE) printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
+    else printf("%*s", gap, " ");
+    hands[seat].ShowSuit(suit);
+    printf("\n");
+  }
+  gap = 26;
+  seat = (SOUTH + rotation) % NUM_SEATS;
+  for (int suit = 0; suit < NUM_SUITS; ++suit) {
+    if (suit == SPADE) printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
+    else printf("%*s", gap, " ");
+    hands[seat].ShowSuit(suit);
+    printf("\n");
+  }
+}
+
+void ShowCompactHands(Cards hands[], int rotation = 0) {
+  int seat = (NORTH + rotation) % NUM_SEATS;
+  printf("%25s%c ", " ", SeatLetter(seat));
+  hands[seat].Show();
+  printf("\n");
+
+  seat = (WEST + rotation) % NUM_SEATS;
+  int num_cards = hands[seat].Size();
+  printf("%*s%c ", 14 - num_cards, " ", SeatLetter(seat));
+  hands[seat].Show();
+
+  seat = (EAST + rotation) % NUM_SEATS;
+  printf("%*s%c ", num_cards + 8, " ", SeatLetter(seat));
+  hands[seat].Show();
+  printf("\n");
+
+  seat = (SOUTH + rotation) % NUM_SEATS;
+  printf("%25s%c ", " ", SeatLetter(seat));
+  hands[seat].Show();
+  printf("\n");
+}
+
 int MemoryEnhancedTestDriver(std::function<int(int, int)> search, int guess_tricks) {
   int upperbound = TOTAL_TRICKS;
   int lowerbound = 0;
@@ -920,7 +1042,7 @@ class InteractivePlay {
           case ROTATE:
             rotation = (rotation + 3) % 4;
             if (!play.TrickStarting())
-              ShowHands(play.hands);
+              ShowHands(play.hands, rotation);
             --p;
             break;
           case EXIT:
@@ -972,7 +1094,7 @@ class InteractivePlay {
       printf("------ %s: NS %d EW %d ------\n",
              contract, starting_ns_tricks + play.ns_tricks_won,
              starting_ew_tricks + trick_index - play.ns_tricks_won);
-      ShowHands(play.hands);
+      ShowHands(play.hands, rotation);
       if (trick_index == num_tricks - 1) {
         int ns_tricks_won = play.CollectLastTrick();
         printf("====== %s: NS %d EW %d ======\n",
@@ -1128,61 +1250,6 @@ class InteractivePlay {
       }
     }
 
-    void ShowHands(Cards hands[]) const {
-      int gap = 26;
-      int seat = (NORTH + rotation) % NUM_SEATS;
-      for (int suit = 0; suit < NUM_SUITS; ++suit) {
-        if (suit == SPADE) printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
-        else printf("%*s", gap, " ");
-        hands[seat].ShowSuit(suit);
-        printf("\n");
-      }
-      for (int suit = 0; suit < NUM_SUITS; ++suit) {
-        gap = 13;
-        seat = (WEST + rotation) % NUM_SEATS;
-        if (suit == SPADE) printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
-        else printf("%*s", gap, " ");
-        hands[seat].ShowSuit(suit);
-
-        gap = 26 - std::max(1, hands[seat].Suit(suit).Size());
-        seat = (EAST + rotation) % NUM_SEATS;
-        if (suit == SPADE) printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
-        else printf("%*s", gap, " ");
-        hands[seat].ShowSuit(suit);
-        printf("\n");
-      }
-      gap = 26;
-      seat = (SOUTH + rotation) % NUM_SEATS;
-      for (int suit = 0; suit < NUM_SUITS; ++suit) {
-        if (suit == SPADE) printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
-        else printf("%*s", gap, " ");
-        hands[seat].ShowSuit(suit);
-        printf("\n");
-      }
-    }
-
-    void ShowCompactHands(Cards hands[]) const {
-      int seat = (NORTH + rotation) % NUM_SEATS;
-      printf("%25s%c:", " ", SeatLetter(seat));
-      hands[seat].Show();
-      printf("\n");
-
-      seat = (WEST + rotation) % NUM_SEATS;
-      int num_cards = hands[seat].Size();
-      printf("%*s%c:", 14 - num_cards, " ", SeatLetter(seat));
-      hands[seat].Show();
-
-      seat = (EAST + rotation) % NUM_SEATS;
-      printf("%*s%c:", num_cards + 8, " ", SeatLetter(seat));
-      hands[seat].Show();
-      printf("\n");
-
-      seat = (SOUTH + rotation) % NUM_SEATS;
-      printf("%25s%c:", " ", SeatLetter(seat));
-      hands[seat].Show();
-      printf("\n");
-    }
-
     char* ColoredNameOf(int card) {
       static char name[32];
       sprintf(name, "%s %c", SuitSign(SuitOf(card)), NameOf(card)[1]);
@@ -1238,7 +1305,7 @@ int main(int argc, char* argv[]) {
       case 'f': options.full_analysis = true; break;
       case 'g': options.guess = atoi(optarg); break;
       case 'i': options.input = optarg; break;
-      case 'r': options.rank_first = true; break;
+      case 'r': options.randomize = true; break;
       case 's': options.small_card = CharToRank(optarg[0]); break;
       case 't': options.use_test_driver = false; break;
       case 'D': options.displaying_depth = atoi(optarg); break;
@@ -1249,57 +1316,15 @@ int main(int argc, char* argv[]) {
 
   CardInitializer card_initializer(options.rank_first);
 
-  FILE* input_file = stdin;
-  if (options.input) {
-    input_file = fopen(options.input, "rt");
-    if (!input_file) {
-      fprintf(stderr, "Input file not found: '%s'.\n", options.input);
-      exit(-1);
-    }
-  }
-  // read hands
-  char line[NUM_SEATS][80];
-  CHECK(fgets(line[NORTH], sizeof(line[NORTH]), input_file));
-  CHECK(fgets(line[WEST],  sizeof(line[WEST]),  input_file));
-  char* gap = strstr(line[WEST], "    ");
-  if (!gap)
-    gap = strstr(line[WEST], "\t");
-  if (gap != NULL && gap != line[WEST]) {
-    // East hand is on the same line as West.
-    strcpy(line[EAST], gap);
-    *gap = '\0';
-  } else {
-    CHECK(fgets(line[EAST],  sizeof(line[EAST]),  input_file));
-  }
-  CHECK(fgets(line[SOUTH], sizeof(line[SOUTH]), input_file));
-
   Cards hands[NUM_SEATS];
-  int num_tricks = 0;
-  for (int seat = 0; seat < NUM_SEATS; ++seat) {
-    hands[seat] = ParseHand(line[seat]);
-    if (seat == 0)
-      num_tricks = hands[seat].Size();
-    else
-      if (num_tricks != hands[seat].Size()) {
-        printf("%s has %d cards, while %s has %d.\n",
-               SeatName(seat), hands[seat].Size(), SeatName(0), num_tricks);
-        exit(-1);
-      }
-  }
-
-  std::vector<int> trumps;
-  if (!options.full_analysis && fscanf(input_file, " %s ", line[0]) == 1)
-    trumps.push_back(CharToSuit(line[0][0]));
-  else
-    trumps = { SPADE, HEART, DIAMOND, CLUB, NOTRUMP };
-
-  std::vector<int> lead_seats;
-  if (!options.full_analysis && fscanf(input_file, " %s ", line[0]) == 1)
-    lead_seats.push_back(CharToSeat(line[0][0]));
-  else
-    lead_seats = { WEST, EAST, NORTH, SOUTH };
-
-  if (input_file != stdin) fclose(input_file);
+  std::vector<int> trumps = { SPADE, HEART, DIAMOND, CLUB, NOTRUMP };
+  std::vector<int> lead_seats = { WEST, EAST, NORTH, SOUTH };
+  if (options.randomize) {
+    RandomizeHands(hands);
+    if (!options.interactive)
+      ShowCompactHands(hands);
+  } else
+    ReadHands(hands, trumps, lead_seats);
 
   timeval now;
   gettimeofday(&now, NULL);
@@ -1309,6 +1334,7 @@ int main(int argc, char* argv[]) {
       printf("%c", SuitName(trump)[0]);
     }
     // TODO: Best guess with losing trick count.
+    int num_tricks = hands[WEST].Size();
     int guess_tricks = std::min(options.guess, num_tricks);
     for (int seat_to_play : lead_seats) {
       int ns_tricks;
@@ -1332,7 +1358,6 @@ int main(int argc, char* argv[]) {
           printf(" %2d", num_tricks - ns_tricks);
         continue;
       }
-      int num_tricks = hands[WEST].Size();
       if (num_tricks < TOTAL_TRICKS ||
           (num_tricks == TOTAL_TRICKS && ns_tricks >= 7 &&
            (seat_to_play == WEST || seat_to_play == EAST)) ||
