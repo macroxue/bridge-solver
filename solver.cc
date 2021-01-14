@@ -240,8 +240,9 @@ class Cache {
   private:
     uint64_t Hash(Cards cards[input_size]) const {
       uint64_t sum = 0;
-      for (int i = 0; i < input_size; ++i)
-        sum += cards[i].Value() * hash_rand[i];
+      for (int i = 0; i < (input_size + 1) / 2; ++i)
+        sum += (cards[i * 2].Value() + hash_rand[i * 2])
+          * (cards[i * 2 + 1].Value() + hash_rand[i * 2 + 1]);
       return sum;
     }
 
