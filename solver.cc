@@ -671,38 +671,68 @@ class Play {
     }
 
     int FastTricks() const {
-      Cards my_cards = hands[seat_to_play];
-      Cards both_hands = my_cards.Union(hands[NextSeat(2)]);
-      int fast_tricks = 0;
+      Cards my_hand = hands[seat_to_play];
+      Cards partner_hand = hands[Partner()];
+      Cards both_hands = my_hand.Union(partner_hand);
+      int fast_tricks = 0, my_tricks = 0, partner_tricks = 0;
       if (trump == NOTRUMP || all_cards.Suit(trump) == both_hands.Suit(trump)) {
+        bool my_entry = false, partner_entry = false;
         for (int suit = 0; suit < NUM_SUITS; ++suit) {
+          auto my_suit = my_hand.Suit(suit);
+          auto partner_suit = partner_hand.Suit(suit);
+          int my_winners = 0, partner_winners = 0;
           for (int card : all_cards.Suit(suit))
-            if (my_cards.Have(card))
-              ++fast_tricks;
+            if (my_hand.Have(card))
+              ++my_winners;
+            else if (partner_hand.Have(card))
+              ++partner_winners;
             else
               break;
+          my_tricks += SuitFastTricks(my_suit, my_winners, my_entry,
+                                      partner_suit, partner_winners);
+          partner_tricks += SuitFastTricks(partner_suit, partner_winners, partner_entry,
+                                           my_suit, my_winners);
         }
+        if (partner_entry)
+          fast_tricks = std::max(my_tricks, partner_tricks);
+        else
+          fast_tricks = my_tricks;
+        fast_tricks = std::min(fast_tricks, my_hand.Size());
       } else {
         for (int card : all_cards.Suit(trump))
-          if (my_cards.Have(card))
+          if (both_hands.Have(card))
             ++fast_tricks;
           else
             break;
-        if (depth == 0) {
-          for (int suit = 0; suit < NUM_SUITS; ++suit) {
-            if (suit == trump) continue;
-            int min_suit_len = hands[0].Suit(suit).Size();
-            for (int seat = 1; seat < NUM_SEATS; ++seat)
-              min_suit_len = std::min(min_suit_len, hands[seat].Suit(suit).Size());
-            for (int card : all_cards.Suit(suit))
-              if (my_cards.Have(card) && min_suit_len--)
-                ++fast_tricks;
-              else
-                break;
-          }
-        }
+        auto max_trump_tricks = std::max(my_hand.Suit(trump).Size(),
+                                         partner_hand.Suit(trump).Size());
+        fast_tricks = std::min(fast_tricks, max_trump_tricks);
       }
       return fast_tricks;
+    }
+
+    int SuitFastTricks(Cards my_suit, int my_winners, bool& my_entry,
+                       Cards partner_suit, int partner_winners) const {
+      // Entry from partner if my top winner can cover partner's bottom card.
+      if (!partner_suit.Empty() && my_winners > 0 &&
+          RankOf(my_suit.Top()) > RankOf(partner_suit.Bottom()))
+          my_entry = true;
+      // Partner has no winners.
+      if (partner_winners == 0)
+        return my_winners;
+      // Cash all my winners, then partner's.
+      if (my_winners == 0)
+        return my_suit.Empty() ? 0 : partner_winners;
+      // Suit blocked by partner.
+      if (RankOf(my_suit.Top()) < RankOf(partner_suit.Bottom()))
+        return partner_winners;
+      // Suit blocked by me.
+      if (RankOf(my_suit.Bottom()) > RankOf(partner_suit.Top()))
+        return my_winners;
+      // If partner has no small cards, treat one winner as a small card.
+      if (partner_winners == partner_suit.Size())
+        --partner_winners;
+      return std::min(my_suit.Size(), my_winners + partner_winners);
     }
 
     int CollectLastTrick() {
