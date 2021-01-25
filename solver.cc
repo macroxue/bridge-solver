@@ -510,29 +510,11 @@ class Play {
         if (!my_trumps.Empty()) {
           if (TrickStarting()) {
             if (!opp_hands.Suit(trump).Empty())
-              // Draw high trump.
               return Cards().Add(my_trumps.Top());
-          } else if (LeadSuit() != trump) {
-            // Don't ruff partner's winner unless opponent can win.
-            if (PreviousPlay().WinningSeat() != Partner() ||
-                (ThirdSeat() && CanWinByRank(LeftHandOpp())))
-              return Cards().Add(trick->equivalence[my_trumps.Bottom()]);
-          }
-        }
-        // Don't run winners if opponents still have trumps.
-        if (!opp_hands.Suit(trump).Empty())
-          return Cards();
-      }
-      if (TrickStarting()) {
-        // Run winners.
-        int suits[] = { SPADE, HEART, DIAMOND, CLUB };
-        if (trump != NOTRUMP)
-          std::swap(suits[NUM_SUITS - 1], suits[trump]);
-        Cards our_hands = playable_cards.Union(hands[NextSeat(2)]);
-        for (int suit : suits) {
-          Cards my_suit = playable_cards.Suit(suit);
-          if (!my_suit.Empty() && our_hands.Suit(suit).Top() == all_cards.Suit(suit).Top())
-            return Cards().Add(my_suit.Top());
+            else
+              return Cards().Add(playable_cards.Different(my_trumps).Top());
+          } else if (LeadSuit() != trump)
+            return Cards().Add(trick->equivalence[my_trumps.Bottom()]);
         }
       }
       return Cards();
