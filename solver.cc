@@ -256,12 +256,13 @@ class Cache {
     }
 
     void Resize() {
-      auto old_entries = entries;
+      auto old_entries = std::move(entries);
       int old_size = size;
 
       // Double cache size.
       size = 1 << ++bits;
-      CHECK(entries = new Entry[size]);
+      entries.reset(new Entry[size]);
+      CHECK(entries.get());
       Reset();
 
       // Move entries in the old cache to the new cache.
@@ -290,7 +291,7 @@ class Cache {
     int size;
     int probe_distance;
     uint64_t hash_rand[input_size];
-    Entry* entries;
+    std::unique_ptr<Entry[]> entries;
 
     mutable int load_count;
     mutable int lookup_count;
