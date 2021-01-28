@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <functional>
 #include <map>
+#include <memory>
 #include <set>
 #include <vector>
 
@@ -165,11 +166,11 @@ class Cards {
     uint64_t bits;
 };
 
-template <class Entry, int input_size, int bits>
+template <class Entry, int input_size>
 class Cache {
   public:
-    Cache(const char* name)
-      : cache_name(name) {
+    Cache(const char* name, int bits)
+      : cache_name(name), bits(bits), size(1 << bits), entries(new Entry[size]) {
       srand(1);
       for (int i = 0; i < input_size; ++i)
         hash_rand[i] = GenerateHashRandom();
@@ -178,23 +179,19 @@ class Cache {
 
     void Reset() {
       probe_distance = 0;
-      lookup_count = hit_count = update_count = collision_count = 0;
+      load_count = lookup_count = hit_count = update_count = collision_count = 0;
       for (int i = 0; i < size; ++i)
-        entries_[i].hash = 0;
+        entries[i].hash = 0;
     }
 
     void ShowStatistics() const {
-      int loaded_count = 0;
-      for (int i = 0; i < size; ++i)
-        loaded_count += (entries_[i].hash != 0);
-
       printf("--- %s Statistics ---\n", cache_name);
       printf("lookups: %8d   hits:     %8d (%5.2f%%)   probe distance: %d\n",
              lookup_count, hit_count, hit_count * 100.0 / lookup_count, probe_distance);
       printf("updates: %8d   collisions: %6d (%5.2f%%)\n",
              update_count, collision_count, collision_count * 100.0 / update_count);
       printf("entries: %8d   loaded:   %8d (%5.2f%%)\n",
-             size, loaded_count, loaded_count * 100.0 / size);
+             size, load_count, load_count * 100.0 / size);
     }
 
     const Entry* Lookup(Cards cards[input_size]) const {
@@ -205,7 +202,7 @@ class Cache {
       uint64_t index = hash >> (BitSize(hash) - bits);
 
       for (int d = 0; d < probe_distance; ++d) {
-        const Entry& entry = entries_[(index + d) & (size - 1)];
+        const Entry& entry = entries[(index + d) & (size - 1)];
         if (entry.hash == hash) {
           ++hit_count;
           return &entry;
@@ -215,6 +212,8 @@ class Cache {
     }
 
     Entry* Update(Cards cards[input_size]) {
+      if (load_count >= size * 3 / 4) Resize();
+
       ++update_count;
 
       uint64_t hash = Hash(cards);
@@ -224,13 +223,15 @@ class Cache {
       // Linear probing benefits from hardware prefetch and thus is faster
       // than collision resolution with multiple hash functions.
       for (int d = 0; d < max_probe_distance; ++d) {
-        Entry& entry = entries_[(index + d) & (size - 1)];
+        Entry& entry = entries[(index + d) & (size - 1)];
         bool collided = entry.hash != 0 && entry.hash != hash;
         if (!collided || d == max_probe_distance - 1) {
           probe_distance = std::max(probe_distance, d + 1);
           collision_count += collided;
-          if (entry.hash != hash)
+          if (entry.hash != hash) {
+            if (entry.hash == 0) ++load_count;
             entry.Reset(hash);
+          }
           return &entry;
         }
       }
@@ -254,14 +255,44 @@ class Cache {
       return r | 1;
     }
 
+    void Resize() {
+      auto old_entries = entries;
+      int old_size = size;
+
+      // Double cache size.
+      size = 1 << ++bits;
+      CHECK(entries = new Entry[size]);
+      Reset();
+
+      // Move entries in the old cache to the new cache.
+      load_count = 0;
+      probe_distance = 0;
+      for (int i = 0; i < old_size; ++i) {
+        auto hash = old_entries[i].hash;
+        if (hash == 0) continue;
+        uint64_t index = hash >> (BitSize(hash) - bits);
+        for (int d = 0; d < max_probe_distance; ++d) {
+          Entry& entry = entries[(index + d) & (size - 1)];
+          if (entry.hash == 0) {
+            probe_distance = std::max(probe_distance, d + 1);
+            memcpy(&entry, &old_entries[i], sizeof(Entry));
+            ++load_count;
+            break;
+          }
+        }
+      }
+    }
+
     static const int max_probe_distance = 16;
-    static const int size = 1 << bits;
 
     const char* cache_name;
+    int bits;
+    int size;
     int probe_distance;
     uint64_t hash_rand[input_size];
-    Entry entries_[size];
+    Entry* entries;
 
+    mutable int load_count;
     mutable int lookup_count;
     mutable int hit_count;
     mutable int update_count;
@@ -304,9 +335,9 @@ struct CutoffEntry {
 
 // Put bounds near the root in the VIP cache which is sized to have fewer
 // collisions, so more expensive search results are cached.
-Cache<BoundsEntry, 4, 21> vip_bounds_cache("VIP Bounds Cache");
-Cache<BoundsEntry, 4, 24> common_bounds_cache("Common Bounds Cache");
-Cache<CutoffEntry, 2, 19> cutoff_cache("Cut-off Cache");
+Cache<BoundsEntry, 4> vip_bounds_cache("VIP Bounds Cache", 18);
+Cache<BoundsEntry, 4> common_bounds_cache("Common Bounds Cache", 20);
+Cache<CutoffEntry, 2> cutoff_cache("Cut-off Cache", 16);
 
 struct Trick {
   Cards pattern_hands[NUM_SEATS];
