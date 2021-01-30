@@ -871,6 +871,12 @@ int CharToSeat(char c) {
 }
 
 Cards ParseHand(char *line) {
+  // Filter out invalid characters.
+  int pos = 0;
+  for (char* c = line; *c; ++c)
+    if (strchr("AaKkQqJjTt1098765432- ", *c)) line[pos++] = *c;
+  line[pos] = '\0';
+
   static Cards all_cards;
   Cards hand;
   for (int suit = 0; suit < NUM_SUITS; ++suit) {
@@ -929,7 +935,7 @@ void ReadHands(Cards hands[], std::vector<int>& trumps, std::vector<int>& lead_s
     }
   }
   // read hands
-  char line[NUM_SEATS][80];
+  char line[NUM_SEATS][120];
   CHECK(fgets(line[NORTH], sizeof(line[NORTH]), input_file));
   CHECK(fgets(line[WEST],  sizeof(line[WEST]),  input_file));
   char* gap = strstr(line[WEST], "    ");
