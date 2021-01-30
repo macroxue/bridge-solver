@@ -1109,7 +1109,7 @@ class InteractivePlay {
               ShowHands(play.hands, rotation);
             --p;
             break;
-          case EXIT:
+          case NEXT:
             return;
         }
       }
@@ -1123,7 +1123,7 @@ class InteractivePlay {
         puts("******\n"
              "<Enter> to accept the suggestion or input another card like 'CK' or 'KC'.\n"
              "If there is only one club or one king in the list, 'C' or 'K' works too.\n"
-             "Use 'U' to undo, 'R' to rotate the board or 'E' to exit.\n"
+             "Use 'U' to undo, 'R' to rotate the board or 'N' to play the next hand.\n"
              "******");
       }
     }
@@ -1206,7 +1206,7 @@ class InteractivePlay {
       return card_tricks;
     }
 
-    enum Action { PLAY, UNDO, ROTATE, EXIT };
+    enum Action { PLAY, UNDO, ROTATE, NEXT };
 
     Action SelectCard(const CardTricks& card_tricks, const Play& play, int* card_to_play) {
       // Auto-play when there is only one choice.
@@ -1266,9 +1266,9 @@ class InteractivePlay {
               return UNDO;
             }
             break;
-          case 'E':
+          case 'N':
             printf("\n");
-            return EXIT;
+            return NEXT;
           case 'S': case 'H': case 'D': case 'C':
             {
               std::set<int> matches;
