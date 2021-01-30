@@ -88,7 +88,7 @@ struct Options {
   bool use_test_driver = true;
   int  small_card = TWO;
   int  displaying_depth = -1;
-  bool discard_suit_bottom = true;
+  bool discard_suit_bottom = false;
   bool randomize = false;
   bool rank_first = false;
   bool show_stats = false;
@@ -1359,7 +1359,7 @@ int main(int argc, char* argv[]) {
       case 'a': options.alpha = atoi(optarg); break;
       case 'b': options.beta = atoi(optarg); break;
       case 'c': options.use_cache = false; break;
-      case 'd': options.discard_suit_bottom = false; break;
+      case 'd': options.discard_suit_bottom = true; break;
       case 'f': options.full_analysis = true; break;
       case 'g': options.guess = atoi(optarg); break;
       case 'i': options.input = optarg; break;

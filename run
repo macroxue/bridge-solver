@@ -3,5 +3,5 @@
 for test in fu fu*[^s]; do
   opt="$*"
   echo "./solver $opt < $test"
-  ./solver -d $opt < $test
+  ./solver $opt < $test
 done
