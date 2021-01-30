@@ -1059,9 +1059,9 @@ double Elapse(const timeval& from, const timeval& to) {
 
 class InteractivePlay {
   public:
-    InteractivePlay(Cards hands[],  int trump, int lead_seat)
+    InteractivePlay(Cards hands[],  int trump, int lead_seat, int target_ns_tricks)
       : min_max(hands, trump, lead_seat),
-        target_ns_tricks(min_max.Search(0, TOTAL_TRICKS)),
+        target_ns_tricks(target_ns_tricks),
         num_tricks(hands[WEST].Size()),
         trump(trump) {
       ShowUsage();
@@ -1421,7 +1421,7 @@ int main(int argc, char* argv[]) {
            (seat_to_play == WEST || seat_to_play == EAST)) ||
           (num_tricks == TOTAL_TRICKS && ns_tricks < 7 &&
            (seat_to_play == NORTH || seat_to_play == SOUTH)))
-        InteractivePlay(hands, trump, seat_to_play);
+        InteractivePlay(hands, trump, seat_to_play, ns_tricks);
       else {
         int declarer = (seat_to_play + 3) % NUM_SEATS;
         printf("%s can't make a %s contract.\n", SeatName(declarer), SuitSign(trump));
