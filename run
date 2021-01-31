@@ -1,7 +1,0 @@
-#!/bin/bash
-
-for test in fu fu*[^s]; do
-  opt="$*"
-  echo "./solver $opt < $test"
-  ./solver $opt < $test
-done
