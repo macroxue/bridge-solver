@@ -263,7 +263,8 @@ class Cache {
       size = 1 << ++bits;
       entries.reset(new Entry[size]);
       CHECK(entries.get());
-      Reset();
+      for (int i = 0; i < size; ++i)
+        entries[i].hash = 0;
 
       // Move entries in the old cache to the new cache.
       load_count = 0;
