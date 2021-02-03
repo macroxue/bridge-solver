@@ -127,6 +127,14 @@ class Cards {
     Cards Add(const Cards& c) { bits |= c.bits; return bits; }
     Cards Remove(const Cards& c) { bits &= ~c.bits; return bits; }
 
+    int CountPoints() const {
+      int points = 0;
+      for (int card : *this)
+        if (RankOf(card) > TEN)
+          points += RankOf(card) - TEN;
+      return points;
+    }
+
     void Show() const {
       for (int suit = 0; suit < NUM_SUITS; ++suit) {
         ShowSuit(suit);
@@ -543,9 +551,9 @@ class Play {
         if (!my_trumps.Empty()) {
           if (TrickStarting()) {
             if (!opp_hands.Suit(trump).Empty())
-              return Cards().Add(my_trumps.Top());
-            else
-              return Cards().Add(playable_cards.Different(my_trumps).Top());
+                return Cards().Add(my_trumps.Top());
+              else
+                return Cards().Add(playable_cards.Different(my_trumps).Top());
           } else if (LeadSuit() != trump)
             return Cards().Add(trick->equivalence[my_trumps.Bottom()]);
         }
@@ -973,19 +981,11 @@ void ReadHands(Cards hands[], std::vector<int>& trumps, std::vector<int>& lead_s
   if (input_file != stdin) fclose(input_file);
 }
 
-int CountPoints(Cards hand) {
-  int points = 0;
-  for (const auto& card : hand)
-    if (RankOf(card) > TEN)
-      points += RankOf(card) - TEN;
-  return points;
-}
-
 void ShowHandInfo(Cards hand, int seat, int suit, int gap) {
   if (suit == SPADE)
     printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
   else if (suit == CLUB)
-    printf("%*s%2d ", gap - 3, " ", CountPoints(hand));
+    printf("%*s%2d ", gap - 3, " ", hand.CountPoints());
   else
     printf("%*s", gap, " ");
 }
