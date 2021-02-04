@@ -558,6 +558,21 @@ class Play {
             return Cards().Add(trick->equivalence[my_trumps.Bottom()]);
         }
       }
+      // Discard long suit bottom.
+      if (!TrickStarting() && playable_cards.Suit(LeadSuit()).Empty() &&
+          (trump == NOTRUMP || playable_cards.Suit(trump).Empty())) {
+        int max_length = 0, discard_suit = 0;
+        for (int suit = 0; suit < NUM_SUITS; ++suit) {
+          auto suit_cards = playable_cards.Suit(suit);
+          if (suit_cards.Empty()) continue;
+          if (max_length < suit_cards.Size()) {
+            max_length = suit_cards.Size();
+            discard_suit = suit;
+          }
+        }
+        int discard = playable_cards.Suit(discard_suit).Bottom();
+        return Cards().Add(trick->equivalence[discard]);
+      }
       return Cards();
     }
 
