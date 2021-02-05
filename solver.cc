@@ -115,7 +115,7 @@ class Cards {
     Cards Slice(int begin, int end) const { return bits & (Bit(end) - Bit(begin)); }
     Cards Suit(int suit) const { return bits & MaskOf(suit); }
     int Top() const { return __builtin_ctzll(bits); }
-    int Bottom() const { return  BitSize(bits) - 1 - __builtin_clzll(bits); }
+    int Bottom() const { return BitSize(bits) - 1 - __builtin_clzll(bits); }
 
     Cards Union(const Cards& c) const { return bits | c.bits; }
     Cards Intersect(const Cards& c) const { return bits & c.bits; }
@@ -504,12 +504,8 @@ class Play {
 
   private:
     int Search(int alpha, int beta) {
-      if (all_cards.Size() == 4) {
-        int ns_tricks = CollectLastTrick();
-        //if (depth < options.displaying_depth)
-        //  ShowTricks(alpha, beta, ns_tricks);
-        return ns_tricks;
-      }
+      if (all_cards.Size() == 4)
+        return CollectLastTrick();
 
       if (TrickStarting())
         ComputeEquivalence();
@@ -531,6 +527,8 @@ class Play {
             if (!cutoff_cards.Have(card))
               SaveCutoffCard(card);
             stats.CutoffAt(depth, card_count);
+            if (depth <= options.displaying_depth)
+              printf("%2d: %c search cut @%d\n", depth, SeatLetter(seat_to_play), card_count);
             return bounded_ns_tricks;
           }
           ++card_count;
@@ -689,10 +687,10 @@ class Play {
 
     bool Cutoff(int alpha, int beta, int card_to_play, int* bounded_ns_tricks) {
       PlayCard(card_to_play);
-      if (depth < options.displaying_depth - 1)
+      if (depth <= options.displaying_depth)
         ShowTricks(alpha, beta, 0, true);
       int ns_tricks = NextPlay().SearchWithCache(alpha, beta);
-      if (depth < options.displaying_depth)
+      if (depth <= options.displaying_depth)
         ShowTricks(alpha, beta, ns_tricks, false);
       UnplayCard();
 
