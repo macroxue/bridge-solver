@@ -537,28 +537,23 @@ class Play {
       return bounded_ns_tricks;
     }
 
-    bool CanWinByRank(int seat) const {
-      Cards suit = hands[seat].Suit(LeadSuit());
-      return !suit.Empty() && WinOver(suit.Top(), PreviousPlay().WinningCard());
-    }
-
     Cards HeuristicPlay(Cards playable_cards) const {
-      if (trump != NOTRUMP) {
-        Cards my_trumps = playable_cards.Suit(trump);
-        Cards opp_hands = hands[NextSeat(1)].Union(hands[NextSeat(3)]);
-        if (!my_trumps.Empty()) {
-          if (TrickStarting()) {
-            if (!opp_hands.Suit(trump).Empty())
-                return Cards().Add(my_trumps.Top());
-              else
-                return Cards().Add(playable_cards.Different(my_trumps).Top());
-          } else if (LeadSuit() != trump)
-            return Cards().Add(trick->equivalence[my_trumps.Bottom()]);
+      if (TrickStarting()) {  // lead
+        if (trump != NOTRUMP) {
+          Cards my_trumps = playable_cards.Suit(trump);
+          Cards opp_trumps = hands[LeftHandOpp()].Union(hands[RightHandOpp()]).Suit(trump);
+          if ((!my_trumps.Empty() && !opp_trumps.Empty()) || my_trumps == playable_cards)
+            return Cards().Add(my_trumps.Top());
+          else
+            return Cards().Add(playable_cards.Different(my_trumps).Top());
         }
-      }
-      // Discard long suit bottom.
-      if (!TrickStarting() && playable_cards.Suit(LeadSuit()).Empty() &&
-          (trump == NOTRUMP || playable_cards.Suit(trump).Empty())) {
+        return Cards();
+      } else if (!playable_cards.Suit(LeadSuit()).Empty()) {  // follow
+        return Cards();
+      } else if (trump != NOTRUMP && !playable_cards.Suit(trump).Empty()) {  // ruff
+        Cards my_trumps = playable_cards.Suit(trump);
+        return Cards().Add(trick->equivalence[my_trumps.Bottom()]);
+      } else {  // discard
         int max_length = 0, discard_suit = 0;
         for (int suit = 0; suit < NUM_SUITS; ++suit) {
           auto suit_cards = playable_cards.Suit(suit);
@@ -571,7 +566,6 @@ class Play {
         int discard = playable_cards.Suit(discard_suit).Bottom();
         return Cards().Add(trick->equivalence[discard]);
       }
-      return Cards();
     }
 
     void ComputePatternHands() {
