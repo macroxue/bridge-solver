@@ -220,6 +220,7 @@ class Cache {
           ++hit_count;
           return &entry;
         }
+        if (entry.hash == 0) break;
       }
       return NULL;
     }
