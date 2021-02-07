@@ -14,7 +14,13 @@
 #include <set>
 #include <vector>
 
+#ifdef _DEBUG
 #define CHECK(statement)  if (!(statement)) printf("CHECK("#statement") failed")
+#define VERBOSE(statement)  if (depth <= options.displaying_depth) statement
+#else
+#define CHECK(statement)  if (!(statement))
+#define VERBOSE(statement)
+#endif
 
 namespace {
 
@@ -468,13 +474,11 @@ class Play {
         upper = cached_bounds->upper + ns_tricks_won;
         if (upper > TOTAL_TRICKS) upper = TOTAL_TRICKS;
         if (lower >= beta) {
-          if (depth <= options.displaying_depth)
-            printf("%2d: %c beta cut %d\n", depth, SeatLetter(seat_to_play), lower);
+          VERBOSE(printf("%2d: beta cut %d\n", depth, lower));
           return lower;
         }
         if (upper <= alpha) {
-          if (depth <= options.displaying_depth)
-            printf("%2d: %c alpha cut %d\n", depth, SeatLetter(seat_to_play), upper);
+          VERBOSE(printf("%2d: alpha cut %d\n", depth, upper));
           return upper;
         }
         alpha = std::max(alpha, lower);
@@ -527,8 +531,7 @@ class Play {
             if (!cutoff_cards.Have(card))
               SaveCutoffCard(card);
             stats.CutoffAt(depth, card_count);
-            if (depth <= options.displaying_depth)
-              printf("%2d: %c search cut @%d\n", depth, SeatLetter(seat_to_play), card_count);
+            VERBOSE(printf("%2d: search cut @%d\n", depth, card_count));
             return bounded_ns_tricks;
           }
           ++card_count;
@@ -681,11 +684,9 @@ class Play {
 
     bool Cutoff(int alpha, int beta, int card_to_play, int* bounded_ns_tricks) {
       PlayCard(card_to_play);
-      if (depth <= options.displaying_depth)
-        ShowTricks(alpha, beta, 0, true);
+      VERBOSE(ShowTricks(alpha, beta, 0, true));
       int ns_tricks = NextPlay().SearchWithCache(alpha, beta);
-      if (depth <= options.displaying_depth)
-        ShowTricks(alpha, beta, ns_tricks, false);
+      VERBOSE(ShowTricks(alpha, beta, ns_tricks, false));
       UnplayCard();
 
       if (NsToPlay()) {
