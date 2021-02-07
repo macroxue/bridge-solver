@@ -90,7 +90,6 @@ struct Options {
   int  alpha = 0;
   int  beta = TOTAL_TRICKS;
   int  guess = TOTAL_TRICKS;
-  bool use_cache = true;
   bool use_test_driver = true;
   int  small_card = TWO;
   int  displaying_depth = -1;
@@ -454,19 +453,17 @@ class Play {
         seat_to_play = PreviousPlay().NextSeat();
       }
 
-      if (!options.use_cache || all_cards.Size() == 4)
+      if (!TrickStarting() || all_cards.Size() == 4)
         return Search(alpha, beta);
 
       const int max_vip_depth = 20;
       const Bounds* cached_bounds = nullptr;
-      if (TrickStarting()) {
-        ComputePatternHands();
-        const auto* bounds_entry = depth <= max_vip_depth ?
-          vip_bounds_cache.Lookup(trick->pattern_hands) :
-          common_bounds_cache.Lookup(trick->pattern_hands);
-        if (bounds_entry)
-          cached_bounds = &bounds_entry->bounds[seat_to_play];
-      }
+      ComputePatternHands();
+      const auto* bounds_entry = depth <= max_vip_depth ?
+        vip_bounds_cache.Lookup(trick->pattern_hands) :
+        common_bounds_cache.Lookup(trick->pattern_hands);
+      if (bounds_entry)
+        cached_bounds = &bounds_entry->bounds[seat_to_play];
 
       int lower = 0, upper = TOTAL_TRICKS;
       if (cached_bounds) {
@@ -496,13 +493,11 @@ class Play {
       upper -= ns_tricks_won;
       if (lower < 0) lower = 0;
 
-      if (TrickStarting()) {
-        auto* new_bounds_entry = depth <= max_vip_depth ?
-          vip_bounds_cache.Update(trick->pattern_hands) :
-          common_bounds_cache.Update(trick->pattern_hands);
-        new_bounds_entry->bounds[seat_to_play].lower = lower;
-        new_bounds_entry->bounds[seat_to_play].upper = upper;
-      }
+      auto* new_bounds_entry = depth <= max_vip_depth ?
+        vip_bounds_cache.Update(trick->pattern_hands) :
+        common_bounds_cache.Update(trick->pattern_hands);
+      new_bounds_entry->bounds[seat_to_play].lower = lower;
+      new_bounds_entry->bounds[seat_to_play].upper = upper;
       return ns_tricks;
     }
 
@@ -515,11 +510,11 @@ class Play {
         ComputeEquivalence();
 
       Cards playable_cards = GetPlayableCards();
-      Cards cutoff_cards = LookupCutoffCards();
-      if (playable_cards.Intersect(cutoff_cards).Empty())
+      Cards cutoff_cards = playable_cards.Intersect(LookupCutoffCards());
+      if (cutoff_cards.Empty())
         cutoff_cards = HeuristicPlay(playable_cards);
       Cards sets_of_playables[2] = {
-        playable_cards.Intersect(cutoff_cards),
+        cutoff_cards,
         playable_cards.Different(cutoff_cards)
       };
       int bounded_ns_tricks = NsToPlay() ? 0 : TOTAL_TRICKS;
@@ -1369,11 +1364,10 @@ class InteractivePlay {
 
 int main(int argc, char* argv[]) {
   int c;
-  while ((c = getopt(argc, argv, "a:b:cdfg:i:rs:tD:IS")) != -1) {
+  while ((c = getopt(argc, argv, "a:b:dfg:i:rs:tD:IS")) != -1) {
     switch (c) {
       case 'a': options.alpha = atoi(optarg); break;
       case 'b': options.beta = atoi(optarg); break;
-      case 'c': options.use_cache = false; break;
       case 'd': options.discard_suit_bottom = true; break;
       case 'f': options.full_analysis = true; break;
       case 'g': options.guess = atoi(optarg); break;
