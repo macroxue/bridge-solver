@@ -466,11 +466,10 @@ class Play {
       if (bounds_entry)
         cached_bounds = &bounds_entry->bounds[seat_to_play];
 
-      int lower = 0, upper = TOTAL_TRICKS;
+      int lower = 0, upper = ns_tricks_won + hands[0].Size();
       if (cached_bounds) {
         lower = cached_bounds->lower + ns_tricks_won;
         upper = cached_bounds->upper + ns_tricks_won;
-        if (upper > TOTAL_TRICKS) upper = TOTAL_TRICKS;
         if (lower >= beta) {
           VERBOSE(printf("%2d: beta cut %d\n", depth, lower));
           return lower;
