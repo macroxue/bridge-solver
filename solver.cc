@@ -7,6 +7,7 @@
 #include <sys/time.h>
 #include <termios.h>
 #include <unistd.h>
+
 #include <algorithm>
 #include <functional>
 #include <map>
@@ -44,7 +45,7 @@ const char* SuitName(int suit) {
 }
 
 const char* SuitSign(int suit) {
-  static const char* suit_signs[NUM_SUITS + 1] = { "♠", "\e[31m♥\e[0m", "\e[31m♦\e[0m", "♣", "NT" };
+  static const char* suit_signs[NUM_SUITS + 1] = { "♠", "♥", "♦", "♣", "NT" };
   return suit_signs[suit];
 }
 
@@ -93,6 +94,7 @@ struct Options {
   bool use_test_driver = true;
   int  small_card = TWO;
   int  displaying_depth = -1;
+  int  max_vip_depth = -1;
   bool discard_suit_bottom = false;
   bool randomize = false;
   bool rank_first = false;
@@ -125,6 +127,7 @@ class Cards {
     Cards Union(const Cards& c) const { return bits | c.bits; }
     Cards Intersect(const Cards& c) const { return bits & c.bits; }
     Cards Different(const Cards& c) const { return bits & ~c.bits; }
+    bool Include(const Cards& c) const { return Intersect(c) == c; }
 
     Cards Add(int card) { bits |= Bit(card); return bits; }
     Cards Remove(int card) { bits &= ~Bit(card); return bits; }
@@ -179,6 +182,27 @@ class Cards {
     uint64_t bits;
 };
 
+uint64_t GetShape(Cards hands[]) {
+  uint64_t shape = 0;
+  for (int seat = 0; seat < NUM_SEATS; ++seat)
+    for (int suit = 0; suit < NUM_SUITS; ++suit)
+      shape = (shape << 4) + hands[seat].Suit(suit).Size();
+  return shape;
+}
+
+int GetSuitLength(uint64_t shape, int seat, int suit) {
+  int bits = 60 - (seat * NUM_SUITS + suit) * 4;
+  return (shape >> bits) & 0xf;
+}
+
+void ShowHands(Cards hands[]) {
+  for (int seat = 0; seat < NUM_SEATS; ++seat) {
+    hands[seat].Show();
+    if (seat < NUM_SEATS - 1) printf(", ");
+  }
+  puts("");
+}
+
 template <class Entry, int input_size>
 class Cache {
   public:
@@ -205,6 +229,15 @@ class Cache {
              update_count, collision_count, collision_count * 100.0 / update_count);
       printf("entries: %8d   loaded:   %8d (%5.2f%%)\n",
              size, load_count, load_count * 100.0 / size);
+
+      int recursive_load = 0;
+      for (int i = 0; i < size; ++i)
+        if (entries[i].hash != 0) {
+          recursive_load += entries[i].Size();
+          entries[i].Show();
+        }
+      if (recursive_load > load_count)
+        printf("recursive load: %8d\n", recursive_load);
     }
 
     const Entry* Lookup(Cards cards[input_size]) const {
@@ -291,7 +324,7 @@ class Cache {
           Entry& entry = entries[(index + d) & (size - 1)];
           if (entry.hash == 0) {
             probe_distance = std::max(probe_distance, d + 1);
-            memcpy(&entry, &old_entries[i], sizeof(Entry));
+            old_entries[i].MoveTo(entry);
             ++load_count;
             break;
           }
@@ -319,6 +352,184 @@ class Cache {
 struct Bounds {
   uint8_t lower : 4;
   uint8_t upper : 4;
+
+  bool Empty() const { return upper < lower; }
+  int Width() const { return upper - lower; }
+  Bounds Intersect(Bounds b) const {
+    return {std::max(lower, b.lower), std::min(upper, b.upper)};
+  }
+  bool Include(Bounds b) const { return Intersect(b) == b; }
+  bool operator==(Bounds b) const { return b.lower == lower && b.upper == upper; }
+};
+
+struct Pattern {
+  Cards hands[NUM_SEATS];
+  uint64_t shape;
+  char seat_to_play;
+  Bounds bounds;
+  mutable int hits = 0;
+  std::vector<Pattern> patterns;
+
+  Pattern() = default;
+
+  Pattern(Cards pattern_hands[]) {
+    for (int seat = 0; seat < NUM_SEATS; ++seat)
+      hands[seat] = pattern_hands[seat];
+  }
+
+  Pattern(Cards pattern_hands[], uint64_t shape, int seat_to_play, Bounds bounds)
+    : shape(shape), seat_to_play(seat_to_play), bounds(bounds) {
+    for (int seat = 0; seat < NUM_SEATS; ++seat)
+      hands[seat] = pattern_hands[seat];
+  }
+
+  void Reset() {
+    for (int seat = 0; seat < NUM_SEATS; ++seat) hands[seat] = 0;
+    shape = 0;
+    seat_to_play = -1;
+    bounds.lower = 0;
+    bounds.upper = TOTAL_TRICKS;
+    hits = 0;
+    patterns.clear();
+  }
+
+  void MoveTo(Pattern& p) { p.MoveFrom(*this); }
+
+  void MoveFrom(Pattern& p) {
+    for (int seat = 0; seat < NUM_SEATS; ++seat) hands[seat] = p.hands[seat];
+    shape = p.shape;
+    seat_to_play = p.seat_to_play;
+    bounds = p.bounds;
+    hits = p.hits;
+    std::swap(patterns, p.patterns);
+  }
+
+  bool IsRoot() const { return seat_to_play == -1; }
+
+  const Pattern* Lookup(const Pattern& new_pattern, int alpha, int beta) const {
+    if (!Match(new_pattern)) return nullptr;
+    ++hits;
+    if (bounds.lower >= beta || bounds.upper <= alpha) return this;
+    for (auto& pattern : patterns) {
+      auto detail = pattern.Lookup(new_pattern, alpha, beta);
+      if (detail) return detail;
+    }
+    if (IsRoot()) return nullptr;
+    return this;
+  }
+
+  Pattern* Update(Pattern& new_pattern) {
+    for (auto& pattern : patterns) {
+      if (new_pattern.Same(pattern)) {
+        pattern.bounds = pattern.bounds.Intersect(new_pattern.bounds);
+        assert(!pattern.bounds.Empty());
+        // TODO: Remove children with the same bounds.
+        return &pattern;
+      } else if (new_pattern.Match(pattern)) {
+        // Old pattern is more detailed.
+        if (pattern.bounds.Include(new_pattern.bounds)) {
+          new_pattern.hits = pattern.hits;
+          pattern.MoveFrom(new_pattern);
+        } else {
+          pattern.bounds = pattern.bounds.Intersect(new_pattern.bounds);
+          assert(!pattern.bounds.Empty());
+          new_pattern.patterns.resize(1);
+          auto& back = new_pattern.patterns.back();
+          back.MoveFrom(pattern);
+          pattern.MoveFrom(new_pattern);
+          // TODO: absorb more patterns.
+        }
+        return &pattern;
+      } else if (pattern.Match(new_pattern)) {
+        // New pattern is more detailed.
+        if (new_pattern.bounds.Include(pattern.bounds)) return &pattern;
+        new_pattern.bounds = new_pattern.bounds.Intersect(pattern.bounds);
+        assert(!new_pattern.bounds.Empty());
+        return pattern.Update(new_pattern);
+      }
+    }
+
+    patterns.resize(patterns.size() + 1);
+    patterns.back().MoveFrom(new_pattern);
+    return &patterns.back();
+  }
+
+  bool Match(const Pattern& d) const {
+    return d.hands[WEST].Include(hands[WEST]) && d.hands[NORTH].Include(hands[NORTH]) &&
+           d.hands[EAST].Include(hands[EAST]) && d.hands[SOUTH].Include(hands[SOUTH]);
+  }
+
+  bool Same(const Pattern& p) const {
+    return p.hands[WEST] == hands[WEST] && p.hands[NORTH] == hands[NORTH] &&
+           p.hands[EAST] == hands[EAST] && p.hands[SOUTH] == hands[SOUTH];
+  }
+
+  Cards GetWinners(Cards real_hands[]) const {
+    Cards winners;
+    for (int seat = 0; seat < NUM_SEATS; ++seat) {
+      for (int suit = 0; suit < NUM_SUITS; ++suit) {
+        int num_winners = hands[seat].Suit(suit).Size();
+        if (num_winners == 0) continue;
+
+        auto suit_cards = real_hands[seat].Suit(suit);
+        for (int i = 0; i < num_winners; ++i) {
+          winners.Add(suit_cards.Top());
+          suit_cards.Remove(suit_cards.Top());
+        }
+      }
+    }
+    return winners;
+  }
+
+  int Size() const {
+    int sum = IsRoot() ? 0 : 1;
+    for (const auto& pattern : patterns) sum += pattern.Size();
+    return sum;
+  }
+
+  void Show(int level = 0) const {
+    if (seat_to_play == -1) {
+      printf("%lx size %ld recursive size %d\n", shape, patterns.size(), Size());
+    } else {
+      printf("%*d: %c (%d %d) ", level * 2, level, SeatLetter(seat_to_play),
+             bounds.lower, bounds.upper);
+      for (int seat = 0; seat < NUM_SEATS; ++seat) {
+        for (int suit = 0; suit < NUM_SUITS; ++suit) {
+          auto suit_length = GetSuitLength(shape, seat, suit);
+          if (suit_length == 0)
+            putchar('-');
+          else {
+            auto winners = hands[seat].Suit(suit);
+            for (int card : winners) printf("%c", RankName(RankOf(card)));
+            for (int i = winners.Size(); i < suit_length; ++i) putchar('x');
+          }
+          putchar(' ');
+        }
+        if (seat < NUM_SEATS - 1) printf(", ");
+      }
+      printf(" hits %d\n", hits);
+    }
+    for (const auto& pattern : patterns) pattern.Show(level + 1);
+  }
+};
+
+struct ShapeEntry {
+  uint64_t hash;
+  Pattern pattern;
+
+  int Size() const { return pattern.Size(); }
+
+  void Show() const { pattern.Show(); }
+
+  void Reset(uint64_t hash_in) {
+    hash = hash_in;
+    pattern.Reset();
+  }
+
+  void MoveTo(ShapeEntry& to) {
+    to.hash = hash;
+    to.pattern.MoveFrom(pattern);
+  }
 };
 
 struct BoundsEntry {
@@ -328,6 +539,10 @@ struct BoundsEntry {
   // Bounds depending on the lead seat.
   Bounds bounds[NUM_SEATS];
 
+  int Size() const { return 1; }
+
+  void Show() const {}
+
   void Reset(uint64_t hash_in) {
     hash = hash_in;
     for (int i = 0; i < NUM_SEATS; ++i) {
@@ -335,6 +550,8 @@ struct BoundsEntry {
       bounds[i].upper = TOTAL_TRICKS;
     }
   }
+
+  void MoveTo(BoundsEntry& to) { memcpy(&to, this, sizeof(*this)); }
 };
 
 struct CutoffEntry {
@@ -342,21 +559,28 @@ struct CutoffEntry {
   // Cut-off card depending on the seat to play.
   char card[NUM_SEATS];
 
+  int Size() const { return 1; }
+
+  void Show() const {}
+
   void Reset(uint64_t hash_in) {
     hash = hash_in;
     memset(card, TOTAL_CARDS, sizeof(card));
   }
+
+  void MoveTo(CutoffEntry& to) { memcpy(&to, this, sizeof(*this)); }
 };
 #pragma pack(pop)
 
 // Put bounds near the root in the VIP cache which is sized to have fewer
 // collisions, so more expensive search results are cached.
 Cache<BoundsEntry, 4> vip_bounds_cache("VIP Bounds Cache", 18);
-Cache<BoundsEntry, 4> common_bounds_cache("Common Bounds Cache", 20);
+Cache<ShapeEntry, 2> common_bounds_cache("Common Bounds Cache", 16);
 Cache<CutoffEntry, 2> cutoff_cache("Cut-off Cache", 16);
 
 struct Trick {
   Cards pattern_hands[NUM_SEATS];
+  char relative_cards[TOTAL_CARDS];
   char equivalence[TOTAL_CARDS];
 
   void IdentifyPatternCards(Cards hands[NUM_SEATS], int suit) {
@@ -373,8 +597,11 @@ struct Trick {
       pattern_hands[seat].Remove(pattern_hands[seat].Suit(suit));
     }
     int relative_rank = ACE;
-    for (int card : all_cards)
-      pattern_hands[card_holder[card]].Add(CardOf(suit, relative_rank--));
+    for (int card : all_cards) {
+      int relative_card = CardOf(suit, relative_rank--);
+      relative_cards[card] = relative_card;
+      pattern_hands[card_holder[card]].Add(relative_card);
+    }
   }
 
   void IdentifyEquivalentCards(Cards cards, Cards all_cards) {
@@ -434,20 +661,27 @@ class Play {
       : plays(plays), trick(trick), hands(hands), trump(trump), depth(depth),
         ns_tricks_won(0), seat_to_play(seat_to_play) {}
 
-    int SearchWithCache(int alpha, int beta) {
+    int SearchWithCache(int alpha, int beta, Cards* winners) {
       if (TrickStarting()) {
         all_cards = hands[WEST].Union(hands[NORTH]).Union(hands[EAST]).Union(hands[SOUTH]);
         if (depth > 0) {
           ns_tricks_won = PreviousPlay().ns_tricks_won + PreviousPlay().NsWon();
           seat_to_play = PreviousPlay().WinningSeat();
         }
-
-        int fast_tricks = FastTricks();
+#if 1
+        if (NsToPlay() && ns_tricks_won >= beta)
+          return ns_tricks_won;
+        int remaining_tricks = hands[0].Size();
+        if (!NsToPlay() && ns_tricks_won + remaining_tricks <= alpha)
+          return ns_tricks_won + remaining_tricks;
+#else
+        int fast_tricks = FastTricks(winners);
         if (NsToPlay() && ns_tricks_won + fast_tricks >= beta)
           return ns_tricks_won + fast_tricks;
         int remaining_tricks = hands[0].Size();
         if (!NsToPlay() && ns_tricks_won + (remaining_tricks - fast_tricks) <= alpha)
           return ns_tricks_won + (remaining_tricks - fast_tricks);
+#endif
       } else {
         all_cards = PreviousPlay().all_cards;
         ns_tricks_won = PreviousPlay().ns_tricks_won;
@@ -455,59 +689,150 @@ class Play {
       }
 
       if (!TrickStarting() || all_cards.Size() == 4)
-        return Search(alpha, beta);
+        return Search(alpha, beta, winners);
 
-      const int max_vip_depth = 20;
       const Bounds* cached_bounds = nullptr;
+      Cards cached_winners;
+      Cards shape_index[2];
+      const Pattern* cached_pattern = nullptr;
       ComputePatternHands();
-      const auto* bounds_entry = depth <= max_vip_depth ?
-        vip_bounds_cache.Lookup(trick->pattern_hands) :
-        common_bounds_cache.Lookup(trick->pattern_hands);
-      if (bounds_entry)
-        cached_bounds = &bounds_entry->bounds[seat_to_play];
+      if (depth <= options.max_vip_depth) {
+        const auto* bounds_entry = vip_bounds_cache.Lookup(trick->pattern_hands);
+        if (bounds_entry)
+          cached_bounds = &bounds_entry->bounds[seat_to_play];
+      } else {
+        shape_index[0] = GetShape(trick->pattern_hands);
+        shape_index[1] = seat_to_play;
+        auto* shape_entry = const_cast<ShapeEntry*>(common_bounds_cache.Lookup(shape_index));
+        if (shape_entry) {
+          cached_pattern = shape_entry->pattern.Lookup(trick->pattern_hands,
+                                                       alpha - ns_tricks_won,
+                                                       beta - ns_tricks_won);
+          if (cached_pattern) {
+            cached_bounds = &cached_pattern->bounds;
+            cached_winners = cached_pattern->GetWinners(hands);
+            if (depth <= options.displaying_depth) {
+              printf("%2d: matched, ", depth);
+              cached_pattern->Show(0);
+              printf(" / ");
+              for (int seat = 0; seat < NUM_SEATS; ++seat)
+                hands[seat].Show();
+              //cached_winners.Show();
+              puts("");
+            }
+          }
+        }
+      }
 
-      int lower = 0, upper = ns_tricks_won + hands[0].Size();
+      int lower = 0, upper = TOTAL_TRICKS;
       if (cached_bounds) {
         lower = cached_bounds->lower + ns_tricks_won;
         upper = cached_bounds->upper + ns_tricks_won;
         if (lower >= beta) {
           VERBOSE(printf("%2d: beta cut %d\n", depth, lower));
+          winners->Add(cached_winners);
           return lower;
         }
         if (upper <= alpha) {
           VERBOSE(printf("%2d: alpha cut %d\n", depth, upper));
+          winners->Add(cached_winners);
           return upper;
         }
         alpha = std::max(alpha, lower);
         beta = std::min(beta, upper);
       }
 
-      int ns_tricks = Search(alpha, beta);
-      if (ns_tricks <= alpha)
+      Cards branch_winners;
+      int ns_tricks = Search(alpha, beta, &branch_winners);
+      winners->Add(branch_winners);
+      if (ns_tricks <= alpha) {
+        lower = 0;
         upper = ns_tricks;
-      else if (ns_tricks < beta)
+      } else if (ns_tricks < beta)
         upper = lower = ns_tricks;
-      else
+      else {
         lower = ns_tricks;
+        upper = TOTAL_TRICKS;
+      }
+      assert(lower <= upper);
       lower -= ns_tricks_won;
       upper -= ns_tricks_won;
-      if (lower < 0) lower = 0;
+      lower = std::max(lower, 0);
+      upper = std::min(upper, hands[0].Size());
 
-      auto* new_bounds_entry = depth <= max_vip_depth ?
-        vip_bounds_cache.Update(trick->pattern_hands) :
-        common_bounds_cache.Update(trick->pattern_hands);
-      new_bounds_entry->bounds[seat_to_play].lower = lower;
-      new_bounds_entry->bounds[seat_to_play].upper = upper;
+      if (depth <= options.max_vip_depth) {
+        auto* bounds_entry = vip_bounds_cache.Update(trick->pattern_hands);
+        bounds_entry->bounds[seat_to_play].lower = lower;
+        bounds_entry->bounds[seat_to_play].upper = upper;
+      } else {
+        int min_relevant_ranks[NUM_SUITS];
+        for (int suit = 0; suit < NUM_SUITS; ++suit) {
+          min_relevant_ranks[suit] = ACE + 1;
+          if (!branch_winners.Suit(suit).Empty())
+            min_relevant_ranks[suit] = RankOf(branch_winners.Suit(suit).Bottom());
+        }
+
+        Cards pattern_hands[NUM_SEATS];
+        Cards all_pattern_cards;
+        for (int seat = 0; seat < NUM_SEATS; ++seat) {
+          for (int card : hands[seat]) {
+            // West to lead in a heart contract. South's small trump is going
+            // to win if East can't get in to draw trumps.
+            // (a)             ♠ xx ♥ - ♦ x ♣ -
+            // ♠ Ax ♥ - ♦ x ♣ -                ♠ x ♥ A ♦ x ♣ -
+            //                 ♠ x ♥ x ♦ - ♣ x
+            // If West can gets in from spades, EW takes all three tricks.
+            // (b)             ♠ xx ♥ - ♦ x ♣ -
+            // ♠ Ax ♥ - ♦ A ♣ -                ♠ K ♥ A ♦ x ♣ -
+            //                 ♠ x ♥ x ♦ - ♣ x
+            // With (a) the fact that West holds two equivalent cards blocking
+            // spades needs to be captured.
+            if (RankOf(trick->equivalence[card]) < min_relevant_ranks[SuitOf(card)]) continue;
+            pattern_hands[seat].Add(trick->relative_cards[card]);
+          }
+          all_pattern_cards.Add(pattern_hands[seat]);
+        }
+
+        auto shape = shape_index[0].Value();
+        auto* shape_entry = common_bounds_cache.Update(shape_index);
+        Pattern new_pattern(pattern_hands, shape, seat_to_play, {uint8_t(lower), uint8_t(upper)});
+        auto* cached_pattern = shape_entry->pattern.Update(new_pattern);
+
+        if (depth <= options.displaying_depth) {
+          printf("%d: updated (%d %d), ", depth, lower, upper);
+          for (int seat = 0; seat < NUM_SEATS; ++seat) {
+            putchar(' ');
+            for (int suit = 0; suit < NUM_SUITS; ++suit)
+              printf("%d", trick->pattern_hands[seat].Suit(suit).Size());
+          }
+          printf(", ");
+
+          cached_pattern->Show(1);
+          printf(", ");
+          for (int seat = 0; seat < NUM_SEATS; ++seat)
+            hands[seat].Show();
+          printf("\n");
+        }
+      }
       return ns_tricks;
     }
 
   private:
-    int Search(int alpha, int beta) {
+    int Search(int alpha, int beta, Cards* winners) {
       if (all_cards.Size() == 4)
-        return CollectLastTrick();
+        return CollectLastTrick(winners);
 
-      if (TrickStarting())
+      if (TrickStarting()) {
+#if 1
+        int fast_tricks = FastTricks(winners);
+        if (NsToPlay() && ns_tricks_won + fast_tricks >= beta)
+          return ns_tricks_won + fast_tricks;
+        int remaining_tricks = hands[0].Size();
+        if (!NsToPlay() && ns_tricks_won + (remaining_tricks - fast_tricks) <= alpha)
+          return ns_tricks_won + (remaining_tricks - fast_tricks);
+#endif
         ComputeEquivalence();
+      }
 
       Cards playable_cards = GetPlayableCards();
       Cards cutoff_cards = playable_cards.Intersect(LookupCutoffCards());
@@ -519,19 +844,24 @@ class Play {
       };
       int bounded_ns_tricks = NsToPlay() ? 0 : TOTAL_TRICKS;
       int card_count = 0;
+      Cards root_winners;
       for (Cards playables : sets_of_playables)
         for (int card : playables) {
           if (trick->equivalence[card] != card) continue;
-          if (Cutoff(alpha, beta, card, &bounded_ns_tricks)) {
+          Cards branch_winners;
+          if (Cutoff(alpha, beta, card, &bounded_ns_tricks, &branch_winners)) {
             if (!cutoff_cards.Have(card))
               SaveCutoffCard(card);
             stats.CutoffAt(depth, card_count);
-            VERBOSE(printf("%2d: search cut @%d\n", depth, card_count));
+            VERBOSE(printf("%2d: %c search cut @%d\n", depth, SeatLetter(seat_to_play), card_count));
+            winners->Add(branch_winners);
             return bounded_ns_tricks;
           }
+          root_winners.Add(branch_winners);
           ++card_count;
         }
       stats.CutoffAt(depth, TOTAL_TRICKS - 1);
+      winners->Add(root_winners);
       return bounded_ns_tricks;
     }
 
@@ -574,6 +904,8 @@ class Play {
         // Recompute the pattern for suits changed by the last trick.
         memcpy(trick->pattern_hands, (trick - 1)->pattern_hands,
                sizeof(trick->pattern_hands));
+        memcpy(trick->relative_cards, (trick - 1)->relative_cards,
+               sizeof(trick->relative_cards));
         for (int suit = 0; suit < NUM_SUITS; ++suit) {
           if (all_cards.Suit(suit) != plays[depth - 4].all_cards.Suit(suit))
             trick->IdentifyPatternCards(hands, suit);
@@ -677,10 +1009,20 @@ class Play {
         entry->card[seat_to_play] = cutoff_card;
     }
 
-    bool Cutoff(int alpha, int beta, int card_to_play, int* bounded_ns_tricks) {
+    bool Cutoff(int alpha, int beta, int card_to_play, int* bounded_ns_tricks, Cards* winners) {
       PlayCard(card_to_play);
+      if (TrickEnding()) {
+        int winning_card = WinningCard();
+        for (int d = depth / 4 * 4; d <= depth; ++d) {
+          if (plays[d].card_played == winning_card) continue;
+          if (SuitOf(winning_card) == SuitOf(plays[d].card_played)) {
+            winners->Add(WinningCard());
+            break;
+          }
+        }
+      }
       VERBOSE(ShowTricks(alpha, beta, 0, true));
-      int ns_tricks = NextPlay().SearchWithCache(alpha, beta);
+      int ns_tricks = NextPlay().SearchWithCache(alpha, beta, winners);
       VERBOSE(ShowTricks(alpha, beta, ns_tricks, false));
       UnplayCard();
 
@@ -696,7 +1038,7 @@ class Play {
       return false;  // no cut-off
     }
 
-    int FastTricks() const {
+    int FastTricks(Cards* winners) const {
       Cards my_hand = hands[seat_to_play];
       Cards partner_hand = hands[Partner()];
       Cards both_hands = my_hand.Union(partner_hand);
@@ -708,11 +1050,13 @@ class Play {
           auto partner_suit = partner_hand.Suit(suit);
           int my_winners = 0, partner_winners = 0;
           for (int card : all_cards.Suit(suit))
-            if (my_hand.Have(card))
+            if (my_hand.Have(card)) {
               ++my_winners;
-            else if (partner_hand.Have(card))
+              winners->Add(card);
+            } else if (partner_hand.Have(card)) {
               ++partner_winners;
-            else
+              winners->Add(card);
+            } else
               break;
           my_tricks += SuitFastTricks(my_suit, my_winners, my_entry,
                                       partner_suit, partner_winners);
@@ -726,9 +1070,10 @@ class Play {
         fast_tricks = std::min(fast_tricks, my_hand.Size());
       } else {
         for (int card : all_cards.Suit(trump))
-          if (both_hands.Have(card))
+          if (both_hands.Have(card)) {
             ++fast_tricks;
-          else
+            winners->Add(card);
+          } else
             break;
         auto max_trump_tricks = std::max(my_hand.Suit(trump).Size(),
                                          partner_hand.Suit(trump).Size());
@@ -761,7 +1106,7 @@ class Play {
       return std::min(my_suit.Size(), my_winners + partner_winners);
     }
 
-    int CollectLastTrick() {
+    int CollectLastTrick(Cards* winners) {
       int winning_card = *hands[seat_to_play].begin();
       int winning_seat = seat_to_play;
       for (int i = 1; i < NUM_SEATS; ++i) {
@@ -770,6 +1115,13 @@ class Play {
         if (WinOver(card_to_play, winning_card)) {
           winning_card = card_to_play;
           winning_seat = seat_to_play;
+        }
+      }
+      for (int seat = 0; seat < NUM_SEATS; ++seat) {
+        if (seat == winning_seat) continue;
+        if (SuitOf(winning_card) == SuitOf(*hands[seat].begin())) {
+          winners->Add(winning_card);
+          break;
         }
       }
       return ns_tricks_won + IsNs(winning_seat);
@@ -844,7 +1196,8 @@ class MinMax {
     }
 
     int Search(int alpha, int beta) {
-      return plays[0].SearchWithCache(alpha, beta);
+      Cards winners;
+      return plays[0].SearchWithCache(alpha, beta, &winners);
     }
 
     Play& play(int i) { return plays[i]; }
@@ -1044,10 +1397,12 @@ void ShowCompactHands(Cards hands[], int rotation = 0) {
   printf("\n");
 }
 
-int MemoryEnhancedTestDriver(std::function<int(int, int)> search, int guess_tricks) {
-  int upperbound = TOTAL_TRICKS;
+int MemoryEnhancedTestDriver(std::function<int(int, int)> search, int num_tricks, int guess_tricks) {
+  int upperbound = num_tricks;
   int lowerbound = 0;
   int ns_tricks = guess_tricks;
+  if (options.displaying_depth > 0)
+    printf("Lowerbound: %d\tUpperbound: %d\n", lowerbound, upperbound);
   while (lowerbound < upperbound) {
     int beta = (ns_tricks == lowerbound ? ns_tricks + 1 : ns_tricks);
     ns_tricks = search(beta - 1, beta);
@@ -1069,7 +1424,7 @@ double Elapse(const timeval& from, const timeval& to) {
 
 class InteractivePlay {
   public:
-    InteractivePlay(Cards hands[],  int trump, int lead_seat, int target_ns_tricks)
+    InteractivePlay(Cards hands[], int trump, int lead_seat, int target_ns_tricks)
       : min_max(hands, trump, lead_seat),
         target_ns_tricks(target_ns_tricks),
         num_tricks(hands[WEST].Size()),
@@ -1164,7 +1519,8 @@ class InteractivePlay {
              starting_ew_tricks + trick_index - play.ns_tricks_won);
       ShowHands(play.hands, rotation);
       if (trick_index == num_tricks - 1) {
-        int ns_tricks_won = play.CollectLastTrick();
+        Cards winners;
+        int ns_tricks_won = play.CollectLastTrick(&winners);
         printf("====== %s: NS %d EW %d ======\n",
                contract, starting_ns_tricks + ns_tricks_won,
                starting_ew_tricks + trick_index + 1 - ns_tricks_won);
@@ -1191,11 +1547,12 @@ class InteractivePlay {
 
         auto search = [&play, card](int alpha, int beta) {
           play.PlayCard(card);
-          int ns_tricks = play.NextPlay().SearchWithCache(alpha, beta);
+          Cards winners;
+          int ns_tricks = play.NextPlay().SearchWithCache(alpha, beta, &winners);
           play.UnplayCard();
           return ns_tricks;
         };
-        int new_ns_tricks = MemoryEnhancedTestDriver(search, ns_tricks);
+        int new_ns_tricks = MemoryEnhancedTestDriver(search, play.hands[play.seat_to_play].Size(), ns_tricks);
         card_tricks[card] = new_ns_tricks;
 
         int trick_diff = ns_contract ? new_ns_tricks - target_ns_tricks
@@ -1364,7 +1721,7 @@ class InteractivePlay {
 
 int main(int argc, char* argv[]) {
   int c;
-  while ((c = getopt(argc, argv, "a:b:dfg:i:rs:tD:IS")) != -1) {
+  while ((c = getopt(argc, argv, "a:b:dfg:i:rs:tv:D:IS")) != -1) {
     switch (c) {
       case 'a': options.alpha = atoi(optarg); break;
       case 'b': options.beta = atoi(optarg); break;
@@ -1375,6 +1732,7 @@ int main(int argc, char* argv[]) {
       case 'r': options.randomize = true; break;
       case 's': options.small_card = CharToRank(optarg[0]); break;
       case 't': options.use_test_driver = false; break;
+      case 'v': options.max_vip_depth = atoi(optarg); break;
       case 'D': options.displaying_depth = atoi(optarg); break;
       case 'I': options.interactive = true; break;
       case 'S': options.show_stats = true; break;
@@ -1412,7 +1770,7 @@ int main(int argc, char* argv[]) {
         auto search = [&min_max](int alpha, int beta) {
           return min_max.Search(alpha, beta);
         };
-        ns_tricks = MemoryEnhancedTestDriver(search, guess_tricks);
+        ns_tricks = MemoryEnhancedTestDriver(search, num_tricks, guess_tricks);
       } else {
         ns_tricks = min_max.Search(alpha, beta);
       }
