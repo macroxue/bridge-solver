@@ -379,9 +379,9 @@ struct Pattern {
 
   Pattern(Cards pattern_hands[], uint64_t shape, int seat_to_play, Bounds bounds)
     : shape(shape), seat_to_play(seat_to_play), bounds(bounds) {
-    for (int seat = 0; seat < NUM_SEATS; ++seat)
-      hands[seat] = pattern_hands[seat];
-  }
+      for (int seat = 0; seat < NUM_SEATS; ++seat)
+        hands[seat] = pattern_hands[seat];
+    }
 
   void Reset() {
     for (int seat = 0; seat < NUM_SEATS; ++seat) hands[seat] = 0;
@@ -419,32 +419,38 @@ struct Pattern {
   }
 
   Pattern* Update(Pattern& new_pattern) {
-    for (auto& pattern : patterns) {
+    for (size_t i = 0; i < patterns.size(); ++i) {
+      auto& pattern = patterns[i];
       if (new_pattern.Same(pattern)) {
         pattern.bounds = pattern.bounds.Intersect(new_pattern.bounds);
         assert(!pattern.bounds.Empty());
-        // TODO: Remove children with the same bounds.
         return &pattern;
       } else if (new_pattern.Match(pattern)) {
-        // Old pattern is more detailed.
-        if (pattern.bounds.Include(new_pattern.bounds)) {
-          new_pattern.hits = pattern.hits;
-          pattern.MoveFrom(new_pattern);
-        } else {
-          pattern.bounds = pattern.bounds.Intersect(new_pattern.bounds);
-          assert(!pattern.bounds.Empty());
-          new_pattern.patterns.resize(1);
-          auto& back = new_pattern.patterns.back();
-          back.MoveFrom(pattern);
-          pattern.MoveFrom(new_pattern);
-          // TODO: absorb more patterns.
+        // Old pattern is more detailed, absorb sub-patterns.
+        for (; i < patterns.size(); ++i) {
+          auto& old_pattern = patterns[i];
+          if (!new_pattern.Match(old_pattern)) continue;
+          old_pattern.bounds = old_pattern.bounds.Intersect(new_pattern.bounds);
+          assert(!old_pattern.bounds.Empty());
+          if (old_pattern.bounds == new_pattern.bounds) {
+            new_pattern.hits += old_pattern.hits;
+          } else {
+            new_pattern.patterns.resize(new_pattern.patterns.size() + 1);
+            new_pattern.patterns.back().MoveFrom(old_pattern);
+          }
+          if (&old_pattern != &pattern) {
+            old_pattern.MoveFrom(patterns.back());
+            patterns.pop_back();
+            --i;
+          }
         }
+        pattern.MoveFrom(new_pattern);
         return &pattern;
       } else if (pattern.Match(new_pattern)) {
         // New pattern is more detailed.
-        if (new_pattern.bounds.Include(pattern.bounds)) return &pattern;
         new_pattern.bounds = new_pattern.bounds.Intersect(pattern.bounds);
         assert(!new_pattern.bounds.Empty());
+        if (new_pattern.bounds == pattern.bounds) return &pattern;
         return pattern.Update(new_pattern);
       }
     }
@@ -456,12 +462,12 @@ struct Pattern {
 
   bool Match(const Pattern& d) const {
     return d.hands[WEST].Include(hands[WEST]) && d.hands[NORTH].Include(hands[NORTH]) &&
-           d.hands[EAST].Include(hands[EAST]) && d.hands[SOUTH].Include(hands[SOUTH]);
+      d.hands[EAST].Include(hands[EAST]) && d.hands[SOUTH].Include(hands[SOUTH]);
   }
 
   bool Same(const Pattern& p) const {
     return p.hands[WEST] == hands[WEST] && p.hands[NORTH] == hands[NORTH] &&
-           p.hands[EAST] == hands[EAST] && p.hands[SOUTH] == hands[SOUTH];
+      p.hands[EAST] == hands[EAST] && p.hands[SOUTH] == hands[SOUTH];
   }
 
   Cards GetWinners(Cards real_hands[]) const {
@@ -488,9 +494,8 @@ struct Pattern {
   }
 
   void Show(int level = 0) const {
-    if (seat_to_play == -1) {
-      printf("%lx size %ld recursive size %d\n", shape, patterns.size(), Size());
-    } else {
+    if (!IsRoot()) {
+
       printf("%*d: %c (%d %d) ", level * 2, level, SeatLetter(seat_to_play),
              bounds.lower, bounds.upper);
       for (int seat = 0; seat < NUM_SEATS; ++seat) {
@@ -519,7 +524,11 @@ struct ShapeEntry {
 
   int Size() const { return pattern.Size(); }
 
-  void Show() const { pattern.Show(); }
+  void Show() const {
+    printf("%lx size %ld recursive size %d hits %d\n",
+           hash, pattern.patterns.size(), Size(), pattern.hits);
+    pattern.Show();
+  }
 
   void Reset(uint64_t hash_in) {
     hash = hash_in;
