@@ -422,16 +422,14 @@ struct Pattern {
     for (size_t i = 0; i < patterns.size(); ++i) {
       auto& pattern = patterns[i];
       if (new_pattern.Same(pattern)) {
-        pattern.bounds = pattern.bounds.Intersect(new_pattern.bounds);
-        assert(!pattern.bounds.Empty());
+        pattern.UpdateBounds(new_pattern.bounds);
         return &pattern;
       } else if (new_pattern.Match(pattern)) {
         // Old pattern is more detailed, absorb sub-patterns.
         for (; i < patterns.size(); ++i) {
           auto& old_pattern = patterns[i];
           if (!new_pattern.Match(old_pattern)) continue;
-          old_pattern.bounds = old_pattern.bounds.Intersect(new_pattern.bounds);
-          assert(!old_pattern.bounds.Empty());
+          old_pattern.UpdateBounds(new_pattern.bounds);
           if (old_pattern.bounds == new_pattern.bounds) {
             new_pattern.hits += old_pattern.hits;
           } else {
@@ -458,6 +456,16 @@ struct Pattern {
     patterns.resize(patterns.size() + 1);
     patterns.back().MoveFrom(new_pattern);
     return &patterns.back();
+  }
+
+  void UpdateBounds(Bounds new_bounds) {
+    auto old_bounds = bounds;
+    bounds = bounds.Intersect(new_bounds);
+    assert(!bounds.Empty());
+    if (bounds.Width() == old_bounds.Width()) return;
+
+    for (auto& pattern : patterns)
+      pattern.UpdateBounds(bounds);
   }
 
   bool Match(const Pattern& d) const {
