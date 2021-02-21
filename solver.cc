@@ -367,6 +367,7 @@ struct Pattern {
   uint64_t shape;
   char seat_to_play;
   Bounds bounds;
+  mutable short cuts = 0;
   mutable int hits = 0;
   std::vector<Pattern> patterns;
 
@@ -390,6 +391,7 @@ struct Pattern {
     bounds.lower = 0;
     bounds.upper = TOTAL_TRICKS;
     hits = 0;
+    cuts = 0;
     patterns.clear();
   }
 
@@ -401,6 +403,7 @@ struct Pattern {
     seat_to_play = p.seat_to_play;
     bounds = p.bounds;
     hits = p.hits;
+    cuts = p.cuts;
     std::swap(patterns, p.patterns);
   }
 
@@ -409,7 +412,10 @@ struct Pattern {
   const Pattern* Lookup(const Pattern& new_pattern, int alpha, int beta) const {
     if (!Match(new_pattern)) return nullptr;
     ++hits;
-    if (bounds.lower >= beta || bounds.upper <= alpha) return this;
+    if (bounds.lower >= beta || bounds.upper <= alpha) {
+      ++cuts;
+      return this;
+    }
     for (auto& pattern : patterns) {
       auto detail = pattern.Lookup(new_pattern, alpha, beta);
       if (detail) return detail;
@@ -432,6 +438,7 @@ struct Pattern {
           old_pattern.UpdateBounds(new_pattern.bounds);
           if (old_pattern.bounds == new_pattern.bounds) {
             new_pattern.hits += old_pattern.hits;
+            new_pattern.cuts += old_pattern.cuts;
           } else {
             new_pattern.patterns.resize(new_pattern.patterns.size() + 1);
             new_pattern.patterns.back().MoveFrom(old_pattern);
@@ -520,7 +527,7 @@ struct Pattern {
         }
         if (seat < NUM_SEATS - 1) printf(", ");
       }
-      printf(" hits %d\n", hits);
+      printf(" hits %d cuts %d\n", hits, cuts);
     }
     for (const auto& pattern : patterns) pattern.Show(level + 1);
   }
