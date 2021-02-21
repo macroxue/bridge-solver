@@ -1072,14 +1072,22 @@ class Play {
         for (int suit = 0; suit < NUM_SUITS; ++suit) {
           auto my_suit = my_hand.Suit(suit);
           auto partner_suit = partner_hand.Suit(suit);
+          auto lho_suit = hands[LeftHandOpp()].Suit(suit);
+          auto rho_suit = hands[RightHandOpp()].Suit(suit);
+          int my_max_winners_by_rank = std::max({partner_suit.Size(),
+                                                lho_suit.Size(), rho_suit.Size()});
+          int partner_max_winners_by_rank = std::max({my_suit.Size(),
+                                                     lho_suit.Size(), rho_suit.Size()});
           int my_winners = 0, partner_winners = 0;
           for (int card : all_cards.Suit(suit))
             if (my_hand.Have(card)) {
               ++my_winners;
-              winners->Add(card);
+              if (my_winners <= my_max_winners_by_rank)
+                winners->Add(card);
             } else if (partner_hand.Have(card)) {
               ++partner_winners;
-              winners->Add(card);
+              if (partner_winners <= partner_max_winners_by_rank)
+                winners->Add(card);
             } else
               break;
           my_tricks += SuitFastTricks(my_suit, my_winners, my_entry,
@@ -1093,14 +1101,20 @@ class Play {
           fast_tricks = my_tricks;
         fast_tricks = std::min(fast_tricks, my_hand.Size());
       } else {
+        auto my_suit = my_hand.Suit(trump);
+        if (my_suit == all_cards.Suit(trump)) return my_suit.Size();
+
+        auto partner_suit = partner_hand.Suit(trump);
+        if (partner_suit == all_cards.Suit(trump)) return partner_suit.Size();
+
+        auto max_trump_tricks = std::max(my_suit.Size(), partner_suit.Size());
         for (int card : all_cards.Suit(trump))
           if (both_hands.Have(card)) {
             ++fast_tricks;
-            winners->Add(card);
+            if (fast_tricks <= max_trump_tricks)
+              winners->Add(card);
           } else
             break;
-        auto max_trump_tricks = std::max(my_hand.Suit(trump).Size(),
-                                         partner_hand.Suit(trump).Size());
         fast_tricks = std::min(fast_tricks, max_trump_tricks);
       }
       return fast_tricks;
