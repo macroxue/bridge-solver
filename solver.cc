@@ -412,16 +412,16 @@ struct Pattern {
   const Pattern* Lookup(const Pattern& new_pattern, int alpha, int beta) const {
     if (!Match(new_pattern)) return nullptr;
     ++hits;
-    if (bounds.lower >= beta || bounds.upper <= alpha) {
-      ++cuts;
+    if (bounds.lower >= beta || bounds.upper <= alpha)
       return this;
-    }
     for (auto& pattern : patterns) {
       auto detail = pattern.Lookup(new_pattern, alpha, beta);
-      if (detail) return detail;
+      if (detail) {
+        ++pattern.cuts;
+        return detail;
+      }
     }
-    if (IsRoot()) return nullptr;
-    return this;
+    return nullptr;
   }
 
   Pattern* Update(Pattern& new_pattern) {
