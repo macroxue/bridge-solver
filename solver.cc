@@ -403,14 +403,13 @@ struct Pattern {
   const Pattern* Lookup(const Pattern& new_pattern, int alpha, int beta) const {
     if (!Match(new_pattern)) return nullptr;
     ++hits;
-    if (bounds.lower >= beta || bounds.upper <= alpha)
+    if (bounds.lower >= beta || bounds.upper <= alpha) {
+      ++cuts;
       return this;
+    }
     for (auto& pattern : patterns) {
       auto detail = pattern.Lookup(new_pattern, alpha, beta);
-      if (detail) {
-        ++pattern.cuts;
-        return detail;
-      }
+      if (detail) return detail;
     }
     return nullptr;
   }
@@ -460,6 +459,10 @@ struct Pattern {
     bounds = bounds.Intersect(new_bounds);
     CHECK(!bounds.Empty());
     if (bounds.Width() == old_bounds.Width()) return;
+    if (bounds.Width() == 0) {
+      patterns.clear();
+      return;
+    }
 
     for (auto& pattern : patterns)
       pattern.UpdateBounds(bounds);
