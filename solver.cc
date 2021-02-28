@@ -793,18 +793,22 @@ class Play {
         return CollectLastTrick(winners);
 
       if (TrickStarting()) {
+        ComputeEquivalence();
         Cards fast_winners;
         int fast_tricks = FastTricks(&fast_winners);
         if (NsToPlay() && ns_tricks_won + fast_tricks >= beta) {
+          VERBOSE(printf("%2d: %c beta fast cut %d+%d\n", depth, SeatLetter(seat_to_play),
+                         ns_tricks_won, fast_tricks));
           winners->Add(fast_winners);
           return ns_tricks_won + fast_tricks;
         }
         int remaining_tricks = hands[0].Size();
         if (!NsToPlay() && ns_tricks_won + (remaining_tricks - fast_tricks) <= alpha) {
+          VERBOSE(printf("%2d: %c alpha fast cut %d+%d\n", depth, SeatLetter(seat_to_play),
+                         ns_tricks_won, remaining_tricks - fast_tricks));
           winners->Add(fast_winners);
           return ns_tricks_won + (remaining_tricks - fast_tricks);
         }
-        ComputeEquivalence();
       }
 
       Cards playable_cards = GetPlayableCards();
