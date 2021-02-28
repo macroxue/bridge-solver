@@ -45,7 +45,11 @@ const char* SuitName(int suit) {
 }
 
 const char* SuitSign(int suit) {
+#ifdef _DEBUG
+  static const char* suit_signs[NUM_SUITS + 1] = { "♠", "♥", "♦", "♣", "NT" };
+#else
   static const char* suit_signs[NUM_SUITS + 1] = { "♠", "\e[31m♥\e[0m", "\e[31m♦\e[0m", "♣", "NT" };
+#endif
   return suit_signs[suit];
 }
 
@@ -789,12 +793,17 @@ class Play {
         return CollectLastTrick(winners);
 
       if (TrickStarting()) {
-        int fast_tricks = FastTricks(winners);
-        if (NsToPlay() && ns_tricks_won + fast_tricks >= beta)
+        Cards fast_winners;
+        int fast_tricks = FastTricks(&fast_winners);
+        if (NsToPlay() && ns_tricks_won + fast_tricks >= beta) {
+          winners->Add(fast_winners);
           return ns_tricks_won + fast_tricks;
+        }
         int remaining_tricks = hands[0].Size();
-        if (!NsToPlay() && ns_tricks_won + (remaining_tricks - fast_tricks) <= alpha)
+        if (!NsToPlay() && ns_tricks_won + (remaining_tricks - fast_tricks) <= alpha) {
+          winners->Add(fast_winners);
           return ns_tricks_won + (remaining_tricks - fast_tricks);
+        }
         ComputeEquivalence();
       }
 
