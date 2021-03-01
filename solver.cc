@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <sys/time.h>
 #include <termios.h>
 #include <unistd.h>
@@ -213,7 +214,7 @@ class Cache {
       probe_distance = 0;
       load_count = lookup_count = hit_count = update_count = collision_count = 0;
       for (int i = 0; i < size; ++i)
-        entries[i].hash = 0;
+        entries[i].Reset(0);
     }
 
     void ShowStatistics() const {
@@ -359,7 +360,6 @@ struct Bounds {
 
 struct Pattern {
   Cards hands[NUM_SEATS];
-  uint64_t shape;
   char seat_to_play;
   Bounds bounds;
   mutable short cuts = 0;
@@ -373,28 +373,27 @@ struct Pattern {
       hands[seat] = pattern_hands[seat];
   }
 
-  Pattern(Cards pattern_hands[], uint64_t shape, int seat_to_play, Bounds bounds)
-    : shape(shape), seat_to_play(seat_to_play), bounds(bounds) {
+  Pattern(Cards pattern_hands[], int seat_to_play, Bounds bounds)
+    : seat_to_play(seat_to_play), bounds(bounds) {
       for (int seat = 0; seat < NUM_SEATS; ++seat)
         hands[seat] = pattern_hands[seat];
     }
 
   void Reset() {
     for (int seat = 0; seat < NUM_SEATS; ++seat) hands[seat] = 0;
-    shape = 0;
     seat_to_play = -1;
     bounds.lower = 0;
     bounds.upper = TOTAL_TRICKS;
     hits = 0;
     cuts = 0;
     patterns.clear();
+    patterns.shrink_to_fit();
   }
 
   void MoveTo(Pattern& p) { p.MoveFrom(*this); }
 
   void MoveFrom(Pattern& p) {
     for (int seat = 0; seat < NUM_SEATS; ++seat) hands[seat] = p.hands[seat];
-    shape = p.shape;
     seat_to_play = p.seat_to_play;
     bounds = p.bounds;
     hits = p.hits;
@@ -505,7 +504,7 @@ struct Pattern {
     return sum;
   }
 
-  void Show(int level = 0) const {
+  void Show(uint64_t shape, int level = 0) const {
     if (!IsRoot()) {
 
       printf("%*d: %c (%d %d) ", level * 2, level, SeatLetter(seat_to_play),
@@ -526,12 +525,13 @@ struct Pattern {
       }
       printf(" hits %d cuts %d\n", hits, cuts);
     }
-    for (const auto& pattern : patterns) pattern.Show(level + 1);
+    for (const auto& pattern : patterns) pattern.Show(shape, level + 1);
   }
 };
 
 struct ShapeEntry {
   uint64_t hash;
+  uint64_t shape;
   Pattern pattern;
 
   int Size() const { return pattern.Size(); }
@@ -539,16 +539,18 @@ struct ShapeEntry {
   void Show() const {
     printf("%lx size %ld recursive size %d hits %d\n",
            hash, pattern.patterns.size(), Size(), pattern.hits);
-    pattern.Show();
+    pattern.Show(shape);
   }
 
   void Reset(uint64_t hash_in) {
     hash = hash_in;
+    shape = 0;
     pattern.Reset();
   }
 
   void MoveTo(ShapeEntry& to) {
     to.hash = hash;
+    to.shape = shape;
     to.pattern.MoveFrom(pattern);
   }
 };
@@ -704,7 +706,8 @@ class Play {
       ComputePatternHands();
 
       const Pattern* cached_pattern = nullptr;
-      Cards shape_index[2] = {GetShape(trick->pattern_hands), seat_to_play};
+      auto shape = GetShape(trick->pattern_hands);
+      Cards shape_index[2] = {shape, seat_to_play};
       auto* shape_entry = common_bounds_cache.Lookup(shape_index);
       if (shape_entry) {
         cached_pattern = shape_entry->pattern.Lookup(trick->pattern_hands,
@@ -712,7 +715,7 @@ class Play {
                                                      beta - ns_tricks_won);
         if (cached_pattern && depth <= options.displaying_depth) {
           printf("%2d: matched, ", depth);
-          cached_pattern->Show(0);
+          cached_pattern->Show(shape);
           printf(" / ");
           ShowHands(hands);
         }
@@ -774,13 +777,13 @@ class Play {
         all_pattern_cards.Add(pattern_hands[seat]);
       }
 
-      Pattern new_pattern(pattern_hands, shape_index[0].Value(), seat_to_play,
-                          {uint8_t(lower), uint8_t(upper)});
+      Pattern new_pattern(pattern_hands, seat_to_play, {uint8_t(lower), uint8_t(upper)});
       auto* new_shape_entry = common_bounds_cache.Update(shape_index);
+      new_shape_entry->shape = shape;
       cached_pattern = new_shape_entry->pattern.Update(new_pattern);
       if (depth <= options.displaying_depth) {
         printf("%2d: updated, ", depth);
-        cached_pattern->Show(0);
+        cached_pattern->Show(shape);
         printf(" / ");
         ShowHands(hands);
       }
@@ -1780,8 +1783,10 @@ int main(int argc, char* argv[]) {
       }
     }
     if (!options.interactive) {
+      struct rusage usage;
+      getrusage(RUSAGE_SELF, &usage);
       gettimeofday(&now, NULL);
-      printf(" %4.1f s\n", Elapse(last_round, now));
+      printf(" %4.1f s %5.1f M\n", Elapse(last_round, now), usage.ru_maxrss / 1024.0);
       fflush(stdout);
       last_round = now;
     }
