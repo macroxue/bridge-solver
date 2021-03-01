@@ -1758,13 +1758,14 @@ int main(int argc, char* argv[]) {
         return min_max.Search(alpha, beta);
       };
       int ns_tricks = MemoryEnhancedTestDriver(search, num_tricks, guess_tricks);
-      guess_tricks = ns_tricks;
+      guess_tricks = std::min(ns_tricks + 1, TOTAL_TRICKS);
 
       if (!options.interactive) {
         if (seat_to_play == WEST || seat_to_play == EAST)
           printf(" %2d", ns_tricks);
         else
           printf(" %2d", num_tricks - ns_tricks);
+        fflush(stdout);
         continue;
       }
       if (num_tricks < TOTAL_TRICKS ||
