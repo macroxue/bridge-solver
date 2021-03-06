@@ -722,19 +722,8 @@ class Play {
       Cards pattern_hands[NUM_SEATS];
       for (int seat = 0; seat < NUM_SEATS; ++seat) {
         for (int card : hands[seat]) {
-          // West to lead in a heart contract. South's small trump is going
-          // to win if East can't get in to draw trumps.
-          // (a)             ♠ xx ♥ - ♦ x ♣ -
-          // ♠ Ax ♥ - ♦ x ♣ -                ♠ x ♥ A ♦ x ♣ -
-          //                 ♠ x ♥ x ♦ - ♣ x
-          // If West can gets in from spades, EW takes all three tricks.
-          // (b)             ♠ xx ♥ - ♦ x ♣ -
-          // ♠ Ax ♥ - ♦ A ♣ -                ♠ K ♥ A ♦ x ♣ -
-          //                 ♠ x ♥ x ♦ - ♣ x
-          // With (a) the fact that West holds two equivalent cards blocking
-          // spades needs to be captured.
-          if (RankOf(trick->equivalence[card]) < min_relevant_ranks[SuitOf(card)]) continue;
-          pattern_hands[seat].Add(trick->relative_cards[card]);
+          if (RankOf(trick->equivalence[card]) >= min_relevant_ranks[SuitOf(card)])
+            pattern_hands[seat].Add(trick->relative_cards[card]);
         }
       }
 
@@ -890,11 +879,7 @@ class Play {
           playable_cards.Add(suit_cards);
         } else {
           // Discard only the bottom card in a suit. It's very rare that discarding
-          // a higher ranked card in the same suit is necessary. One example,
-          // South to make 3NT:
-          //                 AK83 AK A65432 K
-          //  65 QJT876 KT9 AJ               JT92 54 Q 765432
-          //                 Q74 932 J87 QT98
+          // a higher ranked card in the same suit is necessary.
           playable_cards.Add(trick->equivalence[suit_cards.Bottom()]);
         }
       }
