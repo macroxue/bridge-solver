@@ -713,12 +713,7 @@ class Play {
         cached_pattern = shape_entry->pattern.Lookup(trick->pattern_hands,
                                                      alpha - ns_tricks_won,
                                                      beta - ns_tricks_won);
-        if (cached_pattern && depth <= options.displaying_depth) {
-          printf("%2d: matched, ", depth);
-          cached_pattern->Show(shape);
-          printf(" / ");
-          ShowHands(hands);
-        }
+        VERBOSE(if (cached_pattern) ShowPattern("match", cached_pattern, shape));
       }
 
       int lower = 0, upper = TOTAL_TRICKS;
@@ -757,7 +752,6 @@ class Play {
       }
 
       Cards pattern_hands[NUM_SEATS];
-      Cards all_pattern_cards;
       for (int seat = 0; seat < NUM_SEATS; ++seat) {
         for (int card : hands[seat]) {
           // West to lead in a heart contract. South's small trump is going
@@ -774,19 +768,13 @@ class Play {
           if (RankOf(trick->equivalence[card]) < min_relevant_ranks[SuitOf(card)]) continue;
           pattern_hands[seat].Add(trick->relative_cards[card]);
         }
-        all_pattern_cards.Add(pattern_hands[seat]);
       }
 
       Pattern new_pattern(pattern_hands, seat_to_play, {uint8_t(lower), uint8_t(upper)});
       auto* new_shape_entry = common_bounds_cache.Update(shape_index);
       new_shape_entry->shape = shape;
       cached_pattern = new_shape_entry->pattern.Update(new_pattern);
-      if (depth <= options.displaying_depth) {
-        printf("%2d: updated, ", depth);
-        cached_pattern->Show(shape);
-        printf(" / ");
-        ShowHands(hands);
-      }
+      VERBOSE(ShowPattern("update", cached_pattern, shape));
       return ns_tricks;
     }
 
@@ -1136,6 +1124,13 @@ class Play {
         printf(" (%d %d)\n", alpha, beta);
       else
         printf(" (%d %d) -> %d\n", alpha, beta, ns_tricks);
+    }
+
+    void ShowPattern(const char* action, const Pattern* pattern, uint64_t shape) const {
+      printf("%2d: %s ", depth, action);
+      pattern->Show(shape);
+      printf(" / ");
+      ShowHands(hands);
     }
 
     bool TrickStarting() const { return (depth & 3) == 0; }
