@@ -346,8 +346,8 @@ class Cache {
 
 #pragma pack(push, 4)
 struct Bounds {
-  uint8_t lower : 4;
-  uint8_t upper : 4;
+  uint8_t lower;
+  uint8_t upper;
 
   bool Empty() const { return upper < lower; }
   int Width() const { return upper - lower; }
@@ -360,28 +360,20 @@ struct Bounds {
 
 struct Pattern {
   Cards hands[NUM_SEATS];
-  char seat_to_play;
   Bounds bounds;
-  mutable short cuts = 0;
-  mutable int hits = 0;
+  mutable uint16_t cuts = 0;
+  mutable uint16_t hits = 0;
   std::vector<Pattern> patterns;
 
   Pattern() = default;
 
-  Pattern(Cards pattern_hands[]) {
+  Pattern(Cards pattern_hands[], Bounds bounds = Bounds()) : bounds(bounds) {
     for (int seat = 0; seat < NUM_SEATS; ++seat)
       hands[seat] = pattern_hands[seat];
   }
 
-  Pattern(Cards pattern_hands[], int seat_to_play, Bounds bounds)
-    : seat_to_play(seat_to_play), bounds(bounds) {
-      for (int seat = 0; seat < NUM_SEATS; ++seat)
-        hands[seat] = pattern_hands[seat];
-    }
-
   void Reset() {
     for (int seat = 0; seat < NUM_SEATS; ++seat) hands[seat] = 0;
-    seat_to_play = -1;
     bounds.lower = 0;
     bounds.upper = TOTAL_TRICKS;
     hits = 0;
@@ -394,14 +386,11 @@ struct Pattern {
 
   void MoveFrom(Pattern& p) {
     for (int seat = 0; seat < NUM_SEATS; ++seat) hands[seat] = p.hands[seat];
-    seat_to_play = p.seat_to_play;
     bounds = p.bounds;
     hits = p.hits;
     cuts = p.cuts;
     std::swap(patterns, p.patterns);
   }
-
-  bool IsRoot() const { return seat_to_play == -1; }
 
   const Pattern* Lookup(const Pattern& new_pattern, int alpha, int beta) const {
     if (!Match(new_pattern)) return nullptr;
@@ -499,16 +488,14 @@ struct Pattern {
   }
 
   int Size() const {
-    int sum = IsRoot() ? 0 : 1;
+    int sum = 1;
     for (const auto& pattern : patterns) sum += pattern.Size();
     return sum;
   }
 
-  void Show(uint64_t shape, int level = 0) const {
-    if (!IsRoot()) {
-
-      printf("%*d: %c (%d %d) ", level * 2, level, SeatLetter(seat_to_play),
-             bounds.lower, bounds.upper);
+  void Show(uint64_t shape, int level = 1) const {
+    if (level > 0) {
+      printf("%*d: (%d %d) ", level * 2, level, bounds.lower, bounds.upper);
       for (int seat = 0; seat < NUM_SEATS; ++seat) {
         for (int suit = 0; suit < NUM_SUITS; ++suit) {
           auto suit_length = GetSuitLength(shape, seat, suit);
@@ -532,49 +519,30 @@ struct Pattern {
 struct ShapeEntry {
   uint64_t hash;
   uint64_t shape;
+  int seat_to_play;
   Pattern pattern;
 
-  int Size() const { return pattern.Size(); }
+  int Size() const { return pattern.Size() - 1; }
 
   void Show() const {
-    printf("%lx size %ld recursive size %d hits %d\n",
-           hash, pattern.patterns.size(), Size(), pattern.hits);
-    pattern.Show(shape);
+    printf("hash %lx shape %lx seat %c size %ld recursive size %d hits %d\n",
+           hash, shape, SeatLetter(seat_to_play), pattern.patterns.size(), Size(), pattern.hits);
+    pattern.Show(shape, 0);
   }
 
   void Reset(uint64_t hash_in) {
     hash = hash_in;
     shape = 0;
+    seat_to_play = -1;
     pattern.Reset();
   }
 
   void MoveTo(ShapeEntry& to) {
     to.hash = hash;
     to.shape = shape;
+    to.seat_to_play = seat_to_play;
     to.pattern.MoveFrom(pattern);
   }
-};
-
-struct BoundsEntry {
-  // Save only the hash instead of full hands to save memory.
-  // The chance of getting a hash collision is practically zero.
-  uint64_t hash;
-  // Bounds depending on the lead seat.
-  Bounds bounds[NUM_SEATS];
-
-  int Size() const { return 1; }
-
-  void Show() const {}
-
-  void Reset(uint64_t hash_in) {
-    hash = hash_in;
-    for (int i = 0; i < NUM_SEATS; ++i) {
-      bounds[i].lower = 0;
-      bounds[i].upper = TOTAL_TRICKS;
-    }
-  }
-
-  void MoveTo(BoundsEntry& to) { memcpy(&to, this, sizeof(*this)); }
 };
 
 struct CutoffEntry {
@@ -770,9 +738,10 @@ class Play {
         }
       }
 
-      Pattern new_pattern(pattern_hands, seat_to_play, {uint8_t(lower), uint8_t(upper)});
+      Pattern new_pattern(pattern_hands, {uint8_t(lower), uint8_t(upper)});
       auto* new_shape_entry = common_bounds_cache.Update(shape_index);
       new_shape_entry->shape = shape;
+      new_shape_entry->seat_to_play = seat_to_play;
       cached_pattern = new_shape_entry->pattern.Update(new_pattern);
       VERBOSE(ShowPattern("update", cached_pattern, shape));
       return ns_tricks;
