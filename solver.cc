@@ -393,7 +393,7 @@ struct Pattern {
   }
 
   const Pattern* Lookup(const Pattern& new_pattern, int alpha, int beta) const {
-    if (!Match(new_pattern)) return nullptr;
+    if (!(new_pattern <= *this)) return nullptr;
     ++hits;
     if (bounds.lower >= beta || bounds.upper <= alpha) {
       ++cuts;
@@ -409,14 +409,14 @@ struct Pattern {
   Pattern* Update(Pattern& new_pattern) {
     for (size_t i = 0; i < patterns.size(); ++i) {
       auto& pattern = patterns[i];
-      if (new_pattern.Same(pattern)) {
+      if (new_pattern == pattern) {
         pattern.UpdateBounds(new_pattern.bounds);
         return &pattern;
-      } else if (new_pattern.Match(pattern)) {
-        // Old pattern is more detailed, absorb sub-patterns.
+      } else if (pattern <= new_pattern) {
+        // New pattern is more generic. Absorb sub-patterns.
         for (; i < patterns.size(); ++i) {
           auto& old_pattern = patterns[i];
-          if (!new_pattern.Match(old_pattern)) continue;
+          if (!(old_pattern <= new_pattern)) continue;
           old_pattern.UpdateBounds(new_pattern.bounds);
           if (old_pattern.bounds == new_pattern.bounds) {
             new_pattern.hits += old_pattern.hits;
@@ -433,8 +433,8 @@ struct Pattern {
         }
         pattern.MoveFrom(new_pattern);
         return &pattern;
-      } else if (pattern.Match(new_pattern)) {
-        // New pattern is more detailed.
+      } else if (new_pattern <= pattern) {
+        // Old pattern is more generic. Add new pattern under.
         new_pattern.bounds = new_pattern.bounds.Intersect(pattern.bounds);
         CHECK(!new_pattern.bounds.Empty());
         if (new_pattern.bounds == pattern.bounds) return &pattern;
@@ -460,12 +460,13 @@ struct Pattern {
       pattern.UpdateBounds(bounds);
   }
 
-  bool Match(const Pattern& d) const {
-    return d.hands[WEST].Include(hands[WEST]) && d.hands[NORTH].Include(hands[NORTH]) &&
-      d.hands[EAST].Include(hands[EAST]) && d.hands[SOUTH].Include(hands[SOUTH]);
+  // This pattern is more detailed than (a subset of) the other pattern.
+  bool operator <=(const Pattern& p) const {
+    return hands[WEST].Include(p.hands[WEST]) && hands[NORTH].Include(p.hands[NORTH]) &&
+      hands[EAST].Include(p.hands[EAST]) && hands[SOUTH].Include(p.hands[SOUTH]);
   }
 
-  bool Same(const Pattern& p) const {
+  bool operator ==(const Pattern& p) const {
     return p.hands[WEST] == hands[WEST] && p.hands[NORTH] == hands[NORTH] &&
       p.hands[EAST] == hands[EAST] && p.hands[SOUTH] == hands[SOUTH];
   }
