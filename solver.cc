@@ -758,6 +758,23 @@ class Play {
           winners->Add(fast_winners);
           return ns_tricks_won + (remaining_tricks - fast_tricks);
         }
+        if (trump != NOTRUMP) {
+          Cards slow_winners;
+          int slow_tricks = SureTrumpTricks(hands[LeftHandOpp()], hands[RightHandOpp()],
+                                            &slow_winners);
+          if (NsToPlay() && ns_tricks_won + (remaining_tricks - slow_tricks) <= alpha) {
+            VERBOSE(printf("%2d: %c alpha slow cut %d+%d\n", depth, SeatLetter(seat_to_play),
+                           ns_tricks_won, remaining_tricks - slow_tricks));
+            winners->Add(slow_winners);
+            return ns_tricks_won + (remaining_tricks - slow_tricks);
+          }
+          if (!NsToPlay() && ns_tricks_won + slow_tricks >= beta) {
+            VERBOSE(printf("%2d: %c beta slow cut %d+%d\n", depth, SeatLetter(seat_to_play),
+                           ns_tricks_won, slow_tricks));
+            winners->Add(slow_winners);
+            return ns_tricks_won + slow_tricks;
+          }
+        }
       }
 
       Cards playable_cards = GetPlayableCards();
