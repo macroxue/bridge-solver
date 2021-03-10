@@ -784,24 +784,31 @@ class Play {
       if (!cutoff_cards.Empty()) {
         ordered_cards[num_ordered_cards++] = cutoff_cards.Top();
         playable_cards.Remove(cutoff_cards);
+      } else {
+        OrderCards(playable_cards, ordered_cards, num_ordered_cards);
+        playable_cards = Cards();
       }
-      OrderCards(playable_cards, ordered_cards, num_ordered_cards);
 
       int bounded_ns_tricks = NsToPlay() ? 0 : TOTAL_TRICKS;
       Cards root_winners;
       for (int i = 0; i < num_ordered_cards; ++i) {
         int card = ordered_cards[i];
-        if (trick->equivalence[card] != card) continue;
-        Cards branch_winners;
-        if (Cutoff(alpha, beta, card, &bounded_ns_tricks, &branch_winners)) {
-          if (!cutoff_cards.Have(card))
-            SaveCutoffCard(card);
-          stats.CutoffAt(depth, i);
-          VERBOSE(printf("%2d: %c search cut @%d\n", depth, SeatLetter(seat_to_play), i));
-          winners->Add(branch_winners);
-          return bounded_ns_tricks;
+        if (trick->equivalence[card] == card) {
+          Cards branch_winners;
+          if (Cutoff(alpha, beta, card, &bounded_ns_tricks, &branch_winners)) {
+            if (!cutoff_cards.Have(card))
+              SaveCutoffCard(card);
+            stats.CutoffAt(depth, i);
+            VERBOSE(printf("%2d: %c search cut @%d\n", depth, SeatLetter(seat_to_play), i));
+            winners->Add(branch_winners);
+            return bounded_ns_tricks;
+          }
+          root_winners.Add(branch_winners);
         }
-        root_winners.Add(branch_winners);
+        if (!playable_cards.Empty()) {
+          OrderCards(playable_cards, ordered_cards, num_ordered_cards);
+          playable_cards = Cards();
+        }
       }
       stats.CutoffAt(depth, TOTAL_TRICKS - 1);
       winners->Add(root_winners);
