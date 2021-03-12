@@ -178,17 +178,20 @@ class Cards {
     uint64_t bits;
 };
 
+int ShapeOffset(int seat, int suit) {
+  return 60 - (seat * NUM_SUITS + suit) * 4;
+}
+
 uint64_t GetShape(Cards hands[]) {
   uint64_t shape = 0;
   for (int seat = 0; seat < NUM_SEATS; ++seat)
     for (int suit = 0; suit < NUM_SUITS; ++suit)
-      shape = (shape << 4) + hands[seat].Suit(suit).Size();
+      shape += uint64_t(hands[seat].Suit(suit).Size()) << ShapeOffset(seat, suit);
   return shape;
 }
 
 int GetSuitLength(uint64_t shape, int seat, int suit) {
-  int bits = 60 - (seat * NUM_SUITS + suit) * 4;
-  return (shape >> bits) & 0xf;
+  return (shape >> ShapeOffset(seat, suit)) & 0xf;
 }
 
 void ShowHands(Cards hands[]) {
@@ -568,6 +571,7 @@ Cache<ShapeEntry, 2> common_bounds_cache("Common Bounds Cache", 16);
 Cache<CutoffEntry, 2> cutoff_cache("Cut-off Cache", 16);
 
 struct Trick {
+  uint64_t shape;
   Cards pattern_hands[NUM_SEATS];
   char relative_cards[TOTAL_CARDS];
   char equivalence[TOTAL_CARDS];
@@ -596,6 +600,7 @@ struct Trick {
   void IdentifyEquivalentCards(Cards cards, Cards all_cards) {
     // Two cards in one suit are equivalent when their relative ranks are next to
     // each other.
+    if (cards.Empty()) return;
     int prev_card = *cards.begin();
     equivalence[prev_card] = prev_card;
     for (int cur_card : cards.Slice(prev_card + 1, TOTAL_CARDS)) {
@@ -675,14 +680,13 @@ class Play {
       ComputePatternHands();
 
       const Pattern* cached_pattern = nullptr;
-      auto shape = GetShape(trick->pattern_hands);
-      Cards shape_index[2] = {shape, seat_to_play};
+      Cards shape_index[2] = {trick->shape, seat_to_play};
       auto* shape_entry = common_bounds_cache.Lookup(shape_index);
       if (shape_entry) {
         cached_pattern = shape_entry->pattern.Lookup(trick->pattern_hands,
                                                      alpha - ns_tricks_won,
                                                      beta - ns_tricks_won);
-        VERBOSE(if (cached_pattern) ShowPattern("match", cached_pattern, shape));
+        VERBOSE(if (cached_pattern) ShowPattern("match", cached_pattern, trick->shape));
       }
 
       int lower = 0, upper = TOTAL_TRICKS;
@@ -730,10 +734,10 @@ class Play {
 
       Pattern new_pattern(pattern_hands, {uint8_t(lower), uint8_t(upper)});
       auto* new_shape_entry = common_bounds_cache.Update(shape_index);
-      new_shape_entry->shape = shape;
+      new_shape_entry->shape = trick->shape;
       new_shape_entry->seat_to_play = seat_to_play;
       cached_pattern = new_shape_entry->pattern.Update(new_pattern);
-      VERBOSE(ShowPattern("update", cached_pattern, shape));
+      VERBOSE(ShowPattern("update", cached_pattern, trick->shape));
       return ns_tricks;
     }
 
@@ -897,9 +901,16 @@ class Play {
 
     void ComputePatternHands() {
       if (depth < 4) {
+        trick->shape = GetShape(hands);
         for (int suit = 0; suit < NUM_SUITS; ++suit)
           trick->IdentifyPatternCards(hands, suit);
       } else {
+        trick->shape = (trick - 1)->shape;
+        for (int d = depth - 4; d < depth; ++d)
+          trick->shape -= 1ULL << ShapeOffset(plays[d].seat_to_play,
+                                              SuitOf(plays[d].card_played));
+        CHECK(trick->shape == GetShape(hands));
+
         // Recompute the pattern for suits changed by the last trick.
         memcpy(trick->pattern_hands, (trick - 1)->pattern_hands,
                sizeof(trick->pattern_hands));
