@@ -178,30 +178,6 @@ class Cards {
     uint64_t bits;
 };
 
-int ShapeOffset(int seat, int suit) {
-  return 60 - (seat * NUM_SUITS + suit) * 4;
-}
-
-uint64_t GetShape(Cards hands[]) {
-  uint64_t shape = 0;
-  for (int seat = 0; seat < NUM_SEATS; ++seat)
-    for (int suit = 0; suit < NUM_SUITS; ++suit)
-      shape += uint64_t(hands[seat].Suit(suit).Size()) << ShapeOffset(seat, suit);
-  return shape;
-}
-
-int GetSuitLength(uint64_t shape, int seat, int suit) {
-  return (shape >> ShapeOffset(seat, suit)) & 0xf;
-}
-
-void ShowHands(Cards hands[]) {
-  for (int seat = 0; seat < NUM_SEATS; ++seat) {
-    hands[seat].Show();
-    if (seat < NUM_SEATS - 1) printf(", ");
-  }
-  puts("");
-}
-
 template <class Entry, int input_size>
 class Cache {
   public:
@@ -361,6 +337,39 @@ struct Bounds {
   bool operator==(Bounds b) const { return b.lower == lower && b.upper == upper; }
 };
 
+class Shape {
+  public:
+    Shape() : value(0) {}
+    Shape(uint64_t value) : value(value) {}
+    Shape(Cards hands[]) : value(0) {
+      for (int seat = 0; seat < NUM_SEATS; ++seat)
+        for (int suit = 0; suit < NUM_SUITS; ++suit)
+          value += uint64_t(hands[seat].Suit(suit).Size()) << Offset(seat, suit);
+    }
+
+    void PlayCards(int seat, int c1, int c2, int c3, int c4) {
+      value -= 1ULL << Offset(seat, SuitOf(c1));
+      value -= 1ULL << Offset((seat + 1) % NUM_SEATS, SuitOf(c2));
+      value -= 1ULL << Offset((seat + 2) % NUM_SEATS, SuitOf(c3));
+      value -= 1ULL << Offset((seat + 3) % NUM_SEATS, SuitOf(c4));
+    }
+
+    int SuitLength(int seat, int suit) const {
+      return (value >> Offset(seat, suit)) & 0xf;
+    }
+
+    uint64_t Value() const { return value; }
+
+    bool operator ==(const Shape& s) const { return value == s.value; }
+
+  private:
+    static int Offset(int seat, int suit) {
+      return 60 - (seat * NUM_SUITS + suit) * 4;
+    }
+
+    uint64_t value;
+};
+
 struct Pattern {
   Cards hands[NUM_SEATS];
   Bounds bounds;
@@ -497,12 +506,12 @@ struct Pattern {
     return sum;
   }
 
-  void Show(uint64_t shape, int level = 1) const {
+  void Show(Shape shape, int level = 1) const {
     if (level > 0) {
       printf("%*d: (%d %d) ", level * 2, level, bounds.lower, bounds.upper);
       for (int seat = 0; seat < NUM_SEATS; ++seat) {
         for (int suit = 0; suit < NUM_SUITS; ++suit) {
-          auto suit_length = GetSuitLength(shape, seat, suit);
+          auto suit_length = shape.SuitLength(seat, suit);
           if (suit_length == 0)
             putchar('-');
           else {
@@ -522,7 +531,7 @@ struct Pattern {
 
 struct ShapeEntry {
   uint64_t hash;
-  uint64_t shape;
+  Shape shape;
   int seat_to_play;
   Pattern pattern;
 
@@ -530,13 +539,14 @@ struct ShapeEntry {
 
   void Show() const {
     printf("hash %lx shape %lx seat %c size %ld recursive size %d hits %d\n",
-           hash, shape, SeatLetter(seat_to_play), pattern.patterns.size(), Size(), pattern.hits);
+           hash, shape.Value(), SeatLetter(seat_to_play),
+           pattern.patterns.size(), Size(), pattern.hits);
     pattern.Show(shape, 0);
   }
 
   void Reset(uint64_t hash_in) {
     hash = hash_in;
-    shape = 0;
+    shape = Shape();
     seat_to_play = -1;
     pattern.Reset();
   }
@@ -571,7 +581,7 @@ Cache<ShapeEntry, 2> common_bounds_cache("Common Bounds Cache", 16);
 Cache<CutoffEntry, 2> cutoff_cache("Cut-off Cache", 16);
 
 struct Trick {
-  uint64_t shape;
+  Shape shape;
   Cards pattern_hands[NUM_SEATS];
   char relative_cards[TOTAL_CARDS];
   char equivalence[TOTAL_CARDS];
@@ -648,6 +658,14 @@ class Stats {
 
 Stats stats(false);
 
+void ShowHands(Cards hands[]) {
+  for (int seat = 0; seat < NUM_SEATS; ++seat) {
+    hands[seat].Show();
+    if (seat < NUM_SEATS - 1) printf(", ");
+  }
+  puts("");
+}
+
 class Play {
   public:
     Play() {}
@@ -680,7 +698,7 @@ class Play {
       ComputePatternHands();
 
       const Pattern* cached_pattern = nullptr;
-      Cards shape_index[2] = {trick->shape, seat_to_play};
+      Cards shape_index[2] = {trick->shape.Value(), seat_to_play};
       auto* shape_entry = common_bounds_cache.Lookup(shape_index);
       if (shape_entry) {
         cached_pattern = shape_entry->pattern.Lookup(trick->pattern_hands,
@@ -901,15 +919,15 @@ class Play {
 
     void ComputePatternHands() {
       if (depth < 4) {
-        trick->shape = GetShape(hands);
+        trick->shape = Shape(hands);
         for (int suit = 0; suit < NUM_SUITS; ++suit)
           trick->IdentifyPatternCards(hands, suit);
       } else {
         trick->shape = (trick - 1)->shape;
-        for (int d = depth - 4; d < depth; ++d)
-          trick->shape -= 1ULL << ShapeOffset(plays[d].seat_to_play,
-                                              SuitOf(plays[d].card_played));
-        CHECK(trick->shape == GetShape(hands));
+        trick->shape.PlayCards(plays[depth - 4].seat_to_play,
+            plays[depth - 4].card_played, plays[depth - 3].card_played,
+            plays[depth - 2].card_played, plays[depth - 1].card_played);
+        CHECK(trick->shape == Shape(hands));
 
         // Recompute the pattern for suits changed by the last trick.
         memcpy(trick->pattern_hands, (trick - 1)->pattern_hands,
