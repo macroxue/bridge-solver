@@ -1,6 +1,6 @@
 all: solver.p solver
 
-OPTS=-std=c++0x -Wall
+OPTS=-std=c++0x -Wall -msse4.2
 
 solver.p: solver.cc
 	rm -f solver.gcda
