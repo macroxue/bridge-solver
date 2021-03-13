@@ -690,16 +690,17 @@ Cache<CutoffEntry, 2> cutoff_cache("Cut-off Cache", 16);
 
 struct Trick {
   Shape shape;
+  Cards all_cards;
   Hands pattern_hands;
   char relative_cards[TOTAL_CARDS];
   char equivalence[TOTAL_CARDS];
 
-  void IdentifyPatternCards(const Hands& hands, int suit, Cards all_cards) {
+  void IdentifyPatternCards(const Hands& hands, int suit, Cards all_suit_cards) {
     // Create the pattern using relative ranks. For example, when all the cards
     // remaining in a suit are J, 8, 7 and 2, they are treated as A, K, Q and J
     // respectively.
     int relative_rank = ACE;
-    for (int card : all_cards) {
+    for (int card : all_suit_cards) {
       int relative_card = CardOf(suit, relative_rank--);
       relative_cards[card] = relative_card;
     }
@@ -710,15 +711,15 @@ struct Trick {
     }
   }
 
-  void IdentifyEquivalentCards(Cards cards, Cards all_cards) {
+  void IdentifyEquivalentCards(Cards cards, Cards all_suit_cards) {
     // Two cards in one suit are equivalent when their relative ranks are next to
     // each other.
     if (cards.Empty()) return;
     int prev_card = *cards.begin();
     equivalence[prev_card] = prev_card;
     for (int cur_card : cards.Slice(prev_card + 1, TOTAL_CARDS)) {
-      if (cards.Slice(prev_card, cur_card + 1) == all_cards.Slice(prev_card, cur_card + 1) ||
-          std::max(RankOf(prev_card), RankOf(cur_card)) <= options.small_card) {
+      if (cards.Slice(prev_card, cur_card + 1) == all_suit_cards.Slice(prev_card, cur_card + 1)
+          || std::max(RankOf(prev_card), RankOf(cur_card)) <= options.small_card) {
         // This one is equivalent to the previous one.
       } else {
         prev_card = cur_card;
@@ -770,7 +771,7 @@ class Play {
 
     int SearchWithCache(int alpha, int beta, Cards* winners) {
       if (TrickStarting()) {
-        all_cards = hands.all_cards();
+        trick->all_cards = hands.all_cards();
         if (depth > 0) {
           ns_tricks_won = PreviousPlay().ns_tricks_won + PreviousPlay().NsWon();
           seat_to_play = PreviousPlay().WinningSeat();
@@ -782,12 +783,11 @@ class Play {
         if (!NsToPlay() && ns_tricks_won + remaining_tricks <= alpha)
           return ns_tricks_won + remaining_tricks;
       } else {
-        all_cards = PreviousPlay().all_cards;
         ns_tricks_won = PreviousPlay().ns_tricks_won;
         seat_to_play = PreviousPlay().NextSeat();
       }
 
-      if (!TrickStarting() || all_cards.Size() == 4)
+      if (!TrickStarting() || trick->all_cards.Size() == 4)
         return Search(alpha, beta, winners);
 
       ComputePatternHands();
@@ -856,7 +856,7 @@ class Play {
 
   private:
     int Search(int alpha, int beta, Cards* winners) {
-      if (all_cards.Size() == 4)
+      if (trick->all_cards.Size() == 4)
         return CollectLastTrick(winners);
 
       if (TrickStarting()) {
@@ -1013,7 +1013,7 @@ class Play {
       if (depth < 4) {
         trick->shape = Shape(hands);
         for (int suit = 0; suit < NUM_SUITS; ++suit)
-          trick->IdentifyPatternCards(hands, suit, all_cards.Suit(suit));
+          trick->IdentifyPatternCards(hands, suit, trick->all_cards.Suit(suit));
       } else {
         trick->shape = (trick - 1)->shape;
         trick->shape.PlayCards(plays[depth - 4].seat_to_play,
@@ -1026,8 +1026,8 @@ class Play {
         memcpy(trick->relative_cards, (trick - 1)->relative_cards,
                sizeof(trick->relative_cards));
         for (int suit = 0; suit < NUM_SUITS; ++suit) {
-          if (all_cards.Suit(suit) != plays[depth - 4].all_cards.Suit(suit))
-            trick->IdentifyPatternCards(hands, suit, all_cards.Suit(suit));
+          if (trick->all_cards.Suit(suit) != (trick - 1)->all_cards.Suit(suit))
+            trick->IdentifyPatternCards(hands, suit, trick->all_cards.Suit(suit));
         }
       }
     }
@@ -1036,15 +1036,15 @@ class Play {
       if (depth < 4) {
         for (int suit = 0; suit < NUM_SUITS; ++suit)
           for (int seat = 0; seat < NUM_SEATS; ++seat)
-            trick->IdentifyEquivalentCards(hands[seat].Suit(suit), all_cards.Suit(suit));
+            trick->IdentifyEquivalentCards(hands[seat].Suit(suit), trick->all_cards.Suit(suit));
       } else {
         // Recompute the equivalence for suits changed by the last trick.
         memcpy(trick->equivalence, (trick - 1)->equivalence,
                sizeof(trick->equivalence));
         for (int suit = 0; suit < NUM_SUITS; ++suit) {
-          if (all_cards.Suit(suit) != plays[depth - 4].all_cards.Suit(suit))
+          if (trick->all_cards.Suit(suit) != (trick - 1)->all_cards.Suit(suit))
             for (int seat = 0; seat < NUM_SEATS; ++seat)
-              trick->IdentifyEquivalentCards(hands[seat].Suit(suit), all_cards.Suit(suit));
+              trick->IdentifyEquivalentCards(hands[seat].Suit(suit), trick->all_cards.Suit(suit));
         }
       }
     }
@@ -1102,7 +1102,7 @@ class Play {
         if (hands[seat_to_play].Suit(LeadSuit()).Empty())
           cutoff_index[0] = hands[seat_to_play];
         else
-          cutoff_index[0] = all_cards.Suit(LeadSuit());
+          cutoff_index[0] = trick->all_cards.Suit(LeadSuit());
         cutoff_index[1].Add(PreviousPlay().WinningCard());
       }
     }
@@ -1155,15 +1155,15 @@ class Play {
 
     int SureTrumpTricks(Cards my_hand, Cards partner_hand, Cards* winners) const {
       auto my_suit = my_hand.Suit(trump);
-      if (my_suit == all_cards.Suit(trump)) return my_suit.Size();
+      if (my_suit == trick->all_cards.Suit(trump)) return my_suit.Size();
 
       auto partner_suit = partner_hand.Suit(trump);
-      if (partner_suit == all_cards.Suit(trump)) return partner_suit.Size();
+      if (partner_suit == trick->all_cards.Suit(trump)) return partner_suit.Size();
 
       auto both_suits = my_suit.Union(partner_suit);
       auto max_trump_tricks = std::max(my_suit.Size(), partner_suit.Size());
       int sure_tricks = 0;
-      for (int card : all_cards.Suit(trump))
+      for (int card : trick->all_cards.Suit(trump))
         if (both_suits.Have(card)) {
           ++sure_tricks;
           if (sure_tricks <= max_trump_tricks)
@@ -1202,7 +1202,7 @@ class Play {
         }
 
         int my_winners = 0, partner_winners = 0;
-        for (int card : all_cards.Suit(suit))
+        for (int card : trick->all_cards.Suit(suit))
           if (my_suit.Have(card)) {
             ++my_winners;
             if (my_winners <= my_max_winners_by_rank)
@@ -1324,7 +1324,6 @@ class Play {
     int seat_to_play;
     int card_played;
     int winning_play;
-    Cards all_cards;
 
     friend class InteractivePlay;
 };
@@ -1332,6 +1331,7 @@ class Play {
 class MinMax {
   public:
     MinMax(const Hands& hands_in, int trump, int seat_to_play) : hands(hands_in) {
+      tricks[0].all_cards = hands.all_cards();
       for (int i = 0; i < TOTAL_CARDS; ++i)
         new(&plays[i]) Play(plays, tricks + i / 4, hands, trump, i, seat_to_play);
       new (&stats) Stats(options.show_stats);
@@ -1570,8 +1570,8 @@ class InteractivePlay {
 
     bool SetupTrick(Play& play) {
       // TODO: Clean up! SearchWithCache() recomputes the same info.
-      play.all_cards = play.hands.all_cards();
       if (play.depth > 0) {
+        play.trick->all_cards = play.hands.all_cards();
         play.ns_tricks_won = play.PreviousPlay().ns_tricks_won + play.PreviousPlay().NsWon();
         play.seat_to_play = play.PreviousPlay().WinningSeat();
       }
