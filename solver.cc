@@ -130,6 +130,7 @@ class Cards {
 
     Cards Add(const Cards& c) { bits |= c.bits; return bits; }
     Cards Remove(const Cards& c) { bits &= ~c.bits; return bits; }
+    Cards RemoveSuit(int suit) { bits &= ~MaskOf(suit); return bits; }
 
     int CountPoints() const {
       int points = 0;
@@ -586,24 +587,19 @@ struct Trick {
   char relative_cards[TOTAL_CARDS];
   char equivalence[TOTAL_CARDS];
 
-  void IdentifyPatternCards(Cards hands[NUM_SEATS], int suit) {
+  void IdentifyPatternCards(Cards hands[NUM_SEATS], int suit, Cards all_cards) {
     // Create the pattern using relative ranks. For example, when all the cards
     // remaining in a suit are J, 8, 7 and 2, they are treated as A, K, Q and J
     // respectively.
-    Cards all_cards;
-    int card_holder[TOTAL_CARDS];
-    for (int seat = 0; seat < NUM_SEATS; ++seat) {
-      Cards suit_cards = hands[seat].Suit(suit);
-      all_cards.Add(suit_cards);
-      for (int card : suit_cards)
-        card_holder[card] = seat;
-      pattern_hands[seat].Remove(pattern_hands[seat].Suit(suit));
-    }
     int relative_rank = ACE;
     for (int card : all_cards) {
       int relative_card = CardOf(suit, relative_rank--);
       relative_cards[card] = relative_card;
-      pattern_hands[card_holder[card]].Add(relative_card);
+    }
+    for (int seat = 0; seat < NUM_SEATS; ++seat) {
+      pattern_hands[seat].RemoveSuit(suit);
+      for (int card : hands[seat].Suit(suit))
+        pattern_hands[seat].Add(relative_cards[card]);
     }
   }
 
@@ -850,7 +846,6 @@ class Play {
           if ((!my_trumps.Empty() && !opp_trumps.Empty())) {
             AddCards(my_trumps, ordered_cards, num_ordered_cards);
             AddCards(playable_cards.Different(my_trumps), ordered_cards, num_ordered_cards);
-            return;
           } else {
             AddCards(playable_cards.Different(my_trumps), ordered_cards, num_ordered_cards);
             AddCards(my_trumps, ordered_cards, num_ordered_cards);
@@ -921,7 +916,7 @@ class Play {
       if (depth < 4) {
         trick->shape = Shape(hands);
         for (int suit = 0; suit < NUM_SUITS; ++suit)
-          trick->IdentifyPatternCards(hands, suit);
+          trick->IdentifyPatternCards(hands, suit, all_cards.Suit(suit));
       } else {
         trick->shape = (trick - 1)->shape;
         trick->shape.PlayCards(plays[depth - 4].seat_to_play,
@@ -936,7 +931,7 @@ class Play {
                sizeof(trick->relative_cards));
         for (int suit = 0; suit < NUM_SUITS; ++suit) {
           if (all_cards.Suit(suit) != plays[depth - 4].all_cards.Suit(suit))
-            trick->IdentifyPatternCards(hands, suit);
+            trick->IdentifyPatternCards(hands, suit, all_cards.Suit(suit));
         }
       }
     }
