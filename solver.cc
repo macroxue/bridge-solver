@@ -930,7 +930,9 @@ class Play {
 
       int ordered_cards[TOTAL_TRICKS], num_ordered_cards = 0;
       auto playable_cards = GetPlayableCards();
-      Cards cutoff_cards = playable_cards.Intersect(LookupCutoffCards());
+      Cards cutoff_index[2];
+      BuildCutoffIndex(cutoff_index);
+      Cards cutoff_cards = playable_cards.Intersect(LookupCutoffCards(cutoff_index));
       if (!cutoff_cards.Empty()) {
         ordered_cards[num_ordered_cards++] = cutoff_cards.Top();
         playable_cards.Remove(cutoff_cards);
@@ -947,7 +949,7 @@ class Play {
           Cards branch_winners;
           if (Cutoff(alpha, beta, card, &bounded_ns_tricks, &branch_winners)) {
             if (!cutoff_cards.Have(card))
-              SaveCutoffCard(card);
+              SaveCutoffCard(cutoff_index, card);
             stats.CutoffAt(depth, i);
             VERBOSE(printf("%2d: search cut @%d\n", depth, i));
             winners->Add(branch_winners);
@@ -1114,19 +1116,15 @@ class Play {
       }
     }
 
-    Cards LookupCutoffCards() const {
+    Cards LookupCutoffCards(Cards cutoff_index[]) const {
       Cards cutoff_cards;
-      Cards cutoff_index[2];
-      BuildCutoffIndex(cutoff_index);
       if (const auto* entry = cutoff_cache.Lookup(cutoff_index))
         if (entry->card[seat_to_play] != TOTAL_CARDS)
           cutoff_cards.Add(entry->card[seat_to_play]);
       return cutoff_cards;
     }
 
-    void SaveCutoffCard(int cutoff_card) const {
-      Cards cutoff_index[2];
-      BuildCutoffIndex(cutoff_index);
+    void SaveCutoffCard(Cards cutoff_index[], int cutoff_card) const {
       if (auto* entry = cutoff_cache.Update(cutoff_index))
         entry->card[seat_to_play] = cutoff_card;
     }
