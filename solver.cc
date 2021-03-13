@@ -179,6 +179,116 @@ class Cards {
     uint64_t bits;
 };
 
+class Hands {
+  public:
+    void Randomize() {
+      struct timeval time;
+      gettimeofday(&time, NULL);
+      srand((time.tv_sec * 1000) + (time.tv_usec / 1000));
+
+      int deck[TOTAL_CARDS];
+      for (int card = 0; card < TOTAL_CARDS; ++card)
+        deck[card] = card;
+
+      int remaining_cards = TOTAL_CARDS;
+      for (int seat = 0; seat < NUM_SEATS; ++seat)
+        for (int i = 0; i < NUM_RANKS; ++i) {
+          int r = rand() % remaining_cards;
+          hands[seat].Add(deck[r]);
+          --remaining_cards;
+          std::swap(deck[r], deck[remaining_cards]);
+        }
+    }
+
+    Cards all_cards() const {
+      return hands[WEST].Union(hands[NORTH]).Union(hands[EAST]).Union(hands[SOUTH]);
+    }
+    Cards partnership_cards(int seat) const {
+      return hands[seat].Union(hands[(seat + 2) % NUM_SEATS]);
+    }
+    Cards opponent_cards(int seat) const {
+      return hands[(seat + 1) % NUM_SEATS].Union(hands[(seat + 3) % NUM_SEATS]);
+    }
+
+    const Cards& operator[](int seat) const { return hands[seat]; }
+    Cards& operator[](int seat) { return hands[seat]; }
+
+    int num_tricks() const { return hands[WEST].Size(); }
+
+    void Show() const {
+      for (int seat = 0; seat < NUM_SEATS; ++seat) {
+        hands[seat].Show();
+        if (seat < NUM_SEATS - 1) printf(", ");
+      }
+      puts("");
+    }
+
+    void ShowCompact(int rotation = 0) {
+      int seat = (NORTH + rotation) % NUM_SEATS;
+      printf("%25s%c ", " ", SeatLetter(seat));
+      hands[seat].Show();
+      printf("\n");
+
+      seat = (WEST + rotation) % NUM_SEATS;
+      int num_cards = hands[seat].Size();
+      printf("%*s%c ", 14 - num_cards, " ", SeatLetter(seat));
+      hands[seat].Show();
+
+      seat = (EAST + rotation) % NUM_SEATS;
+      printf("%*s%c ", num_cards + 8, " ", SeatLetter(seat));
+      hands[seat].Show();
+      printf("\n");
+
+      seat = (SOUTH + rotation) % NUM_SEATS;
+      printf("%25s%c ", " ", SeatLetter(seat));
+      hands[seat].Show();
+      printf("\n");
+    }
+
+    void ShowDetailed(int rotation = 0) {
+      int gap = 26;
+      int seat = (NORTH + rotation) % NUM_SEATS;
+      for (int suit = 0; suit < NUM_SUITS; ++suit) {
+        ShowHandInfo(hands[seat], seat, suit, gap);
+        hands[seat].ShowSuit(suit);
+        printf("\n");
+      }
+      for (int suit = 0; suit < NUM_SUITS; ++suit) {
+        gap = 13;
+        seat = (WEST + rotation) % NUM_SEATS;
+        ShowHandInfo(hands[seat], seat, suit, gap);
+        hands[seat].ShowSuit(suit);
+
+        gap = 26 - std::max(1, hands[seat].Suit(suit).Size());
+        seat = (EAST + rotation) % NUM_SEATS;
+        ShowHandInfo(hands[seat], seat, suit, gap);
+        hands[seat].ShowSuit(suit);
+        printf("\n");
+      }
+      gap = 26;
+      seat = (SOUTH + rotation) % NUM_SEATS;
+      for (int suit = 0; suit < NUM_SUITS; ++suit) {
+        ShowHandInfo(hands[seat], seat, suit, gap);
+        hands[seat].ShowSuit(suit);
+        printf("\n");
+      }
+    }
+
+  private:
+    void ShowHandInfo(Cards hand, int seat, int suit, int gap) {
+      if (suit == SPADE)
+        printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
+      else if (suit == CLUB)
+        printf("%*s%2d ", gap - 3, " ", hand.CountPoints());
+      else
+        printf("%*s", gap, " ");
+    }
+
+    Cards hands[NUM_SEATS];
+};
+
+Hands empty_hands;
+
 template <class Entry, int input_size>
 class Cache {
   public:
@@ -342,7 +452,7 @@ class Shape {
   public:
     Shape() : value(0) {}
     Shape(uint64_t value) : value(value) {}
-    Shape(Cards hands[]) : value(0) {
+    Shape(const Hands& hands) : value(0) {
       for (int seat = 0; seat < NUM_SEATS; ++seat)
         for (int suit = 0; suit < NUM_SUITS; ++suit)
           value += uint64_t(hands[seat].Suit(suit).Size()) << Offset(seat, suit);
@@ -372,7 +482,7 @@ class Shape {
 };
 
 struct Pattern {
-  Cards hands[NUM_SEATS];
+  Hands hands;
   Bounds bounds;
   mutable uint16_t cuts = 0;
   mutable uint16_t hits = 0;
@@ -380,13 +490,10 @@ struct Pattern {
 
   Pattern() = default;
 
-  Pattern(Cards pattern_hands[], Bounds bounds = Bounds()) : bounds(bounds) {
-    for (int seat = 0; seat < NUM_SEATS; ++seat)
-      hands[seat] = pattern_hands[seat];
-  }
+  Pattern(const Hands& hands, Bounds bounds = Bounds()) : hands(hands), bounds(bounds) {}
 
   void Reset() {
-    for (int seat = 0; seat < NUM_SEATS; ++seat) hands[seat] = 0;
+    hands = Hands();
     bounds.lower = 0;
     bounds.upper = TOTAL_TRICKS;
     hits = 0;
@@ -398,7 +505,7 @@ struct Pattern {
   void MoveTo(Pattern& p) { p.MoveFrom(*this); }
 
   void MoveFrom(Pattern& p) {
-    for (int seat = 0; seat < NUM_SEATS; ++seat) hands[seat] = p.hands[seat];
+    hands = p.hands;
     bounds = p.bounds;
     hits = p.hits;
     cuts = p.cuts;
@@ -484,7 +591,7 @@ struct Pattern {
       p.hands[EAST] == hands[EAST] && p.hands[SOUTH] == hands[SOUTH];
   }
 
-  Cards GetWinners(Cards real_hands[]) const {
+  Cards GetWinners(const Hands& real_hands) const {
     Cards winners;
     for (int seat = 0; seat < NUM_SEATS; ++seat) {
       for (int suit = 0; suit < NUM_SUITS; ++suit) {
@@ -583,11 +690,11 @@ Cache<CutoffEntry, 2> cutoff_cache("Cut-off Cache", 16);
 
 struct Trick {
   Shape shape;
-  Cards pattern_hands[NUM_SEATS];
+  Hands pattern_hands;
   char relative_cards[TOTAL_CARDS];
   char equivalence[TOTAL_CARDS];
 
-  void IdentifyPatternCards(Cards hands[NUM_SEATS], int suit, Cards all_cards) {
+  void IdentifyPatternCards(const Hands& hands, int suit, Cards all_cards) {
     // Create the pattern using relative ranks. For example, when all the cards
     // remaining in a suit are J, 8, 7 and 2, they are treated as A, K, Q and J
     // respectively.
@@ -654,24 +761,16 @@ class Stats {
 
 Stats stats(false);
 
-void ShowHands(Cards hands[]) {
-  for (int seat = 0; seat < NUM_SEATS; ++seat) {
-    hands[seat].Show();
-    if (seat < NUM_SEATS - 1) printf(", ");
-  }
-  puts("");
-}
-
 class Play {
   public:
     Play() {}
-    Play(Play* plays, Trick* trick, Cards* hands, int trump, int depth, int seat_to_play)
+    Play(Play* plays, Trick* trick, Hands& hands, int trump, int depth, int seat_to_play)
       : plays(plays), trick(trick), hands(hands), trump(trump), depth(depth),
         ns_tricks_won(0), seat_to_play(seat_to_play) {}
 
     int SearchWithCache(int alpha, int beta, Cards* winners) {
       if (TrickStarting()) {
-        all_cards = hands[WEST].Union(hands[NORTH]).Union(hands[EAST]).Union(hands[SOUTH]);
+        all_cards = hands.all_cards();
         if (depth > 0) {
           ns_tricks_won = PreviousPlay().ns_tricks_won + PreviousPlay().NsWon();
           seat_to_play = PreviousPlay().WinningSeat();
@@ -679,7 +778,7 @@ class Play {
 
         if (NsToPlay() && ns_tricks_won >= beta)
           return ns_tricks_won;
-        int remaining_tricks = hands[0].Size();
+        int remaining_tricks = hands.num_tricks();
         if (!NsToPlay() && ns_tricks_won + remaining_tricks <= alpha)
           return ns_tricks_won + remaining_tricks;
       } else {
@@ -727,7 +826,7 @@ class Play {
         upper = ns_tricks - ns_tricks_won;
       } else {
         lower = ns_tricks - ns_tricks_won;
-        upper = hands[0].Size();
+        upper = hands.num_tricks();
       }
       CHECK(lower <= upper);
 
@@ -738,7 +837,7 @@ class Play {
           min_relevant_ranks[suit] = RankOf(branch_winners.Suit(suit).Bottom());
       }
 
-      Cards pattern_hands[NUM_SEATS];
+      Hands pattern_hands;
       for (int seat = 0; seat < NUM_SEATS; ++seat) {
         for (int card : hands[seat]) {
           if (RankOf(trick->equivalence[card]) >= min_relevant_ranks[SuitOf(card)])
@@ -770,7 +869,7 @@ class Play {
           winners->Add(fast_winners);
           return ns_tricks_won + fast_tricks;
         }
-        int remaining_tricks = hands[0].Size();
+        int remaining_tricks = hands.num_tricks();
         if (!NsToPlay() && ns_tricks_won + (remaining_tricks - fast_tricks) <= alpha) {
           VERBOSE(printf("%2d: %c alpha fast cut %d+%d\n", depth, SeatLetter(seat_to_play),
                          ns_tricks_won, remaining_tricks - fast_tricks));
@@ -842,7 +941,7 @@ class Play {
       if (TrickStarting()) {  // lead
         if (trump != NOTRUMP) {
           Cards my_trumps = playable_cards.Suit(trump);
-          Cards opp_trumps = hands[LeftHandOpp()].Union(hands[RightHandOpp()]).Suit(trump);
+          Cards opp_trumps = hands.opponent_cards(seat_to_play).Suit(trump);
           if ((!my_trumps.Empty() && !opp_trumps.Empty())) {
             AddCards(my_trumps, ordered_cards, num_ordered_cards);
             AddCards(playable_cards.Different(my_trumps), ordered_cards, num_ordered_cards);
@@ -925,8 +1024,7 @@ class Play {
         CHECK(trick->shape == Shape(hands));
 
         // Recompute the pattern for suits changed by the last trick.
-        memcpy(trick->pattern_hands, (trick - 1)->pattern_hands,
-               sizeof(trick->pattern_hands));
+        trick->pattern_hands =  (trick - 1)->pattern_hands;
         memcpy(trick->relative_cards, (trick - 1)->relative_cards,
                sizeof(trick->relative_cards));
         for (int suit = 0; suit < NUM_SUITS; ++suit) {
@@ -1035,7 +1133,7 @@ class Play {
         for (int d = depth / 4 * 4; d <= depth; ++d) {
           if (plays[d].card_played == winning_card) continue;
           if (SuitOf(winning_card) == SuitOf(plays[d].card_played)) {
-            winners->Add(WinningCard());
+            winners->Add(winning_card);
             break;
           }
         }
@@ -1088,8 +1186,8 @@ class Play {
         if (suit == trump) continue;
         auto my_suit = my_hand.Suit(suit);
         auto partner_suit = partner_hand.Suit(suit);
-        auto lho_suit = hands[LeftHandOpp()].Suit(suit);
-        auto rho_suit = hands[RightHandOpp()].Suit(suit);
+        auto lho_suit = lho_hand.Suit(suit);
+        auto rho_suit = rho_hand.Suit(suit);
         int my_max_winners_by_rank = std::max({partner_suit.Size(),
                                               lho_suit.Size(), rho_suit.Size()});
         int partner_max_winners_by_rank = std::max({my_suit.Size(),
@@ -1192,7 +1290,7 @@ class Play {
       printf("%2d: %s ", depth, action);
       pattern->Show(shape);
       printf(" / ");
-      ShowHands(hands);
+      hands.Show();
     }
 
     bool TrickStarting() const { return (depth & 3) == 0; }
@@ -1217,15 +1315,13 @@ class Play {
     Play& NextPlay() const { return plays[depth + 1]; }
 
     // Fixed info.
-    Play* plays;
-    Trick* trick;
-    Cards* hands;
-    int trump;
-    int depth;
+    Play* const plays = nullptr;
+    Trick* const trick = nullptr;
+    Hands& hands = empty_hands;
+    const int trump = NOTRUMP;
+    const int depth = 0;
 
     // Per play info.
-    //int alpha;
-    //int beta;
     int ns_tricks_won;
     int seat_to_play;
     int card_played;
@@ -1237,10 +1333,7 @@ class Play {
 
 class MinMax {
   public:
-    MinMax(Cards h[NUM_SEATS], int trump, int seat_to_play) {
-      for (int seat = 0; seat < NUM_SEATS; ++seat)
-        hands[seat] = h[seat];
-
+    MinMax(const Hands& hands_in, int trump, int seat_to_play) : hands(hands_in) {
       for (int i = 0; i < TOTAL_CARDS; ++i)
         new(&plays[i]) Play(plays, tricks + i / 4, hands, trump, i, seat_to_play);
       new (&stats) Stats(options.show_stats);
@@ -1258,7 +1351,7 @@ class MinMax {
     Play& play(int i) { return plays[i]; }
 
   private:
-    Cards  hands[NUM_SEATS];
+    Hands  hands;
     Play   plays[TOTAL_CARDS];
     Trick  tricks[TOTAL_TRICKS];
 };
@@ -1326,26 +1419,7 @@ Cards ParseHand(char *line) {
   return hand;
 }
 
-void RandomizeHands(Cards hands[]) {
-  struct timeval time;
-  gettimeofday(&time, NULL);
-  srand((time.tv_sec * 1000) + (time.tv_usec / 1000));
-
-  int deck[TOTAL_CARDS];
-  for (int card = 0; card < TOTAL_CARDS; ++card)
-    deck[card] = card;
-
-  int remaining_cards = TOTAL_CARDS;
-  for (int seat = 0; seat < NUM_SEATS; ++seat)
-    for (int i = 0; i < NUM_RANKS; ++i) {
-      int r = rand() % remaining_cards;
-      hands[seat].Add(deck[r]);
-      --remaining_cards;
-      std::swap(deck[r], deck[remaining_cards]);
-    }
-}
-
-void ReadHands(Cards hands[], std::vector<int>& trumps, std::vector<int>& lead_seats) {
+void ReadHands(Hands& hands, std::vector<int>& trumps, std::vector<int>& lead_seats) {
   FILE* input_file = stdin;
   if (options.input) {
     input_file = fopen(options.input, "rt");
@@ -1392,66 +1466,6 @@ void ReadHands(Cards hands[], std::vector<int>& trumps, std::vector<int>& lead_s
   if (input_file != stdin) fclose(input_file);
 }
 
-void ShowHandInfo(Cards hand, int seat, int suit, int gap) {
-  if (suit == SPADE)
-    printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
-  else if (suit == CLUB)
-    printf("%*s%2d ", gap - 3, " ", hand.CountPoints());
-  else
-    printf("%*s", gap, " ");
-}
-
-void ShowHands(Cards hands[], int rotation = 0) {
-  int gap = 26;
-  int seat = (NORTH + rotation) % NUM_SEATS;
-  for (int suit = 0; suit < NUM_SUITS; ++suit) {
-    ShowHandInfo(hands[seat], seat, suit, gap);
-    hands[seat].ShowSuit(suit);
-    printf("\n");
-  }
-  for (int suit = 0; suit < NUM_SUITS; ++suit) {
-    gap = 13;
-    seat = (WEST + rotation) % NUM_SEATS;
-    ShowHandInfo(hands[seat], seat, suit, gap);
-    hands[seat].ShowSuit(suit);
-
-    gap = 26 - std::max(1, hands[seat].Suit(suit).Size());
-    seat = (EAST + rotation) % NUM_SEATS;
-    ShowHandInfo(hands[seat], seat, suit, gap);
-    hands[seat].ShowSuit(suit);
-    printf("\n");
-  }
-  gap = 26;
-  seat = (SOUTH + rotation) % NUM_SEATS;
-  for (int suit = 0; suit < NUM_SUITS; ++suit) {
-    ShowHandInfo(hands[seat], seat, suit, gap);
-    hands[seat].ShowSuit(suit);
-    printf("\n");
-  }
-}
-
-void ShowCompactHands(Cards hands[], int rotation = 0) {
-  int seat = (NORTH + rotation) % NUM_SEATS;
-  printf("%25s%c ", " ", SeatLetter(seat));
-  hands[seat].Show();
-  printf("\n");
-
-  seat = (WEST + rotation) % NUM_SEATS;
-  int num_cards = hands[seat].Size();
-  printf("%*s%c ", 14 - num_cards, " ", SeatLetter(seat));
-  hands[seat].Show();
-
-  seat = (EAST + rotation) % NUM_SEATS;
-  printf("%*s%c ", num_cards + 8, " ", SeatLetter(seat));
-  hands[seat].Show();
-  printf("\n");
-
-  seat = (SOUTH + rotation) % NUM_SEATS;
-  printf("%25s%c ", " ", SeatLetter(seat));
-  hands[seat].Show();
-  printf("\n");
-}
-
 int MemoryEnhancedTestDriver(std::function<int(int, int)> search, int num_tricks, int guess_tricks) {
   int upperbound = num_tricks;
   int lowerbound = 0;
@@ -1479,10 +1493,10 @@ double Elapse(const timeval& from, const timeval& to) {
 
 class InteractivePlay {
   public:
-    InteractivePlay(Cards hands[], int trump, int lead_seat, int target_ns_tricks)
+    InteractivePlay(const Hands& hands, int trump, int lead_seat, int target_ns_tricks)
       : min_max(hands, trump, lead_seat),
         target_ns_tricks(target_ns_tricks),
-        num_tricks(hands[WEST].Size()),
+        num_tricks(hands.num_tricks()),
         trump(trump) {
       ShowUsage();
       DetermineContract();
@@ -1520,7 +1534,7 @@ class InteractivePlay {
           case ROTATE:
             rotation = (rotation + 3) % 4;
             if (!play.TrickStarting())
-              ShowHands(play.hands, rotation);
+              play.hands.ShowDetailed(rotation);
             --p;
             break;
           case NEXT:
@@ -1558,8 +1572,7 @@ class InteractivePlay {
 
     bool SetupTrick(Play& play) {
       // TODO: Clean up! SearchWithCache() recomputes the same info.
-      play.all_cards = play.hands[WEST].Union(play.hands[NORTH]).
-        Union(play.hands[EAST]).Union(play.hands[SOUTH]);
+      play.all_cards = play.hands.all_cards();
       if (play.depth > 0) {
         play.ns_tricks_won = play.PreviousPlay().ns_tricks_won + play.PreviousPlay().NsWon();
         play.seat_to_play = play.PreviousPlay().WinningSeat();
@@ -1572,7 +1585,7 @@ class InteractivePlay {
       printf("------ %s: NS %d EW %d ------\n",
              contract, starting_ns_tricks + play.ns_tricks_won,
              starting_ew_tricks + trick_index - play.ns_tricks_won);
-      ShowHands(play.hands, rotation);
+      play.hands.ShowDetailed(rotation);
       if (trick_index == num_tricks - 1) {
         Cards winners;
         int ns_tricks_won = play.CollectLastTrick(&winners);
@@ -1792,13 +1805,13 @@ int main(int argc, char* argv[]) {
 
   CardInitializer card_initializer;
 
-  Cards hands[NUM_SEATS];
+  Hands hands;
   std::vector<int> trumps = { NOTRUMP, SPADE, HEART, DIAMOND, CLUB };
   std::vector<int> lead_seats = { WEST, EAST, NORTH, SOUTH };
   if (options.randomize) {
-    RandomizeHands(hands);
+    hands.Randomize();
     if (!options.interactive)
-      ShowCompactHands(hands);
+      hands.ShowCompact();
   } else
     ReadHands(hands, trumps, lead_seats);
 
