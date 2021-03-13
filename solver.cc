@@ -864,15 +864,14 @@ class Play {
         Cards fast_winners;
         int fast_tricks = FastTricks(&fast_winners);
         if (NsToPlay() && ns_tricks_won + fast_tricks >= beta) {
-          VERBOSE(printf("%2d: %c beta fast cut %d+%d\n", depth, SeatLetter(seat_to_play),
-                         ns_tricks_won, fast_tricks));
+          VERBOSE(printf("%2d: beta fast cut %d+%d\n", depth, ns_tricks_won, fast_tricks));
           winners->Add(fast_winners);
           return ns_tricks_won + fast_tricks;
         }
         int remaining_tricks = hands.num_tricks();
         if (!NsToPlay() && ns_tricks_won + (remaining_tricks - fast_tricks) <= alpha) {
-          VERBOSE(printf("%2d: %c alpha fast cut %d+%d\n", depth, SeatLetter(seat_to_play),
-                         ns_tricks_won, remaining_tricks - fast_tricks));
+          VERBOSE(printf("%2d: alpha fast cut %d+%d\n", depth, ns_tricks_won,
+                         remaining_tricks - fast_tricks));
           winners->Add(fast_winners);
           return ns_tricks_won + (remaining_tricks - fast_tricks);
         }
@@ -881,14 +880,13 @@ class Play {
           int slow_tricks = SureTrumpTricks(hands[LeftHandOpp()], hands[RightHandOpp()],
                                             &slow_winners);
           if (NsToPlay() && ns_tricks_won + (remaining_tricks - slow_tricks) <= alpha) {
-            VERBOSE(printf("%2d: %c alpha slow cut %d+%d\n", depth, SeatLetter(seat_to_play),
-                           ns_tricks_won, remaining_tricks - slow_tricks));
+            VERBOSE(printf("%2d: alpha slow cut %d+%d\n", depth, ns_tricks_won,
+                           remaining_tricks - slow_tricks));
             winners->Add(slow_winners);
             return ns_tricks_won + (remaining_tricks - slow_tricks);
           }
           if (!NsToPlay() && ns_tricks_won + slow_tricks >= beta) {
-            VERBOSE(printf("%2d: %c beta slow cut %d+%d\n", depth, SeatLetter(seat_to_play),
-                           ns_tricks_won, slow_tricks));
+            VERBOSE(printf("%2d: beta slow cut %d+%d\n", depth, ns_tricks_won, slow_tricks));
             winners->Add(slow_winners);
             return ns_tricks_won + slow_tricks;
           }
@@ -916,7 +914,7 @@ class Play {
             if (!cutoff_cards.Have(card))
               SaveCutoffCard(card);
             stats.CutoffAt(depth, i);
-            VERBOSE(printf("%2d: %c search cut @%d\n", depth, SeatLetter(seat_to_play), i));
+            VERBOSE(printf("%2d: search cut @%d\n", depth, i));
             winners->Add(branch_winners);
             return bounded_ns_tricks;
           }
@@ -1286,7 +1284,7 @@ class Play {
         printf(" (%d %d) -> %d\n", alpha, beta, ns_tricks);
     }
 
-    void ShowPattern(const char* action, const Pattern* pattern, uint64_t shape) const {
+    void ShowPattern(const char* action, const Pattern* pattern, Shape shape) const {
       printf("%2d: %s ", depth, action);
       pattern->Show(shape);
       printf(" / ");
