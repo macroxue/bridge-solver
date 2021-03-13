@@ -695,6 +695,40 @@ struct Trick {
   char relative_cards[TOTAL_CARDS];
   char equivalence[TOTAL_CARDS];
 
+  void ComputePatternHands(int depth, const Hands& hands) {
+    if (depth < 4) {
+      for (int suit = 0; suit < NUM_SUITS; ++suit)
+        IdentifyPatternCards(hands, suit, all_cards.Suit(suit));
+    } else {
+      // Recompute the pattern for suits changed by the last trick.
+      auto prev_trick = this - 1;
+      pattern_hands = prev_trick->pattern_hands;
+      memcpy(relative_cards, prev_trick->relative_cards, sizeof(relative_cards));
+      for (int suit = 0; suit < NUM_SUITS; ++suit) {
+        if (all_cards.Suit(suit) != prev_trick->all_cards.Suit(suit))
+          IdentifyPatternCards(hands, suit, all_cards.Suit(suit));
+      }
+    }
+  }
+
+  void ComputeEquivalence(int depth, const Hands& hands) {
+    if (depth < 4) {
+      for (int suit = 0; suit < NUM_SUITS; ++suit)
+        for (int seat = 0; seat < NUM_SEATS; ++seat)
+          IdentifyEquivalentCards(hands[seat].Suit(suit), all_cards.Suit(suit));
+    } else {
+      // Recompute the equivalence for suits changed by the last trick.
+      auto prev_trick = this - 1;
+      memcpy(equivalence, prev_trick->equivalence, sizeof(equivalence));
+      for (int suit = 0; suit < NUM_SUITS; ++suit) {
+        if (all_cards.Suit(suit) != prev_trick->all_cards.Suit(suit))
+          for (int seat = 0; seat < NUM_SEATS; ++seat)
+            IdentifyEquivalentCards(hands[seat].Suit(suit), all_cards.Suit(suit));
+      }
+    }
+  }
+
+  private:
   void IdentifyPatternCards(const Hands& hands, int suit, Cards all_suit_cards) {
     // Create the pattern using relative ranks. For example, when all the cards
     // remaining in a suit are J, 8, 7 and 2, they are treated as A, K, Q and J
@@ -790,7 +824,8 @@ class Play {
       if (!TrickStarting() || trick->all_cards.Size() == 4)
         return Search(alpha, beta, winners);
 
-      ComputePatternHands();
+      ComputeShape();
+      trick->ComputePatternHands(depth, hands);
 
       const Pattern* cached_pattern = nullptr;
       Cards shape_index[2] = {trick->shape.Value(), seat_to_play};
@@ -860,7 +895,7 @@ class Play {
         return CollectLastTrick(winners);
 
       if (TrickStarting()) {
-        ComputeEquivalence();
+        trick->ComputeEquivalence(depth, hands);
         Cards fast_winners;
         int fast_tricks = FastTricks(&fast_winners);
         if (NsToPlay() && ns_tricks_won + fast_tricks >= beta) {
@@ -1009,43 +1044,15 @@ class Play {
       }
     }
 
-    void ComputePatternHands() {
+    void ComputeShape() {
       if (depth < 4) {
         trick->shape = Shape(hands);
-        for (int suit = 0; suit < NUM_SUITS; ++suit)
-          trick->IdentifyPatternCards(hands, suit, trick->all_cards.Suit(suit));
       } else {
         trick->shape = (trick - 1)->shape;
         trick->shape.PlayCards(plays[depth - 4].seat_to_play,
             plays[depth - 4].card_played, plays[depth - 3].card_played,
             plays[depth - 2].card_played, plays[depth - 1].card_played);
         CHECK(trick->shape == Shape(hands));
-
-        // Recompute the pattern for suits changed by the last trick.
-        trick->pattern_hands =  (trick - 1)->pattern_hands;
-        memcpy(trick->relative_cards, (trick - 1)->relative_cards,
-               sizeof(trick->relative_cards));
-        for (int suit = 0; suit < NUM_SUITS; ++suit) {
-          if (trick->all_cards.Suit(suit) != (trick - 1)->all_cards.Suit(suit))
-            trick->IdentifyPatternCards(hands, suit, trick->all_cards.Suit(suit));
-        }
-      }
-    }
-
-    void ComputeEquivalence() {
-      if (depth < 4) {
-        for (int suit = 0; suit < NUM_SUITS; ++suit)
-          for (int seat = 0; seat < NUM_SEATS; ++seat)
-            trick->IdentifyEquivalentCards(hands[seat].Suit(suit), trick->all_cards.Suit(suit));
-      } else {
-        // Recompute the equivalence for suits changed by the last trick.
-        memcpy(trick->equivalence, (trick - 1)->equivalence,
-               sizeof(trick->equivalence));
-        for (int suit = 0; suit < NUM_SUITS; ++suit) {
-          if (trick->all_cards.Suit(suit) != (trick - 1)->all_cards.Suit(suit))
-            for (int seat = 0; seat < NUM_SEATS; ++seat)
-              trick->IdentifyEquivalentCards(hands[seat].Suit(suit), trick->all_cards.Suit(suit));
-        }
       }
     }
 
@@ -1576,8 +1583,9 @@ class InteractivePlay {
         play.seat_to_play = play.PreviousPlay().WinningSeat();
       }
 
-      play.ComputePatternHands();
-      play.ComputeEquivalence();
+      play.ComputeShape();
+      play.trick->ComputePatternHands(play.depth, play.hands);
+      play.trick->ComputeEquivalence(play.depth, play.hands);
 
       int trick_index = play.depth / 4;
       printf("------ %s: NS %d EW %d ------\n",
