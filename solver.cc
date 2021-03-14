@@ -1794,7 +1794,7 @@ int main(int argc, char* argv[]) {
 
   timeval now;
   gettimeofday(&now, NULL);
-  timeval last_round = now;
+  timeval start_time = now;
   for (int trump : trumps) {
     if (!options.interactive) {
       printf("%c", SuitName(trump)[0]);
@@ -1829,15 +1829,6 @@ int main(int argc, char* argv[]) {
         printf("%s can't make a %s contract.\n", SeatName(declarer), SuitSign(trump));
       }
     }
-    if (!options.interactive) {
-      struct rusage usage;
-      getrusage(RUSAGE_SELF, &usage);
-      gettimeofday(&now, NULL);
-      printf(" %4.1f s %5.1f M\n", Elapse(last_round, now), usage.ru_maxrss / 1024.0);
-      fflush(stdout);
-      last_round = now;
-    }
-
     if (options.show_stats) {
       common_bounds_cache.ShowStatistics();
       cutoff_cache.ShowStatistics();
@@ -1845,6 +1836,14 @@ int main(int argc, char* argv[]) {
 
     common_bounds_cache.Reset();
     cutoff_cache.Reset();
+
+    if (!options.interactive) {
+      struct rusage usage;
+      getrusage(RUSAGE_SELF, &usage);
+      gettimeofday(&now, NULL);
+      printf(" %4.1f s %5.1f M\n", Elapse(start_time, now), usage.ru_maxrss / 1024.0);
+      fflush(stdout);
+    }
   }
   return 0;
 }

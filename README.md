@@ -18,14 +18,15 @@ The output looks like below.
                          N ♠ KJT987 ♥ K5 ♦ 7 ♣ AQJ8
  W ♠ 3 ♥ J9764 ♦ Q642 ♣ KT2                      E ♠ Q64 ♥ QT8 ♦ KJ953 ♣ 94
                          S ♠ A52 ♥ A32 ♦ AT8 ♣ 7653
-N 13 13  0  0  1.4 s
-S 13 13  0  0  0.1 s
-H  7  7  6  5  0.8 s
-D  6  6  6  6  1.3 s
-C 13 13  0  0  0.1 s
+N 13 13  0  0  0.1 s   9.4 M
+S 13 13  0  0  0.1 s   9.7 M
+H  7  7  6  5  0.2 s  14.0 M
+D  6  6  6  6  0.5 s  16.6 M
+C 13 13  0  0  0.5 s  16.6 M
 ```
-Each line after the deal shows the strain to play, the number of tricks if
-South/North/West/East declares and the time for solving the strain.
+Each line after the deal shows the strain to play, the number of tricks when
+South/North/West/East declares respectively, the cumulative time and the peak
+memory usage.
 
 ## Solve a deal in a file
 
@@ -70,8 +71,8 @@ with the following meanings.
 | (-N) | The contract is set by N tricks. |
 
 You can choose what card to play. For simplicity, only one of the equivalent
-cards like QJT in the same suit can be chosen. You can also undo the plays 
-to explore all possibilities. Below is an example. 
+cards like QJT in the same suit can be chosen. You can also undo the plays
+to explore all possibilities. Below is an example.
 ```
 ------ 3NT by NS: NS 0 EW 0 ------
                         N ♠ AK83
@@ -104,4 +105,32 @@ From ♥ 9=3= South plays ♥ 3.
                           ♦ J87
                         5 ♣ QT98
 From ♠ A-8(-2)3(-2) ♥ K(-2) ♦ A-6(-2) ♣ K= North plays ♣ K?
+```
+
+## Performance
+
+On ThinkPad X1 Carbon running with Intel(R) Core(TM) i7-6600U CPU @ 2.60GHz,
+the solver was able to fully analyze 1000 random deals in just 1164 seconds,
+averaging slightly more than one second per deal. Below is a more detailed
+breakdown. The longest one took 35.2 seconds and consumed 161.1 MB of memory.
+| Time    | Count   |
+|---------|---------|
+| <= 1 s  | 684     |
+| <= 2 s  | 862     |
+| <= 5 s  | 976     |
+| <= 10 s | 994     |
+| <= 20 s | 999     |
+
+The most difficult deal known to the author is this symmetric one, with four
+void suits and nobody holding consecutive ranks in any suit. It took the solver
+more than four minutes.
+```
+                  - Q853 AJ962 KT74
+KT74 - Q853 AJ962                   Q853 AJ962 KT74 -
+                  AJ962 KT74 - Q853
+N  5  5  5  5 137.6 s 1335.0 M
+S  4  4  8  7 172.5 s 1335.0 M
+H  8  7  4  4 198.6 s 1335.0 M
+D  4  4  7  8 225.5 s 1335.0 M
+C  7  8  4  4 253.2 s 1335.0 M
 ```
