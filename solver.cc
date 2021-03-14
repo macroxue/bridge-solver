@@ -692,8 +692,25 @@ struct Trick {
   Shape shape;
   Cards all_cards;
   Hands pattern_hands;
-  char relative_cards[TOTAL_CARDS];
   char equivalence[TOTAL_CARDS];
+
+  Hands GeneralizeHands(const Hands& hands, Cards rank_winners) const {
+    int min_relevant_ranks[NUM_SUITS];
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      min_relevant_ranks[suit] = ACE + 1;
+      if (!rank_winners.Suit(suit).Empty())
+        min_relevant_ranks[suit] = RankOf(rank_winners.Suit(suit).Bottom());
+    }
+
+    Hands generalized_hands;
+    for (int seat = 0; seat < NUM_SEATS; ++seat) {
+      for (int card : hands[seat]) {
+        if (RankOf(equivalence[card]) >= min_relevant_ranks[SuitOf(card)])
+          generalized_hands[seat].Add(relative_cards[card]);
+      }
+    }
+    return generalized_hands;
+  }
 
   void ComputePatternHands(int depth, const Hands& hands) {
     if (depth < 4) {
@@ -761,6 +778,8 @@ struct Trick {
       equivalence[cur_card] = prev_card;
     }
   }
+
+  char relative_cards[TOTAL_CARDS];
 };
 
 class Stats {
@@ -865,21 +884,7 @@ class Play {
       }
       CHECK(lower <= upper);
 
-      int min_relevant_ranks[NUM_SUITS];
-      for (int suit = 0; suit < NUM_SUITS; ++suit) {
-        min_relevant_ranks[suit] = ACE + 1;
-        if (!branch_winners.Suit(suit).Empty())
-          min_relevant_ranks[suit] = RankOf(branch_winners.Suit(suit).Bottom());
-      }
-
-      Hands pattern_hands;
-      for (int seat = 0; seat < NUM_SEATS; ++seat) {
-        for (int card : hands[seat]) {
-          if (RankOf(trick->equivalence[card]) >= min_relevant_ranks[SuitOf(card)])
-            pattern_hands[seat].Add(trick->relative_cards[card]);
-        }
-      }
-
+      Hands pattern_hands = trick->GeneralizeHands(hands, branch_winners);
       Pattern new_pattern(pattern_hands, {uint8_t(lower), uint8_t(upper)});
       auto* new_shape_entry = common_bounds_cache.Update(shape_index);
       new_shape_entry->shape = trick->shape;
