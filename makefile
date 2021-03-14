@@ -1,6 +1,9 @@
 all: solver.p solver
 
-OPTS=-std=c++0x -Wall -msse4.2
+OPTS=-std=c++0x -Wall
+ifeq (sse4_2, $(shell grep -m1 -o sse4_2 /proc/cpuinfo))
+	OPTS+=-msse4.2
+endif
 
 solver.p: solver.cc
 	rm -f solver.gcda
