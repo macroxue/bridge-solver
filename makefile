@@ -10,4 +10,4 @@ solver: solver.cc
 	g++ $(OPTS) -O3 -fprofile-use -o $@ $^
 	./$@ -f < old_deals/fu8 | tail
 solver.g: solver.cc
-	g++ $(OPTS) -D_DEBUG -O0 -g -o $@ $^
+	g++ $(OPTS) -D_DEBUG -Og -g -o $@ $^
