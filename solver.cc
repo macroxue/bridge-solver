@@ -59,6 +59,31 @@ const char RankName(int rank) {
   return rank_names[rank];
 }
 
+int CharToSuit(char c) {
+  for (int suit = SPADE; suit <= NOTRUMP; ++suit)
+    if (toupper(c) == SuitName(suit)[0])
+      return suit;
+  printf("Unknown suit: %c\n", c);
+  exit(-1);
+}
+
+int CharToRank(char c) {
+  if (c == '1') return TEN;
+  for (int rank = TWO; rank <= ACE; ++rank)
+    if (toupper(c) == RankName(rank))
+      return rank;
+  printf("Unknown rank: %c\n", c);
+  exit(-1);
+}
+
+int CharToSeat(char c) {
+  for (int seat = WEST; seat <= SOUTH; ++seat)
+    if (toupper(c) == SeatLetter(seat))
+      return seat;
+  printf("Unknown seat: %c\n", c);
+  exit(-1);
+}
+
 char suit_of[TOTAL_CARDS];
 char rank_of[TOTAL_CARDS];
 char card_of[NUM_SUITS][16];
@@ -84,7 +109,7 @@ struct CardInitializer {
       name_of[card][2] = '\0';
     }
   }
-};
+} card_initializer;
 
 struct Options {
   char* input = nullptr;
@@ -96,6 +121,23 @@ struct Options {
   bool show_stats = false;
   bool full_analysis = false;
   bool interactive = false;
+
+  void Read(int argc, char* argv[]) {
+    int c;
+    while ((c = getopt(argc, argv, "dfg:i:rs:D:IS")) != -1) {
+      switch (c) {
+        case 'd': discard_suit_bottom = true; break;
+        case 'f': full_analysis = true; break;
+        case 'g': guess = atoi(optarg); break;
+        case 'i': input = optarg; break;
+        case 'r': randomize = true; break;
+        case 's': small_card = CharToRank(optarg[0]); break;
+        case 'D': displaying_depth = atoi(optarg); break;
+        case 'I': interactive = true; break;
+        case 'S': show_stats = true; break;
+      }
+    }
+  }
 } options;
 
 template <class T> int BitSize(T v) { return sizeof(v) * 8; }
@@ -1366,31 +1408,6 @@ class MinMax {
 
 namespace {
 
-int CharToSuit(char c) {
-  for (int suit = SPADE; suit <= NOTRUMP; ++suit)
-    if (toupper(c) == SuitName(suit)[0])
-      return suit;
-  printf("Unknown suit: %c\n", c);
-  exit(-1);
-}
-
-int CharToRank(char c) {
-  if (c == '1') return TEN;
-  for (int rank = TWO; rank <= ACE; ++rank)
-    if (toupper(c) == RankName(rank))
-      return rank;
-  printf("Unknown rank: %c\n", c);
-  exit(-1);
-}
-
-int CharToSeat(char c) {
-  for (int seat = WEST; seat <= SOUTH; ++seat)
-    if (toupper(c) == SeatLetter(seat))
-      return seat;
-  printf("Unknown seat: %c\n", c);
-  exit(-1);
-}
-
 Cards ParseHand(char *line) {
   // Filter out invalid characters.
   int pos = 0;
@@ -1797,22 +1814,7 @@ class InteractivePlay {
 };
 
 int main(int argc, char* argv[]) {
-  int c;
-  while ((c = getopt(argc, argv, "dfg:i:rs:D:IS")) != -1) {
-    switch (c) {
-      case 'd': options.discard_suit_bottom = true; break;
-      case 'f': options.full_analysis = true; break;
-      case 'g': options.guess = atoi(optarg); break;
-      case 'i': options.input = optarg; break;
-      case 'r': options.randomize = true; break;
-      case 's': options.small_card = CharToRank(optarg[0]); break;
-      case 'D': options.displaying_depth = atoi(optarg); break;
-      case 'I': options.interactive = true; break;
-      case 'S': options.show_stats = true; break;
-    }
-  }
-
-  CardInitializer card_initializer;
+  options.Read(argc, argv);
 
   Hands hands;
   std::vector<int> trumps = { NOTRUMP, SPADE, HEART, DIAMOND, CLUB };
