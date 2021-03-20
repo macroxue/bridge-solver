@@ -21,7 +21,7 @@
 #define VERBOSE(statement) \
   if (depth <= options.displaying_depth) statement
 #else
-#define CHECK(statement) if (!(statement))
+#define CHECK(statement) if (statement) {}
 #define VERBOSE(statement)
 #endif
 
