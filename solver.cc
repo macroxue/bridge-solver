@@ -338,8 +338,6 @@ class Cache {
  public:
   Cache(const char* name, int bits)
       : cache_name(name), bits(bits), size(1 << bits), entries(new Entry[size]) {
-    srand(1);
-    for (int i = 0; i < input_size; ++i) hash_rand[i] = GenerateHashRandom();
     Reset();
   }
 
@@ -421,14 +419,6 @@ class Cache {
     return sum;
   }
 
-  uint64_t GenerateHashRandom() {
-    static const int BITS_PER_RAND = 32;
-    uint64_t r = 0;
-    for (int i = 0; i < BitSize(r) / BITS_PER_RAND; ++i)
-      r = (r << BITS_PER_RAND) + rand();
-    return r | 1;
-  }
-
   void Resize() {
     auto old_entries = std::move(entries);
     int old_size = size;
@@ -458,13 +448,13 @@ class Cache {
     }
   }
 
-  static const int max_probe_distance = 16;
+  static constexpr int max_probe_distance = 16;
+  static constexpr uint64_t hash_rand[2] = {0x6b8b4567327b23c7ULL, 0x643c986966334873ULL};
 
   const char* cache_name;
   int bits;
   int size;
   int probe_distance;
-  uint64_t hash_rand[input_size];
   std::unique_ptr<Entry[]> entries;
 
   mutable int load_count;
@@ -681,7 +671,7 @@ struct ShapeEntry {
   int Size() const { return pattern.Size() - 1; }
 
   void Show() const {
-    printf("hash %lx shape %lx seat %c size %ld recursive size %d hits %d\n", hash,
+    printf("hash %016lx shape %016lx seat %c size %ld recursive size %d hits %d\n", hash,
            shape.Value(), SeatLetter(seat_to_play), pattern.patterns.size(), Size(),
            pattern.hits);
     pattern.Show(shape, 0);
