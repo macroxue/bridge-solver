@@ -110,6 +110,7 @@ struct CardInitializer {
 
 struct Options {
   char* input = nullptr;
+  int trump = -1;
   int guess = TOTAL_TRICKS;
   int small_card = TWO;
   int displaying_depth = -1;
@@ -121,7 +122,7 @@ struct Options {
 
   void Read(int argc, char* argv[]) {
     int c;
-    while ((c = getopt(argc, argv, "dfg:i:rs:D:IS")) != -1) {
+    while ((c = getopt(argc, argv, "dfg:i:rs:t:D:IS")) != -1) {
       switch (c) {
         // clang-format off
         case 'd': discard_suit_bottom = true; break;
@@ -130,6 +131,7 @@ struct Options {
         case 'i': input = optarg; break;
         case 'r': randomize = true; break;
         case 's': small_card = CharToRank(optarg[0]); break;
+        case 't': trump = CharToSuit(optarg[0]); break;
         case 'D': displaying_depth = atoi(optarg); break;
         case 'I': interactive = true; break;
         case 'S': show_stats = true; break;
@@ -1791,6 +1793,11 @@ int main(int argc, char* argv[]) {
     if (!options.interactive) hands.ShowCompact();
   } else
     ReadHands(hands, trumps, lead_seats);
+
+  if (options.trump != -1) {
+    trumps.clear();
+    trumps.push_back(options.trump);
+  }
 
   timeval now;
   gettimeofday(&now, NULL);
