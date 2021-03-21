@@ -1016,14 +1016,20 @@ class Play {
         Cards opp_trumps = hands.opponent_cards(seat_to_play).Suit(trump);
         if ((!my_trumps.Empty() && !opp_trumps.Empty())) {
           AddCards(my_trumps, ordered_cards, num_ordered_cards);
-          AddCards(playable_cards.Different(my_trumps), ordered_cards, num_ordered_cards);
-        } else {
-          AddCards(playable_cards.Different(my_trumps), ordered_cards, num_ordered_cards);
-          AddCards(my_trumps, ordered_cards, num_ordered_cards);
+          playable_cards.Remove(my_trumps);
         }
-      } else {
-        AddCards(playable_cards, ordered_cards, num_ordered_cards);
       }
+      Cards top_bottom;
+      for (int suit = 0; suit < NUM_SUITS; ++suit) {
+        if (suit == trump) continue;
+        auto suit_cards = playable_cards.Suit(suit);
+        if (suit_cards.Empty()) continue;
+        top_bottom.Add(suit_cards.Top());
+        // Intentionally not to get the equivalent card.
+        top_bottom.Add(suit_cards.Bottom());
+      }
+      AddCards(top_bottom, ordered_cards, num_ordered_cards);
+      AddCards(playable_cards.Different(top_bottom), ordered_cards, num_ordered_cards);
       return;
     }
     if (!playable_cards.Suit(LeadSuit()).Empty()) {  // follow
