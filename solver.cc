@@ -16,14 +16,15 @@
 #include <set>
 #include <vector>
 
+// clang-format off
 #ifdef _DEBUG
 #define CHECK(statement) assert(statement)
-#define VERBOSE(statement) \
-  if (depth <= options.displaying_depth) statement
+#define VERBOSE(statement) if (depth <= options.displaying_depth) statement
 #else
 #define CHECK(statement) if (statement) {}
 #define VERBOSE(statement)
 #endif
+// clang-format on
 
 namespace {
 
@@ -730,15 +731,18 @@ struct Trick {
 
   Hands GeneralizeHands(const Hands& hands, Cards rank_winners) const {
     int min_relevant_ranks[NUM_SUITS];
+    Cards suit_bottoms;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       min_relevant_ranks[suit] = ACE + 1;
-      if (!rank_winners.Suit(suit).Empty())
-        min_relevant_ranks[suit] = RankOf(rank_winners.Suit(suit).Bottom());
+      if (rank_winners.Suit(suit).Empty()) continue;
+      min_relevant_ranks[suit] = RankOf(rank_winners.Suit(suit).Bottom());
+      suit_bottoms.Add(all_cards.Suit(suit).Bottom());
     }
 
     Hands generalized_hands;
     for (int seat = 0; seat < NUM_SEATS; ++seat) {
-      for (int card : hands[seat]) {
+      // Suit bottom can't win by rank. Compensate the inaccuracy with fast tricks.
+      for (int card : hands[seat].Different(suit_bottoms)) {
         if (RankOf(equivalence[card]) >= min_relevant_ranks[SuitOf(card)])
           generalized_hands[seat].Add(relative_cards[card]);
       }
