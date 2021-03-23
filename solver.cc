@@ -1029,8 +1029,7 @@ class Play {
         auto suit_cards = playable_cards.Suit(suit);
         if (suit_cards.Empty()) continue;
         top_bottom.Add(suit_cards.Top());
-        // Intentionally not to get the equivalent card.
-        top_bottom.Add(suit_cards.Bottom());
+        top_bottom.Add(trick->equivalence[suit_cards.Bottom()]);
       }
       AddCards(top_bottom, ordered_cards, num_ordered_cards);
       AddCards(playable_cards.Different(top_bottom), ordered_cards, num_ordered_cards);
