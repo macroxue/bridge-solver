@@ -980,10 +980,11 @@ class Play {
     }
 
     int bounded_ns_tricks = NsToPlay() ? 0 : TOTAL_TRICKS;
+    int min_relevant_ranks[NUM_SUITS] = {TWO, TWO, TWO, TWO};
     Cards root_rank_winners;
     for (int i = 0; i < num_ordered_cards; ++i) {
-      int card = ordered_cards[i];
-      if (trick->equivalence[card] == card) {
+      int card = ordered_cards[i], suit = SuitOf(card), rank = RankOf(card);
+      if (trick->equivalence[card] == card && rank >= min_relevant_ranks[suit]) {
         Cards branch_rank_winners;
         if (Cutoff(alpha, beta, card, &bounded_ns_tricks, &branch_rank_winners)) {
           if (!cutoff_cards.Have(card)) SaveCutoffCard(cutoff_index, card);
@@ -992,6 +993,9 @@ class Play {
           rank_winners->Add(branch_rank_winners);
           return bounded_ns_tricks;
         }
+        auto suit_rank_winners = branch_rank_winners.Suit(suit);
+        if (suit_rank_winners.Empty() || rank < RankOf(suit_rank_winners.Bottom()))
+          min_relevant_ranks[suit] = std::max(min_relevant_ranks[suit], rank + 1);
         root_rank_winners.Add(branch_rank_winners);
       }
       if (!playable_cards.Empty()) {
