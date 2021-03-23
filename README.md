@@ -110,27 +110,27 @@ From ♠ A-8(-2)3(-2) ♥ K(-2) ♦ A-6(-2) ♣ K= North plays ♣ K?
 ## Performance
 
 On ThinkPad X1 Carbon running with Intel(R) Core(TM) i7-6600U CPU @ 2.60GHz,
-the solver was able to fully analyze 1000 random deals in just 1105 seconds,
-averaging slightly more than one second per deal. Below is a more detailed
-breakdown. The longest one took 24.7 seconds and consumed 124.9 MB of memory.
+the solver was able to fully analyze 1000 random deals in just 974 seconds,
+averaging slightly less than one second per deal. Below is a more detailed
+breakdown. The longest one took 19.8 seconds and consumed 119.9 MB of memory.
 | Time    | Count   |
 |---------|---------|
-| <= 1 s  | 697     |
-| <= 2 s  | 878     |
-| <= 5 s  | 965     |
-| <= 10 s | 995     |
-| <= 20 s | 999     |
+| <= 1 s  | 739     |
+| <= 2 s  | 902     |
+| <= 5 s  | 976     |
+| <= 10 s | 997     |
+| <= 20 s | 1000    |
 
 The most difficult deal known to the author is this symmetric one, with four
 void suits and nobody holding consecutive ranks in any suit. It took the solver
-nearly three minutes.
+less than two and half minutes.
 ```
                   - Q853 AJ962 KT74
 KT74 - Q853 AJ962                   Q853 AJ962 KT74 -
                   AJ962 KT74 - Q853
-N  5  5  5  5 81.6 s 907.3 M
-S  4  4  8  7 106.7 s 907.3 M
-H  8  7  4  4 129.0 s 907.3 M
-D  4  4  7  8 153.8 s 907.3 M
-C  7  8  4  4 175.6 s 907.3 M
+N  5  5  5  5 71.1 s 951.4 M
+S  4  4  8  7 93.5 s 960.5 M
+H  8  7  4  4 108.5 s 961.8 M
+D  4  4  7  8 125.9 s 961.8 M
+C  7  8  4  4 144.2 s 961.8 M
 ```
