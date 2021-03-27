@@ -1,6 +1,6 @@
 all: solver.p solver
 
-OPTS=-std=c++0x -Wall
+OPTS=-std=c++17 -Wall
 ifeq (sse4_2, $(shell grep -m1 -o sse4_2 /proc/cpuinfo))
 	OPTS+=-msse4.2
 endif
