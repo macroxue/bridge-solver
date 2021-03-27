@@ -267,7 +267,7 @@ class Hands {
     puts("");
   }
 
-  void ShowCompact(int rotation = 0) {
+  void ShowCompact(int rotation = 0) const {
     int seat = (NORTH + rotation) % NUM_SEATS;
     printf("%25s%c ", " ", SeatLetter(seat));
     hands[seat].Show();
@@ -289,7 +289,7 @@ class Hands {
     printf("\n");
   }
 
-  void ShowDetailed(int rotation = 0) {
+  void ShowDetailed(int rotation = 0) const {
     int gap = 26;
     int seat = (NORTH + rotation) % NUM_SEATS;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
@@ -319,7 +319,7 @@ class Hands {
   }
 
  private:
-  void ShowHandInfo(Cards hand, int seat, int suit, int gap) {
+  void ShowHandInfo(Cards hand, int seat, int suit, int gap) const {
     if (suit == SPADE)
       printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
     else if (suit == CLUB)
@@ -716,10 +716,11 @@ Cache<CutoffEntry, 2> cutoff_cache("Cut-off Cache", 16);
 struct Trick {
   Shape shape;
   Cards all_cards;
-  Hands pattern_hands;
+  Hands relative_hands;
   char equivalence[TOTAL_CARDS];
 
-  Hands GeneralizeHands(const Hands& hands, Cards rank_winners) const {
+  // A pattern hand contains relative cards and rank-irrelevant cards.
+  Hands ComputePatternHands(const Hands& hands, Cards rank_winners) const {
     int min_relevant_ranks[NUM_SUITS];
     Cards suit_bottoms;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
@@ -729,29 +730,30 @@ struct Trick {
       suit_bottoms.Add(all_cards.Suit(suit).Bottom());
     }
 
-    Hands generalized_hands;
+    Hands pattern_hands;
     for (int seat = 0; seat < NUM_SEATS; ++seat) {
       // Suit bottom can't win by rank. Compensate the inaccuracy with fast tricks.
       for (int card : hands[seat].Different(suit_bottoms)) {
         if (RankOf(equivalence[card]) >= min_relevant_ranks[SuitOf(card)])
-          generalized_hands[seat].Add(relative_cards[card]);
+          pattern_hands[seat].Add(relative_cards[card]);
       }
     }
-    return generalized_hands;
+    return pattern_hands;
   }
 
-  void ComputePatternHands(int depth, const Hands& hands) {
+  // A relative hand contains relative cards.
+  void ComputeRelativeHands(int depth, const Hands& hands) {
     if (depth < 4) {
       for (int suit = 0; suit < NUM_SUITS; ++suit)
-        IdentifyPatternCards(hands, suit, all_cards.Suit(suit));
+        ConvertToRelativeCards(hands, suit, all_cards.Suit(suit));
     } else {
-      // Recompute the pattern for suits changed by the last trick.
+      // Recompute the relative cards for suits changed by the last trick.
       auto prev_trick = this - 1;
-      pattern_hands = prev_trick->pattern_hands;
+      relative_hands = prev_trick->relative_hands;
       memcpy(relative_cards, prev_trick->relative_cards, sizeof(relative_cards));
       for (int suit = 0; suit < NUM_SUITS; ++suit) {
         if (all_cards.Suit(suit) != prev_trick->all_cards.Suit(suit))
-          IdentifyPatternCards(hands, suit, all_cards.Suit(suit));
+          ConvertToRelativeCards(hands, suit, all_cards.Suit(suit));
       }
     }
   }
@@ -774,19 +776,18 @@ struct Trick {
   }
 
  private:
-  void IdentifyPatternCards(const Hands& hands, int suit, Cards all_suit_cards) {
-    // Create the pattern using relative ranks. For example, when all the cards
-    // remaining in a suit are J, 8, 7 and 2, they are treated as A, K, Q and J
-    // respectively.
+  void ConvertToRelativeCards(const Hands& hands, int suit, Cards all_suit_cards) {
+    // Convert cards to their relative ranks. E.g. when all the cards remaining in a
+    // suit are J, 8, 7 and 2, they are treated as A, K, Q and J respectively.
     int relative_rank = ACE;
     for (int card : all_suit_cards) {
       int relative_card = CardOf(suit, relative_rank--);
       relative_cards[card] = relative_card;
     }
     for (int seat = 0; seat < NUM_SEATS; ++seat) {
-      pattern_hands[seat].RemoveSuit(suit);
+      relative_hands[seat].RemoveSuit(suit);
       for (int card : hands[seat].Suit(suit))
-        pattern_hands[seat].Add(relative_cards[card]);
+        relative_hands[seat].Add(relative_cards[card]);
     }
   }
 
@@ -877,14 +878,14 @@ class Play {
     if (remaining_tricks == 1) return CollectLastTrick(rank_winners);
 
     ComputeShape();
-    trick->ComputePatternHands(depth, hands);
+    trick->ComputeRelativeHands(depth, hands);
 
     const Pattern* cached_pattern = nullptr;
     Cards shape_index[2] = {trick->shape.Value(), seat_to_play};
     auto* shape_entry = common_bounds_cache.Lookup(shape_index);
     if (shape_entry) {
       cached_pattern = shape_entry->pattern.Lookup(
-          trick->pattern_hands, alpha - ns_tricks_won, beta - ns_tricks_won);
+          trick->relative_hands, alpha - ns_tricks_won, beta - ns_tricks_won);
       if (cached_pattern) {
         VERBOSE(ShowPattern("match", cached_pattern, trick->shape));
         rank_winners->Add(cached_pattern->GetRankWinners(hands));
@@ -906,7 +907,7 @@ class Play {
                       ? Bounds{0, char(ns_tricks - ns_tricks_won)}
                       : Bounds{char(ns_tricks - ns_tricks_won), char(remaining_tricks)};
 
-    Hands pattern_hands = trick->GeneralizeHands(hands, branch_rank_winners);
+    Hands pattern_hands = trick->ComputePatternHands(hands, branch_rank_winners);
     Pattern new_pattern(pattern_hands, bounds);
     auto* new_shape_entry = common_bounds_cache.Update(shape_index);
     new_shape_entry->shape = trick->shape;
@@ -1072,18 +1073,18 @@ class Play {
     AddCards(playable_cards, ordered_cards, num_ordered_cards);
   }
 
-  void AddCards(Cards cards, int ordered_cards[], int& num_ordered_cards) {
+  void AddCards(Cards cards, int ordered_cards[], int& num_ordered_cards) const {
     for (int card : cards) ordered_cards[num_ordered_cards++] = card;
   }
 
-  void AddReversedCards(Cards cards, int ordered_cards[], int& num_ordered_cards) {
+  void AddReversedCards(Cards cards, int ordered_cards[], int& num_ordered_cards) const {
     while (!cards.Empty()) {
       ordered_cards[num_ordered_cards++] = cards.Bottom();
       cards.Remove(cards.Bottom());
     }
   }
 
-  void ComputeShape() {
+  void ComputeShape() const {
     if (depth < 4) {
       trick->shape = Shape(hands);
     } else {
@@ -1575,7 +1576,7 @@ class InteractivePlay {
     }
 
     play.ComputeShape();
-    play.trick->ComputePatternHands(play.depth, play.hands);
+    play.trick->ComputeRelativeHands(play.depth, play.hands);
     play.trick->ComputeEquivalence(play.depth, play.hands);
 
     int trick_index = play.depth / 4;
