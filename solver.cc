@@ -760,7 +760,7 @@ struct Trick {
     if (depth < 4) {
       for (int suit = 0; suit < NUM_SUITS; ++suit)
         for (int seat = 0; seat < NUM_SEATS; ++seat)
-          IdentifyEquivalentCards(hands[seat].Suit(suit), all_cards.Suit(suit));
+          IdentifyEquivalentCards(hands[seat].Suit(suit));
     } else {
       // Recompute the equivalence for suits changed by the last trick.
       auto prev_trick = this - 1;
@@ -768,7 +768,7 @@ struct Trick {
       for (int suit = 0; suit < NUM_SUITS; ++suit) {
         if (all_cards.Suit(suit) != prev_trick->all_cards.Suit(suit))
           for (int seat = 0; seat < NUM_SEATS; ++seat)
-            IdentifyEquivalentCards(hands[seat].Suit(suit), all_cards.Suit(suit));
+            IdentifyEquivalentCards(hands[seat].Suit(suit));
       }
     }
   }
@@ -790,15 +790,14 @@ struct Trick {
     }
   }
 
-  void IdentifyEquivalentCards(Cards cards, Cards all_suit_cards) {
+  void IdentifyEquivalentCards(Cards cards) {
     // Two cards in a suit are equivalent if their relative ranks are adjacent.
     if (cards.Empty()) return;
     int prev_card = *cards.begin();
     equivalence[prev_card] = prev_card;
     for (int cur_card : cards.Slice(prev_card + 1, TOTAL_CARDS)) {
-      if (cards.Slice(prev_card, cur_card + 1) ==
-              all_suit_cards.Slice(prev_card, cur_card + 1) ||
-          std::max(RankOf(prev_card), RankOf(cur_card)) <= options.small_card) {
+      if (relative_cards[prev_card] + 1 == relative_cards[cur_card] ||
+          RankOf(prev_card) <= options.small_card) {
         // This one is equivalent to the previous one.
       } else {
         prev_card = cur_card;
@@ -946,8 +945,7 @@ class Play {
         return ns_tricks_won + (remaining_tricks - slow_tricks);
       }
       if (!NsToPlay() && ns_tricks_won + slow_tricks >= beta) {
-        VERBOSE(
-                printf("%2d: beta slow cut %d+%d\n", depth, ns_tricks_won, slow_tricks));
+        VERBOSE(printf("%2d: beta slow cut %d+%d\n", depth, ns_tricks_won, slow_tricks));
         rank_winners->Add(slow_rank_winners);
         return ns_tricks_won + slow_tricks;
       }
