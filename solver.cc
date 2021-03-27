@@ -165,7 +165,6 @@ class Cards {
   Cards Suit(int suit) const { return bits & MaskOf(suit); }
   int Top() const { return __builtin_ctzll(bits); }
   int Bottom() const { return BitSize(bits) - 1 - __builtin_clzll(bits); }
-  int RightAbove(int card) const { return Slice(Top(), card).Bottom(); }
 
   Cards Union(const Cards& c) const { return bits | c.bits; }
   Cards Intersect(const Cards& c) const { return bits & c.bits; }
@@ -794,7 +793,7 @@ struct Trick {
   void IdentifyEquivalentCards(Cards cards) {
     // Two cards in a suit are equivalent if their relative ranks are adjacent.
     if (cards.Empty()) return;
-    int prev_card = *cards.begin();
+    int prev_card = cards.Top();
     equivalence[prev_card] = prev_card;
     for (int cur_card : cards.Slice(prev_card + 1, TOTAL_CARDS)) {
       if (relative_cards[prev_card] + 1 == relative_cards[cur_card] ||
@@ -1283,11 +1282,11 @@ class Play {
   }
 
   int CollectLastTrick(Cards* rank_winners) {
-    int winning_card = *hands[seat_to_play].begin();
+    int winning_card = hands[seat_to_play].Top();
     int winning_seat = seat_to_play;
     for (int i = 1; i < NUM_SEATS; ++i) {
       seat_to_play = NextSeat();
-      int card_to_play = *hands[seat_to_play].begin();
+      int card_to_play = hands[seat_to_play].Top();
       if (WinOver(card_to_play, winning_card)) {
         winning_card = card_to_play;
         winning_seat = seat_to_play;
@@ -1295,7 +1294,7 @@ class Play {
     }
     for (int seat = 0; seat < NUM_SEATS; ++seat) {
       if (seat == winning_seat) continue;
-      if (SuitOf(winning_card) == SuitOf(*hands[seat].begin())) {
+      if (SuitOf(winning_card) == SuitOf(hands[seat].Top())) {
         rank_winners->Add(winning_card);
         break;
       }
