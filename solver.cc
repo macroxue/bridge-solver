@@ -1487,7 +1487,7 @@ class InteractivePlay {
         num_tricks(hands.num_tricks()),
         trump(trump) {
     ShowUsage();
-    DetermineContract();
+    DetermineContract(lead_seat);
 
     int ns_tricks = target_ns_tricks;
     for (int p = 0; p < num_tricks * 4; ++p) {
@@ -1533,24 +1533,26 @@ class InteractivePlay {
       first_time = false;
       puts(
           "******\n"
-          "<Enter> to accept the suggestion or input another card like 'CK' or 'KC'.\n"
+          "<Enter>/<Space> to accept the suggestion or input another card like 'CK'.\n"
           "If there is only one club or one king in the list, 'C' or 'K' works too.\n"
           "Use 'U' to undo, 'R' to rotate the board or 'N' to play the next hand.\n"
           "******");
     }
   }
 
-  void DetermineContract() {
+  void DetermineContract(int lead_seat) {
     if (target_ns_tricks >= (num_tricks + 1) / 2) {
       starting_ns_tricks = TOTAL_TRICKS - num_tricks;
       ns_contract = true;
       int level = (TOTAL_TRICKS - num_tricks) + target_ns_tricks - 6;
-      sprintf(contract, "%d%s by NS", level, SuitSign(trump));
+      auto declarer = starting_ns_tricks == 0 ? SeatName((lead_seat + 3) % 4) : "NS";
+      sprintf(contract, "%d%s by %s", level, SuitSign(trump), declarer);
     } else {
       starting_ew_tricks = TOTAL_TRICKS - num_tricks;
       ns_contract = false;
       int level = TOTAL_TRICKS - target_ns_tricks - 6;
-      sprintf(contract, "%d%s by EW", level, SuitSign(trump));
+      auto declarer = starting_ew_tricks == 0 ? SeatName((lead_seat + 3) % 4) : "EW";
+      sprintf(contract, "%d%s by %s", level, SuitSign(trump), declarer);
     }
   }
 
@@ -1661,6 +1663,7 @@ class InteractivePlay {
     while (true) {
       switch (int c = toupper(GetRawChar())) {
         case '\n':
+        case ' ':
           if (suit != -1 && rank != -1) {
             *card_to_play = CardOf(suit, rank);
             printf("\b.\n");
