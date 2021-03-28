@@ -716,24 +716,45 @@ struct Trick {
   Shape shape;
   Cards all_cards;
   Hands relative_hands;
-  char equivalence[TOTAL_CARDS];
+
+  // Whether a card is equivalent to one of the tried cards.
+  bool IsEquivalent(int card, Cards tried_cards) const {
+    if (tried_cards.Empty()) return false;
+    int relative_card = relative_cards[card];
+    for (int tried_card : tried_cards) {
+      if (std::abs(RankOf(relative_card) - RankOf(relative_cards[tried_card])) == 1)
+        return true;
+    }
+    return false;
+  }
 
   // A pattern hand contains relative cards and rank-irrelevant cards.
   Hands ComputePatternHands(const Hands& hands, Cards rank_winners) const {
-    int min_relevant_ranks[NUM_SUITS];
+    int min_relevant_ranks[] = {NUM_RANKS, NUM_RANKS, NUM_RANKS, NUM_RANKS};
     Cards suit_bottoms;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
-      min_relevant_ranks[suit] = ACE + 1;
       if (rank_winners.Suit(suit).Empty()) continue;
-      min_relevant_ranks[suit] = RankOf(rank_winners.Suit(suit).Bottom());
       suit_bottoms.Add(all_cards.Suit(suit).Bottom());
+
+      // Extend bottom rank winner to its lowest equivalent card.
+      int bottom_rank_winner = rank_winners.Suit(suit).Bottom();
+      for (int seat = 0; seat < NUM_SEATS; ++seat) {
+        if (!hands[seat].Have(bottom_rank_winner)) continue;
+        auto suit_cards = hands[seat].Suit(suit);
+        for (int card : suit_cards.Slice(bottom_rank_winner + 1, TOTAL_CARDS)) {
+          if (relative_cards[bottom_rank_winner] + 1 != relative_cards[card]) break;
+          bottom_rank_winner = card;
+        }
+        break;
+      }
+      min_relevant_ranks[suit] = RankOf(bottom_rank_winner);
     }
 
     Hands pattern_hands;
     for (int seat = 0; seat < NUM_SEATS; ++seat) {
       // Suit bottom can't win by rank. Compensate the inaccuracy with fast tricks.
       for (int card : hands[seat].Different(suit_bottoms)) {
-        if (RankOf(equivalence[card]) >= min_relevant_ranks[SuitOf(card)])
+        if (RankOf(card) >= min_relevant_ranks[SuitOf(card)])
           pattern_hands[seat].Add(relative_cards[card]);
       }
     }
@@ -757,23 +778,6 @@ struct Trick {
     }
   }
 
-  void ComputeEquivalence(int depth, const Hands& hands) {
-    if (depth < 4) {
-      for (int suit = 0; suit < NUM_SUITS; ++suit)
-        for (int seat = 0; seat < NUM_SEATS; ++seat)
-          IdentifyEquivalentCards(hands[seat].Suit(suit));
-    } else {
-      // Recompute the equivalence for suits changed by the last trick.
-      auto prev_trick = this - 1;
-      memcpy(equivalence, prev_trick->equivalence, sizeof(equivalence));
-      for (int suit = 0; suit < NUM_SUITS; ++suit) {
-        if (all_cards.Suit(suit) != prev_trick->all_cards.Suit(suit))
-          for (int seat = 0; seat < NUM_SEATS; ++seat)
-            IdentifyEquivalentCards(hands[seat].Suit(suit));
-      }
-    }
-  }
-
  private:
   void ConvertToRelativeCards(const Hands& hands, int suit, Cards all_suit_cards) {
     // Convert cards to their relative ranks. E.g. when all the cards remaining in a
@@ -787,22 +791,6 @@ struct Trick {
       relative_hands[seat].RemoveSuit(suit);
       for (int card : hands[seat].Suit(suit))
         relative_hands[seat].Add(relative_cards[card]);
-    }
-  }
-
-  void IdentifyEquivalentCards(Cards cards) {
-    // Two cards in a suit are equivalent if their relative ranks are adjacent.
-    if (cards.Empty()) return;
-    int prev_card = cards.Top();
-    equivalence[prev_card] = prev_card;
-    for (int cur_card : cards.Slice(prev_card + 1, TOTAL_CARDS)) {
-      if (relative_cards[prev_card] + 1 == relative_cards[cur_card] ||
-          RankOf(prev_card) <= options.small_card) {
-        // This one is equivalent to the previous one.
-      } else {
-        prev_card = cur_card;
-      }
-      equivalence[cur_card] = prev_card;
     }
   }
 
@@ -918,8 +906,6 @@ class Play {
 
  private:
   int SearchAtTrickStart(int alpha, int beta, Cards* rank_winners) {
-    trick->ComputeEquivalence(depth, hands);
-
     Cards fast_rank_winners;
     int fast_tricks = FastTricks(&fast_rank_winners);
     if (NsToPlay() && ns_tricks_won + fast_tricks >= beta) {
@@ -971,10 +957,12 @@ class Play {
     int bounded_ns_tricks = NsToPlay() ? 0 : TOTAL_TRICKS;
     int min_relevant_ranks[NUM_SUITS] = {TWO, TWO, TWO, TWO};
     Cards root_rank_winners;
+    Cards tried_cards;
     for (int i = 0; i < num_ordered_cards; ++i) {
       int card = ordered_cards[i], suit = SuitOf(card), rank = RankOf(card);
-      // Try only one of the equivalent cards and if its rank may still be relevant.
-      if (trick->equivalence[card] == card && rank >= min_relevant_ranks[suit]) {
+      // Try a card if it's not equivalent to a tried card and its rank is still relevant.
+      if (!trick->IsEquivalent(card, tried_cards.Suit(suit)) &&
+          rank >= min_relevant_ranks[suit]) {
         Cards branch_rank_winners;
         if (Cutoff(alpha, beta, card, &bounded_ns_tricks, &branch_rank_winners)) {
           if (!cutoff_cards.Have(card)) SaveCutoffCard(cutoff_index, card);
@@ -989,6 +977,7 @@ class Play {
         if (suit_rank_winners.Empty() || rank < RankOf(suit_rank_winners.Bottom()))
           min_relevant_ranks[suit] = std::max(min_relevant_ranks[suit], rank + 1);
       }
+      tried_cards.Add(card);
       if (!playable_cards.Empty()) {
         OrderCards(playable_cards, ordered_cards, num_ordered_cards);
         playable_cards = Cards();
@@ -1020,7 +1009,7 @@ class Play {
         auto suit_cards = playable_cards.Suit(suit);
         if (suit_cards.Empty()) continue;
         top_bottom.Add(suit_cards.Top());
-        top_bottom.Add(trick->equivalence[suit_cards.Bottom()]);
+        top_bottom.Add(suit_cards.Bottom());
       }
       AddCards(top_bottom, ordered_cards, num_ordered_cards);
       AddCards(playable_cards.Different(top_bottom), ordered_cards, num_ordered_cards);
@@ -1057,7 +1046,7 @@ class Play {
       if (suit == trump) continue;
       auto suit_cards = playable_cards.Suit(suit);
       if (!suit_cards.Empty()) {
-        ordered_cards[num_ordered_cards++] = trick->equivalence[suit_cards.Bottom()];
+        ordered_cards[num_ordered_cards++] = suit_cards.Bottom();
         ++num_discards;
       }
     }
@@ -1114,7 +1103,7 @@ class Play {
       } else {
         // Discard only the bottom card in a suit. It's very rare that discarding
         // a higher ranked card in the same suit is necessary.
-        playable_cards.Add(trick->equivalence[suit_cards.Bottom()]);
+        playable_cards.Add(suit_cards.Bottom());
       }
     }
     return playable_cards;
@@ -1576,7 +1565,6 @@ class InteractivePlay {
 
     play.ComputeShape();
     play.trick->ComputeRelativeHands(play.depth, play.hands);
-    play.trick->ComputeEquivalence(play.depth, play.hands);
 
     int trick_index = play.depth / 4;
     printf("------ %s: NS %d EW %d ------\n", contract,
@@ -1601,8 +1589,6 @@ class InteractivePlay {
     CardTricks card_tricks;
     printf("From");
     for (int card : play.GetPlayableCards()) {
-      if (play.trick->equivalence[card] != card) continue;
-
       if (SuitOf(card) != last_suit) {
         last_suit = SuitOf(card);
         printf(" %s ", SuitSign(SuitOf(card)));
