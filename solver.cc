@@ -85,23 +85,20 @@ int CharToSeat(char c) {
 char suit_of[TOTAL_CARDS];
 char rank_of[TOTAL_CARDS];
 char card_of[NUM_SUITS][16];
-uint64_t mask_of[NUM_SUITS];
 char name_of[TOTAL_CARDS][4];
 
 int SuitOf(int card) { return suit_of[card]; }
 int RankOf(int card) { return rank_of[card]; }
 int CardOf(int suit, int rank) { return card_of[suit][rank]; }
-uint64_t MaskOf(int suit) { return mask_of[suit]; }
+uint64_t MaskOf(int suit) { return 0x1fffULL << (suit * NUM_RANKS); }
 const char* NameOf(int card) { return name_of[card]; }
 
 struct CardInitializer {
   CardInitializer() {
-    memset(mask_of, 0, sizeof(mask_of));
     for (int card = 0; card < TOTAL_CARDS; ++card) {
       suit_of[card] = card / NUM_RANKS;
       rank_of[card] = NUM_RANKS - 1 - card % NUM_RANKS;
       card_of[SuitOf(card)][RankOf(card)] = card;
-      mask_of[SuitOf(card)] |= uint64_t(1) << card;
       name_of[card][0] = SuitName(SuitOf(card))[0];
       name_of[card][1] = RankName(RankOf(card));
       name_of[card][2] = '\0';
@@ -787,10 +784,12 @@ struct Trick {
       // Recompute the relative cards for suits changed by the last trick.
       auto prev_trick = this - 1;
       relative_hands = prev_trick->relative_hands;
-      memcpy(relative_cards, prev_trick->relative_cards, sizeof(relative_cards));
       for (int suit = 0; suit < NUM_SUITS; ++suit) {
         if (all_cards.Suit(suit) != prev_trick->all_cards.Suit(suit))
           ConvertToRelativeCards(hands, suit, all_cards.Suit(suit));
+        else
+          memcpy(relative_cards + suit * NUM_RANKS,
+                 prev_trick->relative_cards + suit * NUM_RANKS, NUM_RANKS);
       }
     }
   }
@@ -800,10 +799,7 @@ struct Trick {
     // Convert cards to their relative ranks. E.g. when all the cards remaining in a
     // suit are J, 8, 7 and 2, they are treated as A, K, Q and J respectively.
     int relative_rank = ACE;
-    for (int card : all_suit_cards) {
-      int relative_card = CardOf(suit, relative_rank--);
-      relative_cards[card] = relative_card;
-    }
+    for (int card : all_suit_cards) relative_cards[card] = CardOf(suit, relative_rank--);
     for (int seat = 0; seat < NUM_SEATS; ++seat) {
       relative_hands[seat].RemoveSuit(suit);
       for (int card : hands[seat].Suit(suit))
