@@ -728,6 +728,23 @@ struct Trick {
     return false;
   }
 
+  Cards FilterEquivalent(Cards playable_cards) const {
+    Cards filtered_cards;
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      auto suit_cards = playable_cards.Suit(suit);
+      if (suit_cards.Empty()) continue;
+      int prev_card = suit_cards.Top();
+      filtered_cards.Add(prev_card);
+      suit_cards.Remove(prev_card);
+      for (int card : suit_cards) {
+        if (RankOf(relative_cards[prev_card]) != RankOf(relative_cards[card]) + 1)
+          filtered_cards.Add(card);
+        prev_card = card;
+      }
+    }
+    return filtered_cards;
+  }
+
   // A pattern hand contains relative cards and rank-irrelevant cards.
   Hands ComputePatternHands(const Hands& hands, Cards rank_winners) const {
     int min_relevant_ranks[] = {NUM_RANKS, NUM_RANKS, NUM_RANKS, NUM_RANKS};
@@ -1590,7 +1607,7 @@ class InteractivePlay {
     int last_suit = NOTRUMP;
     CardTricks card_tricks;
     printf("From");
-    for (int card : play.GetPlayableCards()) {
+    for (int card : play.trick->FilterEquivalent(play.GetPlayableCards())) {
       if (SuitOf(card) != last_suit) {
         last_suit = SuitOf(card);
         printf(" %s ", SuitSign(SuitOf(card)));
