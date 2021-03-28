@@ -1605,8 +1605,7 @@ class InteractivePlay {
         play.UnplayCard();
         return ns_tricks;
       };
-      int new_ns_tricks = MemoryEnhancedTestDriver(
-          search, play.hands[play.seat_to_play].Size(), ns_tricks);
+      int new_ns_tricks = MemoryEnhancedTestDriver(search, num_tricks, ns_tricks);
       card_tricks[card] = new_ns_tricks;
 
       int trick_diff = ns_contract ? new_ns_tricks - target_ns_tricks
