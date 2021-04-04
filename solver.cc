@@ -743,24 +743,23 @@ struct Trick {
   }
 
   // A pattern hand contains relative cards and rank-irrelevant cards.
-  Hands ComputePatternHands(const Hands& hands, Cards rank_winners) const {
+  Hands ComputePatternHands(Cards rank_winners) const {
     Cards relative_rank_winners;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       if (rank_winners.Suit(suit).Empty()) continue;
 
       // Extend bottom rank winner to its lowest equivalent card.
-      int bottom_rank_winner = rank_winners.Suit(suit).Bottom();
+      int bottom_rank_winner = relative_cards[rank_winners.Suit(suit).Bottom()];
       for (int seat = 0; seat < NUM_SEATS; ++seat) {
-        if (!hands[seat].Have(bottom_rank_winner)) continue;
-        auto suit_cards = hands[seat].Suit(suit);
+        if (!relative_hands[seat].Have(bottom_rank_winner)) continue;
+        auto suit_cards = relative_hands[seat].Suit(suit);
         for (int card : suit_cards.Slice(bottom_rank_winner + 1, TOTAL_CARDS)) {
-          if (relative_cards[bottom_rank_winner] + 1 != relative_cards[card]) break;
+          if (bottom_rank_winner + 1 != card) break;
           bottom_rank_winner = card;
         }
         break;
       }
-      relative_rank_winners.Add(
-          Cards(MaskOf(suit)).Slice(0, relative_cards[bottom_rank_winner] + 1));
+      relative_rank_winners.Add(Cards(MaskOf(suit)).Slice(0, bottom_rank_winner + 1));
       // Suit bottom can't win by rank. Compensate the inaccuracy with fast tricks.
       relative_rank_winners.Remove(relative_cards[all_cards.Suit(suit).Bottom()]);
     }
@@ -903,7 +902,7 @@ class Play {
                       ? Bounds{0, char(ns_tricks - ns_tricks_won)}
                       : Bounds{char(ns_tricks - ns_tricks_won), char(remaining_tricks)};
 
-    Hands pattern_hands = trick->ComputePatternHands(hands, branch_rank_winners);
+    Hands pattern_hands = trick->ComputePatternHands(branch_rank_winners);
     Pattern new_pattern(pattern_hands, bounds);
     auto* new_shape_entry = common_bounds_cache.Update(shape_index);
     new_shape_entry->shape = trick->shape;
