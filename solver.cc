@@ -718,7 +718,7 @@ struct Trick {
   bool IsEquivalent(int card, Cards tried_cards) const {
     if (tried_cards.Empty()) return false;
     int relative_card = relative_cards[card];
-    for (int tried_card : tried_cards) {
+    for (int tried_card : tried_cards.Suit(SuitOf(card))) {
       if (std::abs(RankOf(relative_card) - RankOf(relative_cards[tried_card])) == 1)
         return true;
     }
