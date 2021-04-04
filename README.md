@@ -110,14 +110,14 @@ From ♠ A-8(-2)3(-2) ♥ K(-2) ♦ A-6(-2) ♣ K= North plays ♣ K?
 ## Performance
 
 On ThinkPad X1 Carbon running with Intel(R) Core(TM) i7-6600U CPU @ 2.60GHz,
-the solver was able to fully analyze 1000 random deals in just 867 seconds,
+the solver was able to fully analyze 1000 random deals in just 810 seconds,
 averaging less than one second per deal. Below is a more detailed breakdown.
-The longest one took 17.1 seconds and consumed 106.0 MB of memory.
+The longest one took 16.1 seconds and consumed 106.0 MB of memory.
 | Time    | Count   |
 |---------|---------|
-| <= 1 s  | 770     |
-| <= 2 s  | 917     |
-| <= 5 s  | 986     |
+| <= 1 s  | 797     |
+| <= 2 s  | 925     |
+| <= 5 s  | 990     |
 | <= 10 s | 998     |
 | <= 20 s | 1000    |
 
@@ -128,9 +128,9 @@ less than two minutes.
                   - Q853 AJ962 KT74
 KT74 - Q853 AJ962                   Q853 AJ962 KT74 -
                   AJ962 KT74 - Q853
-N  5  5  5  5 48.9 s 713.1 M
-S  4  4  8  7 65.0 s 713.1 M
-H  8  7  4  4 76.6 s 713.1 M
-D  4  4  7  8 87.9 s 713.1 M
-C  7  8  4  4 102.3 s 713.1 M
+N  5  5  5  5 46.7 s 713.4 M
+S  4  4  8  7 62.1 s 713.4 M
+H  8  7  4  4 73.2 s 713.4 M
+D  4  4  7  8 83.9 s 713.4 M
+C  7  8  4  4 97.3 s 713.4 M
 ```
