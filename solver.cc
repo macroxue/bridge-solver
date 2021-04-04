@@ -744,11 +744,9 @@ struct Trick {
 
   // A pattern hand contains relative cards and rank-irrelevant cards.
   Hands ComputePatternHands(const Hands& hands, Cards rank_winners) const {
-    int min_relevant_ranks[] = {NUM_RANKS, NUM_RANKS, NUM_RANKS, NUM_RANKS};
-    Cards suit_bottoms;
+    Cards relative_rank_winners;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       if (rank_winners.Suit(suit).Empty()) continue;
-      suit_bottoms.Add(all_cards.Suit(suit).Bottom());
 
       // Extend bottom rank winner to its lowest equivalent card.
       int bottom_rank_winner = rank_winners.Suit(suit).Bottom();
@@ -761,17 +759,15 @@ struct Trick {
         }
         break;
       }
-      min_relevant_ranks[suit] = RankOf(bottom_rank_winner);
+      relative_rank_winners.Add(
+          Cards(MaskOf(suit)).Slice(0, relative_cards[bottom_rank_winner] + 1));
+      // Suit bottom can't win by rank. Compensate the inaccuracy with fast tricks.
+      relative_rank_winners.Remove(relative_cards[all_cards.Suit(suit).Bottom()]);
     }
 
     Hands pattern_hands;
-    for (int seat = 0; seat < NUM_SEATS; ++seat) {
-      // Suit bottom can't win by rank. Compensate the inaccuracy with fast tricks.
-      for (int card : hands[seat].Different(suit_bottoms)) {
-        if (RankOf(card) >= min_relevant_ranks[SuitOf(card)])
-          pattern_hands[seat].Add(relative_cards[card]);
-      }
-    }
+    for (int seat = 0; seat < NUM_SEATS; ++seat)
+      pattern_hands[seat] = relative_hands[seat].Intersect(relative_rank_winners);
     return pattern_hands;
   }
 
