@@ -13,6 +13,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <random>
 #include <set>
 #include <vector>
 
@@ -225,19 +226,15 @@ class Hands {
   void Randomize() {
     struct timeval time;
     gettimeofday(&time, NULL);
-    srand((time.tv_sec * 1000) + (time.tv_usec / 1000));
+    std::mt19937 random(time.tv_sec * 1000 + time.tv_usec / 1000);
 
     int deck[TOTAL_CARDS];
     for (int card = 0; card < TOTAL_CARDS; ++card) deck[card] = card;
+    std::shuffle(deck, deck + TOTAL_CARDS, random);
 
-    int remaining_cards = TOTAL_CARDS;
     for (int seat = 0; seat < NUM_SEATS; ++seat)
-      for (int i = 0; i < NUM_RANKS; ++i) {
-        int r = rand() % remaining_cards;
-        hands[seat].Add(deck[r]);
-        --remaining_cards;
-        std::swap(deck[r], deck[remaining_cards]);
-      }
+      for (int i = 0; i < NUM_RANKS; ++i)
+        hands[seat].Add(deck[seat * NUM_RANKS + i]);
   }
 
   Cards all_cards() const {
@@ -1006,7 +1003,7 @@ class Play {
       if (trump != NOTRUMP) {
         Cards my_trumps = playable_cards.Suit(trump);
         Cards opp_trumps = hands.opponent_cards(seat_to_play).Suit(trump);
-        if ((!my_trumps.Empty() && !opp_trumps.Empty())) {
+        if (!my_trumps.Empty() && !opp_trumps.Empty()) {
           AddCards(my_trumps, ordered_cards, num_ordered_cards);
           playable_cards.Remove(my_trumps);
         }
