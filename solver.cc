@@ -609,18 +609,17 @@ struct Pattern {
            p.hands[EAST] == hands[EAST] && p.hands[SOUTH] == hands[SOUTH];
   }
 
-  Cards GetRankWinners(const Hands& real_hands) const {
+  Cards GetRankWinners(Cards all_cards) const {
+    Cards relative_rank_winners = hands.all_cards();
     Cards rank_winners;
-    for (int seat = 0; seat < NUM_SEATS; ++seat) {
-      for (int suit = 0; suit < NUM_SUITS; ++suit) {
-        int num_rank_winners = hands[seat].Suit(suit).Size();
-        if (num_rank_winners == 0) continue;
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      int num_rank_winners = relative_rank_winners.Suit(suit).Size();
+      if (num_rank_winners == 0) continue;
 
-        auto suit_cards = real_hands[seat].Suit(suit);
-        for (int i = 0; i < num_rank_winners; ++i) {
-          rank_winners.Add(suit_cards.Top());
-          suit_cards.Remove(suit_cards.Top());
-        }
+      auto suit_cards = all_cards.Suit(suit);
+      for (; num_rank_winners > 0; --num_rank_winners) {
+        rank_winners.Add(suit_cards.Top());
+        suit_cards.Remove(suit_cards.Top());
       }
     }
     return rank_winners;
@@ -880,7 +879,7 @@ class Play {
           trick->relative_hands, alpha - ns_tricks_won, beta - ns_tricks_won);
       if (cached_pattern) {
         VERBOSE(ShowPattern("match", cached_pattern, trick->shape));
-        rank_winners->Add(cached_pattern->GetRankWinners(hands));
+        rank_winners->Add(cached_pattern->GetRankWinners(trick->all_cards));
         int lower = cached_pattern->bounds.lower + ns_tricks_won;
         if (lower >= beta) {
           VERBOSE(printf("%2d: beta cut %d\n", depth, lower));
