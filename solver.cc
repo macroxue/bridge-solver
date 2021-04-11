@@ -711,11 +711,11 @@ struct Trick {
   Hands relative_hands;
 
   // Whether a card is equivalent to one of the tried cards.
-  bool IsEquivalent(int card, Cards tried_cards) const {
-    if (tried_cards.Empty()) return false;
+  bool IsEquivalent(int card, Cards tried_suit_cards) const {
+    if (tried_suit_cards.Empty()) return false;
     int relative_card = relative_cards[card];
-    for (int tried_card : tried_cards.Suit(SuitOf(card))) {
-      if (std::abs(RankOf(relative_card) - RankOf(relative_cards[tried_card])) == 1)
+    for (int tried_card : tried_suit_cards) {
+      if (std::abs(relative_card - relative_cards[tried_card]) == 1)
         return true;
     }
     return false;
@@ -969,9 +969,9 @@ class Play {
     Cards tried_cards;
     for (int i = 0; i < num_ordered_cards; ++i) {
       int card = ordered_cards[i], suit = SuitOf(card), rank = RankOf(card);
-      // Try a card if it's not equivalent to a tried card and its rank is still relevant.
-      if (!trick->IsEquivalent(card, tried_cards.Suit(suit)) &&
-          rank >= min_relevant_ranks[suit]) {
+      // Try a card if its rank is still relevant and it isn't equivalent to a tried card.
+      if (rank >= min_relevant_ranks[suit] &&
+          !trick->IsEquivalent(card, tried_cards.Suit(suit))) {
         Cards branch_rank_winners;
         if (Cutoff(alpha, beta, card, &bounded_ns_tricks, &branch_rank_winners)) {
           if (!cutoff_cards.Have(card)) SaveCutoffCard(cutoff_index, card);
