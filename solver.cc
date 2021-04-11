@@ -174,7 +174,7 @@ class Cards {
 
   Cards Add(const Cards& c) { return bits |= c.bits; }
   Cards Remove(const Cards& c) { return bits &= ~c.bits; }
-  Cards RemoveSuit(int suit) { return bits &= ~MaskOf(suit); }
+  Cards ClearSuit(int suit) { return bits &= ~MaskOf(suit); }
 
   int CountPoints() const {
     int points = 0;
@@ -787,12 +787,17 @@ struct Trick {
 
  private:
   void ConvertToRelativeCards(const Hands& hands, int suit, Cards all_suit_cards) {
+    if (all_suit_cards.Empty()) {
+      for (int seat = 0; seat < NUM_SEATS; ++seat)
+        relative_hands[seat].ClearSuit(suit);
+      return;
+    }
     // Convert cards to their relative ranks. E.g. when all the cards remaining in a
     // suit are J, 8, 7 and 2, they are treated as A, K, Q and J respectively.
     int relative_rank = ACE;
     for (int card : all_suit_cards) relative_cards[card] = CardOf(suit, relative_rank--);
     for (int seat = 0; seat < NUM_SEATS; ++seat) {
-      relative_hands[seat].RemoveSuit(suit);
+      relative_hands[seat].ClearSuit(suit);
       for (int card : hands[seat].Suit(suit))
         relative_hands[seat].Add(relative_cards[card]);
     }
