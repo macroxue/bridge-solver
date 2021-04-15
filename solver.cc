@@ -187,6 +187,7 @@ class Cards {
   bool Have(int card) const { return bits & Bit(card); }
   bool operator==(const Cards& c) const { return bits == c.bits; }
   bool operator!=(const Cards& c) const { return bits != c.bits; }
+  operator bool() const { return bits != 0; }
 
   Cards Slice(int begin, int end) const { return bits & (Bit(end) - Bit(begin)); }
   Cards Suit(int suit) const { return bits & MaskOf(suit); }
@@ -750,12 +751,14 @@ struct Trick {
   }
 
   // Whether a card is equivalent to one of the tried cards.
-  bool IsEquivalent(int card, int suit, Cards tried_suit_cards) const {
+  bool IsEquivalent(int card, Cards tried_suit_cards, Cards hand) const {
     if (tried_suit_cards.Empty()) return false;
-    int relative_rank = RelativeRank(card, suit);
-    for (int tried_card : tried_suit_cards) {
-      if (std::abs(relative_rank - RelativeRank(tried_card, suit)) == 1) return true;
-    }
+    if (auto above = tried_suit_cards.Slice(0, card))
+      if (all_cards.Slice(above.Bottom(), card) == hand.Slice(above.Bottom(), card))
+        return true;
+    if (auto below = tried_suit_cards.Slice(card + 1, TOTAL_CARDS))
+      if (all_cards.Slice(card, below.Top()) == hand.Slice(card, below.Top()))
+        return true;
     return false;
   }
 
@@ -991,7 +994,7 @@ class Play {
       int card = ordered_cards[i], suit = SuitOf(card), rank = RankOf(card);
       // Try a card if its rank is still relevant and it isn't equivalent to a tried card.
       if (rank >= min_relevant_ranks[suit] &&
-          !trick->IsEquivalent(card, suit, tried_cards.Suit(suit))) {
+          !trick->IsEquivalent(card, tried_cards.Suit(suit), hands[seat_to_play])) {
         Cards branch_rank_winners;
         if (Cutoff(alpha, beta, card, &bounded_ns_tricks, &branch_rank_winners)) {
           if (!cutoff_cards.Have(card)) SaveCutoffCard(cutoff_index, card);
