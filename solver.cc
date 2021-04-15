@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <ctype.h>
+#include <immintrin.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -145,6 +146,34 @@ int BitSize(T v) {
   return sizeof(v) * 8;
 }
 
+uint64_t PackBits(uint64_t source, uint64_t mask) {
+#ifdef _BMI2
+  return _pext_u64(source, mask);
+#else
+  if (source == 0) return 0;
+  uint64_t packed = 0;
+  for (uint64_t bit = 1; mask; bit <<= 1) {
+    if (source & mask & -mask) packed |= bit;
+    mask &= mask - 1;
+  }
+  return packed;
+#endif
+}
+
+uint64_t UnpackBits(uint64_t source, uint64_t mask) {
+#ifdef _BMI2
+  return _pdep_u64(source, mask);
+#else
+  if (source == 0) return 0;
+  uint64_t unpacked = 0;
+  for (uint64_t bit = 1; mask; bit <<= 1) {
+    if (source & bit) unpacked |= mask & -mask;
+    mask &= mask - 1;
+  }
+  return unpacked;
+#endif
+}
+
 }  // namespace
 
 class Cards {
@@ -233,8 +262,7 @@ class Hands {
     std::shuffle(deck, deck + TOTAL_CARDS, random);
 
     for (int seat = 0; seat < NUM_SEATS; ++seat)
-      for (int i = 0; i < NUM_RANKS; ++i)
-        hands[seat].Add(deck[seat * NUM_RANKS + i]);
+      for (int i = 0; i < NUM_RANKS; ++i) hands[seat].Add(deck[seat * NUM_RANKS + i]);
   }
 
   Cards all_cards() const {
@@ -613,14 +641,11 @@ struct Pattern {
     Cards relative_rank_winners = hands.all_cards();
     Cards rank_winners;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
-      int num_rank_winners = relative_rank_winners.Suit(suit).Size();
-      if (num_rank_winners == 0) continue;
-
-      auto suit_cards = all_cards.Suit(suit);
-      for (; num_rank_winners > 0; --num_rank_winners) {
-        rank_winners.Add(suit_cards.Top());
-        suit_cards.Remove(suit_cards.Top());
-      }
+      if (relative_rank_winners.Suit(suit).Empty()) continue;
+      auto unpacked =
+          UnpackBits(relative_rank_winners.Suit(suit).Value() >> (suit * NUM_RANKS),
+                     all_cards.Suit(suit).Value());
+      rank_winners.Add(Cards(unpacked));
     }
     return rank_winners;
   }
@@ -710,13 +735,28 @@ struct Trick {
   Cards all_cards;
   Hands relative_hands;
 
+  // A relative hand contains relative cards.
+  void ComputeRelativeHands(int depth, const Hands& hands) {
+    if (depth < 4) {
+      for (int suit = 0; suit < NUM_SUITS; ++suit)
+        ConvertToRelativeSuit(hands, suit, all_cards.Suit(suit));
+    } else {
+      // Recompute the relative cards for suits changed by the last trick.
+      auto prev_trick = this - 1;
+      relative_hands = prev_trick->relative_hands;
+      for (int suit = 0; suit < NUM_SUITS; ++suit) {
+        if (all_cards.Suit(suit) != prev_trick->all_cards.Suit(suit))
+          ConvertToRelativeSuit(hands, suit, all_cards.Suit(suit));
+      }
+    }
+  }
+
   // Whether a card is equivalent to one of the tried cards.
-  bool IsEquivalent(int card, Cards tried_suit_cards) const {
+  bool IsEquivalent(int card, int suit, Cards tried_suit_cards) const {
     if (tried_suit_cards.Empty()) return false;
-    int relative_card = relative_cards[card];
+    int relative_rank = RelativeRank(card, suit);
     for (int tried_card : tried_suit_cards) {
-      if (std::abs(relative_card - relative_cards[tried_card]) == 1)
-        return true;
+      if (std::abs(relative_rank - RelativeRank(tried_card, suit)) == 1) return true;
     }
     return false;
   }
@@ -730,7 +770,7 @@ struct Trick {
       filtered_cards.Add(prev_card);
       suit_cards.Remove(prev_card);
       for (int card : suit_cards) {
-        if (RankOf(relative_cards[prev_card]) != RankOf(relative_cards[card]) + 1)
+        if (RelativeRank(prev_card, suit) != RelativeRank(card, suit) + 1)
           filtered_cards.Add(card);
         prev_card = card;
       }
@@ -745,7 +785,7 @@ struct Trick {
       if (rank_winners.Suit(suit).Empty()) continue;
 
       // Extend bottom rank winner to its lowest equivalent card.
-      int bottom_rank_winner = relative_cards[rank_winners.Suit(suit).Bottom()];
+      int bottom_rank_winner = RelativeCard(rank_winners.Suit(suit).Bottom(), suit);
       for (int seat = 0; seat < NUM_SEATS; ++seat) {
         if (!relative_hands[seat].Have(bottom_rank_winner)) continue;
         auto suit_cards = relative_hands[seat].Suit(suit);
@@ -757,7 +797,7 @@ struct Trick {
       }
       relative_rank_winners.Add(Cards(MaskOf(suit)).Slice(0, bottom_rank_winner + 1));
       // Suit bottom can't win by rank. Compensate the inaccuracy with fast tricks.
-      relative_rank_winners.Remove(relative_cards[all_cards.Suit(suit).Bottom()]);
+      relative_rank_winners.Remove(RelativeCard(all_cards.Suit(suit).Bottom(), suit));
     }
 
     Hands pattern_hands;
@@ -766,44 +806,26 @@ struct Trick {
     return pattern_hands;
   }
 
-  // A relative hand contains relative cards.
-  void ComputeRelativeHands(int depth, const Hands& hands) {
-    if (depth < 4) {
-      for (int suit = 0; suit < NUM_SUITS; ++suit)
-        ConvertToRelativeCards(hands, suit, all_cards.Suit(suit));
-    } else {
-      // Recompute the relative cards for suits changed by the last trick.
-      auto prev_trick = this - 1;
-      relative_hands = prev_trick->relative_hands;
-      for (int suit = 0; suit < NUM_SUITS; ++suit) {
-        if (all_cards.Suit(suit) != prev_trick->all_cards.Suit(suit))
-          ConvertToRelativeCards(hands, suit, all_cards.Suit(suit));
-        else
-          memcpy(relative_cards + suit * NUM_RANKS,
-                 prev_trick->relative_cards + suit * NUM_RANKS, NUM_RANKS);
-      }
-    }
-  }
-
  private:
-  void ConvertToRelativeCards(const Hands& hands, int suit, Cards all_suit_cards) {
+  void ConvertToRelativeSuit(const Hands& hands, int suit, Cards all_suit_cards) {
     if (all_suit_cards.Empty()) {
-      for (int seat = 0; seat < NUM_SEATS; ++seat)
-        relative_hands[seat].ClearSuit(suit);
+      for (int seat = 0; seat < NUM_SEATS; ++seat) relative_hands[seat].ClearSuit(suit);
       return;
     }
-    // Convert cards to their relative ranks. E.g. when all the cards remaining in a
-    // suit are J, 8, 7 and 2, they are treated as A, K, Q and J respectively.
-    int relative_rank = ACE;
-    for (int card : all_suit_cards) relative_cards[card] = CardOf(suit, relative_rank--);
     for (int seat = 0; seat < NUM_SEATS; ++seat) {
+      auto packed = PackBits(hands[seat].Suit(suit).Value(), all_suit_cards.Value());
       relative_hands[seat].ClearSuit(suit);
-      for (int card : hands[seat].Suit(suit))
-        relative_hands[seat].Add(relative_cards[card]);
+      relative_hands[seat].Add(Cards(packed << (suit * NUM_RANKS)));
     }
   }
 
-  char relative_cards[TOTAL_CARDS];
+  int RelativeRank(int card, int suit) const {
+    return ACE - all_cards.Suit(suit).Slice(0, card).Size();
+  }
+
+  int RelativeCard(int card, int suit) const {
+    return CardOf(suit, RelativeRank(card, suit));
+  }
 };
 
 class Stats {
@@ -971,7 +993,7 @@ class Play {
       int card = ordered_cards[i], suit = SuitOf(card), rank = RankOf(card);
       // Try a card if its rank is still relevant and it isn't equivalent to a tried card.
       if (rank >= min_relevant_ranks[suit] &&
-          !trick->IsEquivalent(card, tried_cards.Suit(suit))) {
+          !trick->IsEquivalent(card, suit, tried_cards.Suit(suit))) {
         Cards branch_rank_winners;
         if (Cutoff(alpha, beta, card, &bounded_ns_tricks, &branch_rank_winners)) {
           if (!cutoff_cards.Have(card)) SaveCutoffCard(cutoff_index, card);
