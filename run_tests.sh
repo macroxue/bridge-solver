@@ -4,6 +4,7 @@ test_dir=${1:-old_deals}
 test_dir=${test_dir%%/*}  # remove trailing slashes
 results=results.$test_dir
 echo Results are in $results
+cat $test_dir/* > /dev/null  # bring files into cache
 
 start=$(date +"%s.%N")
 for deal in $(ls $test_dir -I RESULTS); do

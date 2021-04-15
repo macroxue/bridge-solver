@@ -10,6 +10,7 @@ test_dir=${test_dir%%/*}  # remove trailing slashes
 parallelism=${2:-2}
 results=results.$test_dir.$parallelism
 echo Results are in $results
+cat $test_dir/* > /dev/null  # bring files into cache
 
 start=$(date +"%s.%N")
 ls $test_dir -I RESULTS | \
