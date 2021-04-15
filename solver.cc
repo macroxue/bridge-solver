@@ -152,10 +152,8 @@ uint64_t PackBits(uint64_t source, uint64_t mask) {
 #else
   if (source == 0) return 0;
   uint64_t packed = 0;
-  for (uint64_t bit = 1; mask; bit <<= 1) {
+  for (uint64_t bit = 1; mask; bit <<= 1, mask &= mask - 1)
     if (source & mask & -mask) packed |= bit;
-    mask &= mask - 1;
-  }
   return packed;
 #endif
 }
@@ -166,10 +164,8 @@ uint64_t UnpackBits(uint64_t source, uint64_t mask) {
 #else
   if (source == 0) return 0;
   uint64_t unpacked = 0;
-  for (uint64_t bit = 1; mask; bit <<= 1) {
+  for (uint64_t bit = 1; mask; bit <<= 1, mask &= mask - 1)
     if (source & bit) unpacked |= mask & -mask;
-    mask &= mask - 1;
-  }
   return unpacked;
 #endif
 }
