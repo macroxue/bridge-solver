@@ -152,8 +152,10 @@ uint64_t PackBits(uint64_t source, uint64_t mask) {
 #else
   if (source == 0) return 0;
   uint64_t packed = 0;
-  for (uint64_t bit = 1; mask; bit <<= 1, mask &= mask - 1)
+  for (uint64_t bit = 1; mask; bit <<= 1) {
     if (source & mask & -mask) packed |= bit;
+    mask &= mask - 1;
+  }
   return packed;
 #endif
 }
@@ -164,8 +166,10 @@ uint64_t UnpackBits(uint64_t source, uint64_t mask) {
 #else
   if (source == 0) return 0;
   uint64_t unpacked = 0;
-  for (uint64_t bit = 1; mask; bit <<= 1, mask &= mask - 1)
+  for (uint64_t bit = 1; mask; bit <<= 1) {
     if (source & bit) unpacked |= mask & -mask;
+    mask &= mask - 1;
+  }
   return unpacked;
 #endif
 }
@@ -530,7 +534,7 @@ struct Pattern {
   Bounds bounds;
   mutable uint16_t cuts = 0;
   mutable uint16_t hits = 0;
-  std::unique_ptr<std::vector<Pattern>> patterns;
+  std::vector<Pattern> patterns;
 
   Pattern() = default;
 
@@ -542,7 +546,8 @@ struct Pattern {
     bounds.upper = TOTAL_TRICKS;
     hits = 0;
     cuts = 0;
-    patterns.reset();
+    patterns.clear();
+    patterns.shrink_to_fit();
   }
 
   void MoveTo(Pattern& p) { p.MoveFrom(*this); }
@@ -562,8 +567,7 @@ struct Pattern {
       ++cuts;
       return this;
     }
-    if (!patterns) return nullptr;
-    for (auto& pattern : *patterns.get()) {
+    for (auto& pattern : patterns) {
       auto detail = pattern.Lookup(new_pattern, alpha, beta);
       if (detail) return detail;
     }
@@ -571,28 +575,27 @@ struct Pattern {
   }
 
   Pattern* Update(Pattern& new_pattern) {
-    if (!patterns) return Append(new_pattern);
-
-    for (size_t i = 0; i < patterns->size(); ++i) {
-      auto& pattern = patterns->at(i);
+    for (size_t i = 0; i < patterns.size(); ++i) {
+      auto& pattern = patterns[i];
       if (new_pattern == pattern) {
         pattern.UpdateBounds(new_pattern.bounds);
         return &pattern;
       } else if (pattern <= new_pattern) {
         // New pattern is more generic. Absorb sub-patterns.
-        for (; i < patterns->size(); ++i) {
-          auto& old_pattern = patterns->at(i);
+        for (; i < patterns.size(); ++i) {
+          auto& old_pattern = patterns[i];
           if (!(old_pattern <= new_pattern)) continue;
           old_pattern.UpdateBounds(new_pattern.bounds);
           if (old_pattern.bounds == new_pattern.bounds) {
             new_pattern.hits += old_pattern.hits;
             new_pattern.cuts += old_pattern.cuts;
           } else {
-            new_pattern.Append(old_pattern);
+            new_pattern.patterns.resize(new_pattern.patterns.size() + 1);
+            new_pattern.patterns.back().MoveFrom(old_pattern);
           }
           if (&old_pattern != &pattern) {
-            old_pattern.MoveFrom(patterns->back());
-            patterns->pop_back();
+            old_pattern.MoveFrom(patterns.back());
+            patterns.pop_back();
             --i;
           }
         }
@@ -606,14 +609,9 @@ struct Pattern {
         return pattern.Update(new_pattern);
       }
     }
-    return Append(new_pattern);
-  }
-
-  Pattern* Append(Pattern& pattern) {
-    if (!patterns) patterns.reset(new std::vector<Pattern>);
-    patterns->resize(patterns->size() + 1);
-    patterns->back().MoveFrom(pattern);
-    return &patterns->back();
+    patterns.resize(patterns.size() + 1);
+    patterns.back().MoveFrom(new_pattern);
+    return &patterns.back();
   }
 
   void UpdateBounds(Bounds new_bounds) {
@@ -622,12 +620,11 @@ struct Pattern {
     CHECK(!bounds.Empty());
     if (bounds.Width() == old_bounds.Width()) return;
     if (bounds.Width() == 0) {
-      patterns.reset();
+      patterns.clear();
       return;
     }
 
-    if (patterns)
-      for (auto& pattern : *patterns) pattern.UpdateBounds(bounds);
+    for (auto& pattern : patterns) pattern.UpdateBounds(bounds);
   }
 
   // This pattern is more detailed than (a subset of) the other pattern.
@@ -654,8 +651,7 @@ struct Pattern {
 
   int Size() const {
     int sum = 1;
-    if (patterns)
-      for (const auto& pattern : *patterns) sum += pattern.Size();
+    for (const auto& pattern : patterns) sum += pattern.Size();
     return sum;
   }
 
@@ -678,8 +674,7 @@ struct Pattern {
       }
       printf(" hits %d cuts %d\n", hits, cuts);
     }
-    if (patterns)
-      for (const auto& pattern : *patterns) pattern.Show(shape, level + 1);
+    for (const auto& pattern : patterns) pattern.Show(shape, level + 1);
   }
 };
 
@@ -693,8 +688,8 @@ struct ShapeEntry {
 
   void Show() const {
     printf("hash %016lx shape %016lx seat %c size %ld recursive size %d hits %d\n", hash,
-           shape.Value(), SeatLetter(seat_to_play),
-           (pattern.patterns ? pattern.patterns->size() : 0), Size(), pattern.hits);
+           shape.Value(), SeatLetter(seat_to_play), pattern.patterns.size(), Size(),
+           pattern.hits);
     pattern.Show(shape, 0);
   }
 
