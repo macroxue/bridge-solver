@@ -642,10 +642,8 @@ struct Pattern {
     Cards rank_winners;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       if (relative_rank_winners.Suit(suit).Empty()) continue;
-      auto unpacked =
-          UnpackBits(relative_rank_winners.Suit(suit).Value() >> (suit * NUM_RANKS),
-                     all_cards.Suit(suit).Value());
-      rank_winners.Add(Cards(unpacked));
+      auto packed = relative_rank_winners.Suit(suit).Value() >> (suit * NUM_RANKS);
+      rank_winners.Add(Cards(UnpackBits(packed, all_cards.Suit(suit).Value())));
     }
     return rank_winners;
   }
