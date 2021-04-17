@@ -494,6 +494,7 @@ struct Bounds {
   }
   bool Include(Bounds b) const { return Intersect(b) == b; }
   bool operator==(Bounds b) const { return b.lower == lower && b.upper == upper; }
+  bool Cutoff(int alpha, int beta) const { return lower >= beta || upper <= alpha; }
 };
 
 class Shape {
@@ -559,7 +560,7 @@ struct Pattern {
   const Pattern* Lookup(const Pattern& new_pattern, int alpha, int beta) const {
     if (!(new_pattern <= *this)) return nullptr;
     ++hits;
-    if (bounds.lower >= beta || bounds.upper <= alpha) {
+    if (bounds.Cutoff(alpha, beta)) {
       ++cuts;
       return this;
     }
@@ -678,6 +679,7 @@ struct ShapeEntry {
   Shape shape;
   int seat_to_play;
   Pattern pattern;
+  mutable Pattern last_pattern;
 
   int Size() const { return pattern.Size() - 1; }
 
@@ -693,6 +695,7 @@ struct ShapeEntry {
     shape = Shape();
     seat_to_play = -1;
     pattern.Reset();
+    last_pattern.Reset();
   }
 
   void MoveTo(ShapeEntry& to) {
@@ -700,6 +703,20 @@ struct ShapeEntry {
     to.shape = shape;
     to.seat_to_play = seat_to_play;
     to.pattern.MoveFrom(pattern);
+    to.last_pattern.MoveFrom(last_pattern);
+  }
+
+  const Pattern* Lookup(const Pattern& new_pattern, int alpha, int beta) const {
+    bool multi_pattern = pattern.patterns.size() >= 2;
+    if (multi_pattern && last_pattern.bounds.Cutoff(alpha, beta) &&
+        new_pattern <= last_pattern)
+      return &last_pattern;
+    auto cached_pattern = pattern.Lookup(new_pattern, alpha, beta);
+    if (multi_pattern && cached_pattern) {
+      last_pattern.hands = cached_pattern->hands;
+      last_pattern.bounds = cached_pattern->bounds;
+    }
+    return cached_pattern;
   }
 };
 
@@ -897,7 +914,7 @@ class Play {
     Cards shape_index[2] = {trick->shape.Value(), seat_to_play};
     auto* shape_entry = common_bounds_cache.Lookup(shape_index);
     if (shape_entry) {
-      auto cached_pattern = shape_entry->pattern.Lookup(
+      auto cached_pattern = shape_entry->Lookup(
           trick->relative_hands, alpha - ns_tricks_won, beta - ns_tricks_won);
       if (cached_pattern) {
         VERBOSE(ShowPattern("match", cached_pattern, trick->shape));
