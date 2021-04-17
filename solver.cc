@@ -570,12 +570,12 @@ struct Pattern {
     return nullptr;
   }
 
-  Pattern* Update(Pattern& new_pattern) {
+  void Update(Pattern& new_pattern) {
     for (size_t i = 0; i < patterns.size(); ++i) {
       auto& pattern = patterns[i];
       if (new_pattern == pattern) {
         pattern.UpdateBounds(new_pattern.bounds);
-        return &pattern;
+        return;
       } else if (pattern <= new_pattern) {
         // New pattern is more generic. Absorb sub-patterns.
         for (; i < patterns.size(); ++i) {
@@ -596,18 +596,17 @@ struct Pattern {
           }
         }
         pattern.MoveFrom(new_pattern);
-        return &pattern;
+        return;
       } else if (new_pattern <= pattern) {
         // Old pattern is more generic. Add new pattern under.
         new_pattern.bounds = new_pattern.bounds.Intersect(pattern.bounds);
         CHECK(!new_pattern.bounds.Empty());
-        if (new_pattern.bounds == pattern.bounds) return &pattern;
+        if (new_pattern.bounds == pattern.bounds) return;
         return pattern.Update(new_pattern);
       }
     }
     patterns.resize(patterns.size() + 1);
     patterns.back().MoveFrom(new_pattern);
-    return &patterns.back();
   }
 
   void UpdateBounds(Bounds new_bounds) {
@@ -895,11 +894,10 @@ class Play {
     ComputeShape();
     trick->ComputeRelativeHands(depth, hands);
 
-    const Pattern* cached_pattern = nullptr;
     Cards shape_index[2] = {trick->shape.Value(), seat_to_play};
     auto* shape_entry = common_bounds_cache.Lookup(shape_index);
     if (shape_entry) {
-      cached_pattern = shape_entry->pattern.Lookup(
+      auto cached_pattern = shape_entry->pattern.Lookup(
           trick->relative_hands, alpha - ns_tricks_won, beta - ns_tricks_won);
       if (cached_pattern) {
         VERBOSE(ShowPattern("match", cached_pattern, trick->shape));
@@ -927,8 +925,8 @@ class Play {
     auto* new_shape_entry = common_bounds_cache.Update(shape_index);
     new_shape_entry->shape = trick->shape;
     new_shape_entry->seat_to_play = seat_to_play;
-    cached_pattern = new_shape_entry->pattern.Update(new_pattern);
-    VERBOSE(ShowPattern("update", cached_pattern, trick->shape));
+    new_shape_entry->pattern.Update(new_pattern);
+    VERBOSE(ShowPattern("update", &new_pattern, trick->shape));
     return ns_tricks;
   }
 
