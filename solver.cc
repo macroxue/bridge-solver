@@ -555,9 +555,7 @@ struct Pattern {
 
   const Pattern* Lookup(const Pattern& new_pattern, int alpha, int beta) const {
     if (!(new_pattern <= *this)) return nullptr;
-    if (bounds.Cutoff(alpha, beta)) {
-      return this;
-    }
+    if (bounds.Cutoff(alpha, beta)) return this;
     for (auto& pattern : patterns) {
       auto detail = pattern.Lookup(new_pattern, alpha, beta);
       if (detail) return detail;
@@ -695,6 +693,8 @@ struct ShapeEntry {
     to.hash = hash;
     to.shape = shape;
     to.seat_to_play = seat_to_play;
+    to.hits = hits;
+    to.cuts = cuts;
     to.pattern.MoveFrom(pattern);
     to.last_pattern.MoveFrom(last_pattern);
   }
