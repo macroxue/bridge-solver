@@ -539,13 +539,10 @@ struct Pattern {
 
   void Reset() {
     hands = Hands();
-    bounds.lower = 0;
-    bounds.upper = TOTAL_TRICKS;
+    bounds = {0, TOTAL_TRICKS};
     patterns.clear();
     patterns.shrink_to_fit();
   }
-
-  void MoveTo(Pattern& p) { p.MoveFrom(*this); }
 
   void MoveFrom(Pattern& p) {
     hands = p.hands;
@@ -554,11 +551,10 @@ struct Pattern {
   }
 
   const Pattern* Lookup(const Pattern& new_pattern, int alpha, int beta) const {
-    if (!(new_pattern <= *this)) return nullptr;
     if (bounds.Cutoff(alpha, beta)) return this;
     for (auto& pattern : patterns) {
-      auto detail = pattern.Lookup(new_pattern, alpha, beta);
-      if (detail) return detail;
+      if (!(new_pattern <= pattern)) continue;
+      if (auto detail = pattern.Lookup(new_pattern, alpha, beta)) return detail;
     }
     return nullptr;
   }
@@ -575,10 +571,7 @@ struct Pattern {
           auto& old_pattern = patterns[i];
           if (!(old_pattern <= new_pattern)) continue;
           old_pattern.UpdateBounds(new_pattern.bounds);
-          if (old_pattern.bounds != new_pattern.bounds) {
-            new_pattern.patterns.resize(new_pattern.patterns.size() + 1);
-            new_pattern.patterns.back().MoveFrom(old_pattern);
-          }
+          if (old_pattern.bounds != new_pattern.bounds) new_pattern.Append(old_pattern);
           if (&old_pattern != &pattern) {
             old_pattern.MoveFrom(patterns.back());
             patterns.pop_back();
@@ -591,12 +584,11 @@ struct Pattern {
         // Old pattern is more generic. Add new pattern under.
         new_pattern.bounds = new_pattern.bounds.Intersect(pattern.bounds);
         CHECK(!new_pattern.bounds.Empty());
-        if (new_pattern.bounds == pattern.bounds) return;
-        return pattern.Update(new_pattern);
+        if (new_pattern.bounds != pattern.bounds) pattern.Update(new_pattern);
+        return;
       }
     }
-    patterns.resize(patterns.size() + 1);
-    patterns.back().MoveFrom(new_pattern);
+    Append(new_pattern);
   }
 
   void UpdateBounds(Bounds new_bounds) {
@@ -610,6 +602,11 @@ struct Pattern {
     }
 
     for (auto& pattern : patterns) pattern.UpdateBounds(bounds);
+  }
+
+  void Append(Pattern& new_pattern) {
+    patterns.resize(patterns.size() + 1);
+    patterns.back().MoveFrom(new_pattern);
   }
 
   // This pattern is more detailed than (a subset of) the other pattern.
