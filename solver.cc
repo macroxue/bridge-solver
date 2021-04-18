@@ -551,9 +551,9 @@ struct Pattern {
   }
 
   const Pattern* Lookup(const Pattern& new_pattern, int alpha, int beta) const {
-    if (bounds.Cutoff(alpha, beta)) return this;
     for (auto& pattern : patterns) {
       if (!(new_pattern <= pattern)) continue;
+      if (pattern.bounds.Cutoff(alpha, beta)) return &pattern;
       if (auto detail = pattern.Lookup(new_pattern, alpha, beta)) return detail;
     }
     return nullptr;
@@ -567,16 +567,16 @@ struct Pattern {
         return;
       } else if (pattern <= new_pattern) {
         // New pattern is more generic. Absorb sub-patterns.
-        for (; i < patterns.size(); ++i) {
+        pattern.UpdateBounds(new_pattern.bounds);
+        if (pattern.bounds != new_pattern.bounds) new_pattern.Append(pattern);
+        for (++i; i < patterns.size(); ++i) {
           auto& old_pattern = patterns[i];
           if (!(old_pattern <= new_pattern)) continue;
           old_pattern.UpdateBounds(new_pattern.bounds);
           if (old_pattern.bounds != new_pattern.bounds) new_pattern.Append(old_pattern);
-          if (&old_pattern != &pattern) {
-            old_pattern.MoveFrom(patterns.back());
-            patterns.pop_back();
-            --i;
-          }
+          old_pattern.MoveFrom(patterns.back());
+          patterns.pop_back();
+          --i;
         }
         pattern.MoveFrom(new_pattern);
         return;
@@ -596,12 +596,10 @@ struct Pattern {
     bounds = bounds.Intersect(new_bounds);
     CHECK(!bounds.Empty());
     if (bounds.Width() == old_bounds.Width()) return;
-    if (bounds.Width() == 0) {
+    if (bounds.Width() == 0)
       patterns.clear();
-      return;
-    }
-
-    for (auto& pattern : patterns) pattern.UpdateBounds(bounds);
+    else
+      for (auto& pattern : patterns) pattern.UpdateBounds(bounds);
   }
 
   void Append(Pattern& new_pattern) {
