@@ -494,6 +494,7 @@ struct Bounds {
   }
   bool Include(Bounds b) const { return Intersect(b) == b; }
   bool operator==(Bounds b) const { return b.lower == lower && b.upper == upper; }
+  bool operator!=(Bounds b) const { return !(*this == b); }
   bool Cutoff(int alpha, int beta) const { return lower >= beta || upper <= alpha; }
 };
 
@@ -529,8 +530,7 @@ class Shape {
 struct Pattern {
   Hands hands;
   Bounds bounds;
-  mutable uint16_t cuts = 0;
-  mutable uint16_t hits = 0;
+  uint16_t paddings[3];
   std::vector<Pattern> patterns;
 
   Pattern() = default;
@@ -541,8 +541,6 @@ struct Pattern {
     hands = Hands();
     bounds.lower = 0;
     bounds.upper = TOTAL_TRICKS;
-    hits = 0;
-    cuts = 0;
     patterns.clear();
     patterns.shrink_to_fit();
   }
@@ -552,16 +550,12 @@ struct Pattern {
   void MoveFrom(Pattern& p) {
     hands = p.hands;
     bounds = p.bounds;
-    hits = p.hits;
-    cuts = p.cuts;
     std::swap(patterns, p.patterns);
   }
 
   const Pattern* Lookup(const Pattern& new_pattern, int alpha, int beta) const {
     if (!(new_pattern <= *this)) return nullptr;
-    ++hits;
     if (bounds.Cutoff(alpha, beta)) {
-      ++cuts;
       return this;
     }
     for (auto& pattern : patterns) {
@@ -583,10 +577,7 @@ struct Pattern {
           auto& old_pattern = patterns[i];
           if (!(old_pattern <= new_pattern)) continue;
           old_pattern.UpdateBounds(new_pattern.bounds);
-          if (old_pattern.bounds == new_pattern.bounds) {
-            new_pattern.hits += old_pattern.hits;
-            new_pattern.cuts += old_pattern.cuts;
-          } else {
+          if (old_pattern.bounds != new_pattern.bounds) {
             new_pattern.patterns.resize(new_pattern.patterns.size() + 1);
             new_pattern.patterns.back().MoveFrom(old_pattern);
           }
@@ -668,7 +659,7 @@ struct Pattern {
         }
         if (seat < NUM_SEATS - 1) printf(", ");
       }
-      printf(" hits %d cuts %d\n", hits, cuts);
+      printf("\n");
     }
     for (const auto& pattern : patterns) pattern.Show(shape, level + 1);
   }
@@ -678,15 +669,16 @@ struct ShapeEntry {
   uint64_t hash;
   Shape shape;
   int seat_to_play;
+  mutable uint16_t hits, cuts;
   Pattern pattern;
   mutable Pattern last_pattern;
 
   int Size() const { return pattern.Size() - 1; }
 
   void Show() const {
-    printf("hash %016lx shape %016lx seat %c size %ld recursive size %d hits %d\n", hash,
-           shape.Value(), SeatLetter(seat_to_play), pattern.patterns.size(), Size(),
-           pattern.hits);
+    printf("hash %016lx shape %016lx seat %c size %ld total size %d hits %d cuts %d\n",
+           hash, shape.Value(), SeatLetter(seat_to_play), pattern.patterns.size(), Size(),
+           hits, cuts);
     pattern.Show(shape, 0);
   }
 
@@ -694,6 +686,7 @@ struct ShapeEntry {
     hash = hash_in;
     shape = Shape();
     seat_to_play = -1;
+    hits = cuts = 0;
     pattern.Reset();
     last_pattern.Reset();
   }
@@ -707,15 +700,19 @@ struct ShapeEntry {
   }
 
   const Pattern* Lookup(const Pattern& new_pattern, int alpha, int beta) const {
+    ++hits;
     bool multi_pattern = pattern.patterns.size() >= 2;
     if (multi_pattern && last_pattern.bounds.Cutoff(alpha, beta) &&
-        new_pattern <= last_pattern)
+        new_pattern <= last_pattern) {
+      ++cuts;
       return &last_pattern;
+    }
     auto cached_pattern = pattern.Lookup(new_pattern, alpha, beta);
     if (multi_pattern && cached_pattern) {
       last_pattern.hands = cached_pattern->hands;
       last_pattern.bounds = cached_pattern->bounds;
     }
+    cuts += cached_pattern != nullptr;
     return cached_pattern;
   }
 };
