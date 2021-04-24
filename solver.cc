@@ -989,7 +989,7 @@ class Play {
       playable_cards = Cards();
     }
 
-    int bounded_ns_tricks = NsToPlay() ? 0 : TOTAL_TRICKS;
+    int ns_tricks = NsToPlay() ? 0 : TOTAL_TRICKS;
     int min_relevant_ranks[NUM_SUITS] = {TWO, TWO, TWO, TWO};
     Cards root_rank_winners;
     Cards tried_cards;
@@ -998,14 +998,24 @@ class Play {
       // Try a card if its rank is still relevant and it isn't equivalent to a tried card.
       if (rank >= min_relevant_ranks[suit] &&
           !trick->IsEquivalent(card, tried_cards.Suit(suit), hands[seat_to_play])) {
-        Cards branch_rank_winners;
-        if (Cutoff(alpha, beta, card, &bounded_ns_tricks, &branch_rank_winners)) {
+        PlayCard(card);
+        Cards branch_rank_winners = TrickEnding() ? GetTrickRankWinner() : Cards();
+        VERBOSE(ShowTricks(alpha, beta, 0, true));
+        int branch_ns_tricks =
+            NextPlay().SearchWithCache(alpha, beta, &branch_rank_winners);
+        VERBOSE(ShowTricks(alpha, beta, ns_tricks, false));
+        UnplayCard();
+
+        ns_tricks = NsToPlay() ? std::max(ns_tricks, branch_ns_tricks)
+                               : std::min(ns_tricks, branch_ns_tricks);
+        if (NsToPlay() ? ns_tricks >= beta : ns_tricks <= alpha) {  // cut-off
           if (!cutoff_cards.Have(card)) SaveCutoffCard(cutoff_index, card);
           stats.CutoffAt(depth, i);
           VERBOSE(printf("%2d: search cut @%d\n", depth, i));
           rank_winners->Add(branch_rank_winners);
-          return bounded_ns_tricks;
+          return ns_tricks;
         }
+
         root_rank_winners.Add(branch_rank_winners);
         // If this card's rank is irrelevant, a relevant rank must be higher.
         auto suit_rank_winners = branch_rank_winners.Suit(suit);
@@ -1020,7 +1030,7 @@ class Play {
     }
     stats.CutoffAt(depth, TOTAL_TRICKS - 1);
     rank_winners->Add(root_rank_winners);
-    return bounded_ns_tricks;
+    return ns_tricks;
   }
 
   void OrderCards(Cards playable_cards, int ordered_cards[], int& num_ordered_cards) {
@@ -1187,34 +1197,6 @@ class Play {
       entry->card[seat_to_play] = cutoff_card;
   }
 
-  bool Cutoff(int alpha, int beta, int card_to_play, int* bounded_ns_tricks,
-              Cards* rank_winners) {
-    PlayCard(card_to_play);
-    if (TrickEnding()) {
-      int winning_card = WinningCard();
-      for (int d = depth / 4 * 4; d <= depth; ++d) {
-        if (plays[d].card_played == winning_card) continue;
-        if (SuitOf(winning_card) == SuitOf(plays[d].card_played)) {
-          rank_winners->Add(winning_card);
-          break;
-        }
-      }
-    }
-    VERBOSE(ShowTricks(alpha, beta, 0, true));
-    int ns_tricks = NextPlay().SearchWithCache(alpha, beta, rank_winners);
-    VERBOSE(ShowTricks(alpha, beta, ns_tricks, false));
-    UnplayCard();
-
-    if (NsToPlay()) {
-      *bounded_ns_tricks = std::max(*bounded_ns_tricks, ns_tricks);
-      if (*bounded_ns_tricks >= beta) return true;  // beta cut-off
-    } else {
-      *bounded_ns_tricks = std::min(*bounded_ns_tricks, ns_tricks);
-      if (*bounded_ns_tricks <= alpha) return true;  // alpha cut-off
-    }
-    return false;  // no cut-off
-  }
-
   int SureTrumpTricks(Cards my_hand, Cards partner_hand, Cards* rank_winners) const {
     auto my_suit = my_hand.Suit(trump);
     if (my_suit == trick->all_cards.Suit(trump)) return my_suit.Size();
@@ -1303,6 +1285,17 @@ class Play {
     // If partner has no small cards, treat one winner as a small card.
     if (partner_winners == partner_suit.Size()) --partner_winners;
     return std::min(my_suit.Size(), my_winners + partner_winners);
+  }
+
+  Cards GetTrickRankWinner() const {
+    CHECK(TrickEnding());
+    int winning_card = WinningCard();
+    for (int d = depth / 4 * 4; d <= depth; ++d) {
+      if (plays[d].card_played == winning_card) continue;
+      if (SuitOf(winning_card) == SuitOf(plays[d].card_played))
+        return Cards().Add(winning_card);
+    }
+    return Cards();
   }
 
   int CollectLastTrick(Cards* rank_winners) {
