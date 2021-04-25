@@ -1002,7 +1002,7 @@ class Play {
         Cards branch_rank_winners = TrickEnding() ? GetTrickRankWinner() : Cards();
         VERBOSE(ShowTricks(beta, 0, true));
         int branch_ns_tricks = NextPlay().SearchWithCache(beta, &branch_rank_winners);
-        VERBOSE(ShowTricks(beta, ns_tricks, false));
+        VERBOSE(ShowTricks(beta, branch_ns_tricks, false));
         UnplayCard();
 
         ns_tricks = NsToPlay() ? std::max(ns_tricks, branch_ns_tricks)
