@@ -1289,7 +1289,7 @@ class Play {
   Cards GetTrickRankWinner() const {
     CHECK(TrickEnding());
     int winning_card = WinningCard();
-    for (int d = depth / 4 * 4; d <= depth; ++d) {
+    for (int d = depth - 3; d <= depth; ++d) {
       if (plays[d].card_played == winning_card) continue;
       if (SuitOf(winning_card) == SuitOf(plays[d].card_played))
         return Cards().Add(winning_card);
@@ -1297,24 +1297,19 @@ class Play {
     return Cards();
   }
 
-  int CollectLastTrick(Cards* rank_winners) {
+  int CollectLastTrick(Cards* rank_winners) const {
     int winning_card = hands[seat_to_play].Top();
     int winning_seat = seat_to_play;
-    for (int i = 1; i < NUM_SEATS; ++i) {
-      seat_to_play = NextSeat();
-      int card_to_play = hands[seat_to_play].Top();
+    for (int seat = seat_to_play + 1; seat < seat_to_play + NUM_SEATS; ++seat) {
+      int card_to_play = hands[seat % NUM_SEATS].Top();
       if (WinOver(card_to_play, winning_card)) {
         winning_card = card_to_play;
-        winning_seat = seat_to_play;
+        winning_seat = seat;
       }
     }
-    for (int seat = 0; seat < NUM_SEATS; ++seat) {
-      if (seat == winning_seat) continue;
-      if (SuitOf(winning_card) == SuitOf(hands[seat].Top())) {
-        rank_winners->Add(winning_card);
-        break;
-      }
-    }
+    auto trick_cards = trick->all_cards;
+    if (trick_cards.Remove(winning_card).Suit(SuitOf(winning_card)))
+      rank_winners->Add(winning_card);
     return ns_tricks_won + IsNs(winning_seat);
   }
 
