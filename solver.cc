@@ -533,9 +533,8 @@ struct Pattern {
   uint16_t paddings[3];
   std::vector<Pattern> patterns;
 
-  Pattern() = default;
-
-  Pattern(const Hands& hands, Bounds bounds = Bounds()) : hands(hands), bounds(bounds) {}
+  Pattern(const Hands& hands = Hands(), Bounds bounds = Bounds())
+      : hands(hands), bounds(bounds) {}
 
   void Reset() {
     hands = Hands();
@@ -813,10 +812,6 @@ struct Trick {
 
  private:
   void ConvertToRelativeSuit(const Hands& hands, int suit, Cards all_suit_cards) {
-    if (all_suit_cards.Empty()) {
-      for (int seat = 0; seat < NUM_SEATS; ++seat) relative_hands[seat].ClearSuit(suit);
-      return;
-    }
     for (int seat = 0; seat < NUM_SEATS; ++seat) {
       auto packed = PackBits(hands[seat].Suit(suit).Value(), all_suit_cards.Value());
       relative_hands[seat].ClearSuit(suit);
