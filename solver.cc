@@ -1034,21 +1034,31 @@ class Play {
       return;
     }
     if (TrickStarting()) {  // lead
-      if (trump != NOTRUMP) {
+      Cards top_bottom;
+      if (trump == NOTRUMP) {
+        for (int suit = 0; suit < NUM_SUITS; ++suit) {
+          auto suit_cards = playable_cards.Suit(suit);
+          if (suit_cards.Empty()) continue;
+          top_bottom.Add(suit_cards.Top());
+          top_bottom.Add(suit_cards.Bottom());
+        }
+      } else {
         Cards my_trumps = playable_cards.Suit(trump);
         Cards opp_trumps = hands.opponent_cards(seat_to_play).Suit(trump);
         if (!my_trumps.Empty() && !opp_trumps.Empty()) {
           AddCards(my_trumps, ordered_cards, num_ordered_cards);
           playable_cards.Remove(my_trumps);
         }
-      }
-      Cards top_bottom;
-      for (int suit = 0; suit < NUM_SUITS; ++suit) {
-        if (suit == trump) continue;
-        auto suit_cards = playable_cards.Suit(suit);
-        if (suit_cards.Empty()) continue;
-        top_bottom.Add(suit_cards.Top());
-        top_bottom.Add(suit_cards.Bottom());
+        auto lho_hand = hands[LeftHandOpp()], rho_hand = hands[RightHandOpp()];
+        for (int suit = 0; suit < NUM_SUITS; ++suit) {
+          if (suit == trump) continue;
+          auto suit_cards = playable_cards.Suit(suit);
+          if (suit_cards.Empty()) continue;
+          if ((lho_hand.Suit(trump) && !lho_hand.Suit(suit))) continue;
+          if ((rho_hand.Suit(trump) && !rho_hand.Suit(suit))) continue;
+          top_bottom.Add(suit_cards.Top());
+          top_bottom.Add(suit_cards.Bottom());
+        }
       }
       AddCards(top_bottom, ordered_cards, num_ordered_cards);
       AddCards(playable_cards.Different(top_bottom), ordered_cards, num_ordered_cards);
