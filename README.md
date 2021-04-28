@@ -118,27 +118,27 @@ The directory can be `old_deals` (the default), `new_deals`, `hard_deals` or
 ```
 
 On ThinkPad X1 Carbon running with Intel(R) Core(TM) i7-6600U CPU @ 2.60GHz,
-the solver was able to fully analyze 1000 random deals in just 547 seconds,
-averaging about half a second per deal. Below is a more detailed breakdown.
-The longest one took 9.2 seconds and consumed 112.6 MB of memory.
+the solver was able to fully analyze 1000 random deals in just 448 seconds,
+averaging less than half a second per deal. Below is a more detailed breakdown.
+The longest one took 6.1 seconds and consumed 111.1 MB of memory.
 | Time    | Count   |
 |---------|---------|
-| <= 1 s  | 883     |
-| <= 2 s  | 959     |
-| <= 3 s  | 985     |
-| <= 5 s  | 997     |
+| <= .5 s | 764     |
+| <= 1 s  | 920     |
+| <= 2 s  | 977     |
+| <= 5 s  | 998     |
 | <= 10 s | 1000    |
 
 The most difficult deal known to the author is this symmetric one, with four
 void suits and nobody holding consecutive ranks in any suit. It took the solver
-less than a minute.
+just over half a minute.
 ```
                   - Q853 AJ962 KT74
 KT74 - Q853 AJ962                   Q853 AJ962 KT74 -
                   AJ962 KT74 - Q853
-N  5  5  5  5 25.6 s 601.1 M
-S  4  4  8  7 29.9 s 602.7 M
-H  8  7  4  4 34.1 s 602.7 M
-D  4  4  7  8 38.0 s 602.7 M
-C  7  8  4  4 42.6 s 602.7 M
+N  5  5  5  5 25.4 s 601.3 M
+S  4  4  8  7 27.8 s 601.5 M
+H  8  7  4  4 30.9 s 602.6 M
+D  4  4  7  8 33.8 s 602.6 M
+C  7  8  4  4 36.6 s 602.6 M
 ```
