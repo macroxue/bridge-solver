@@ -662,10 +662,11 @@ struct Pattern {
 struct ShapeEntry {
   uint64_t hash;
   Shape shape;
-  int seat_to_play;
+  mutable Hands last_hands;
+  mutable Bounds last_bounds;
+  short seat_to_play;
   mutable uint16_t hits, cuts;
   Pattern pattern;
-  mutable Pattern last_pattern;
 
   int Size() const { return pattern.Size() - 1; }
 
@@ -679,37 +680,41 @@ struct ShapeEntry {
   void Reset(uint64_t hash_in) {
     hash = hash_in;
     shape = Shape();
+    last_hands = Hands();
+    last_bounds = {0, TOTAL_TRICKS};
     seat_to_play = -1;
     hits = cuts = 0;
     pattern.Reset();
-    last_pattern.Reset();
   }
 
   void MoveTo(ShapeEntry& to) {
     to.hash = hash;
     to.shape = shape;
+    to.last_bounds = last_bounds;
+    to.last_hands = last_hands;
     to.seat_to_play = seat_to_play;
     to.hits = hits;
     to.cuts = cuts;
     to.pattern.MoveFrom(pattern);
-    to.last_pattern.MoveFrom(last_pattern);
   }
 
-  const Pattern* Lookup(const Pattern& new_pattern, int beta) const {
+  std::pair<const Hands*, Bounds> Lookup(const Pattern& new_pattern, int beta) const {
     ++hits;
     bool multi_pattern = pattern.patterns.size() >= 2;
-    if (multi_pattern && last_pattern.bounds.Cutoff(beta) &&
-        new_pattern <= last_pattern) {
+    if (multi_pattern && last_bounds.Cutoff(beta) && new_pattern <= Pattern(last_hands)) {
       ++cuts;
-      return &last_pattern;
+      return {&last_hands, last_bounds};
     }
     auto cached_pattern = pattern.Lookup(new_pattern, beta);
-    if (multi_pattern && cached_pattern) {
-      last_pattern.hands = cached_pattern->hands;
-      last_pattern.bounds = cached_pattern->bounds;
+    if (cached_pattern) {
+      ++cuts;
+      if (multi_pattern) {
+        last_hands = cached_pattern->hands;
+        last_bounds = cached_pattern->bounds;
+      }
+      return {&cached_pattern->hands, cached_pattern->bounds};
     }
-    cuts += cached_pattern != nullptr;
-    return cached_pattern;
+    return {nullptr, Bounds{}};
   }
 };
 
@@ -903,17 +908,18 @@ class Play {
     Cards shape_index[2] = {trick->shape.Value(), seat_to_play};
     auto* shape_entry = common_bounds_cache.Lookup(shape_index);
     if (shape_entry) {
-      auto cached_pattern =
+      auto [hands, bounds] =
           shape_entry->Lookup(trick->relative_hands, beta - ns_tricks_won);
-      if (cached_pattern) {
-        VERBOSE(ShowPattern("match", cached_pattern, trick->shape));
-        rank_winners->Add(cached_pattern->GetRankWinners(trick->all_cards));
-        int lower = cached_pattern->bounds.lower + ns_tricks_won;
+      if (hands) {
+        Pattern matched_pattern(*hands, bounds);
+        rank_winners->Add(matched_pattern.GetRankWinners(trick->all_cards));
+        VERBOSE(ShowPattern("match", matched_pattern, trick->shape));
+        int lower = bounds.lower + ns_tricks_won;
         if (lower >= beta) {
           VERBOSE(printf("%2d: beta cut %d\n", depth, lower));
           return lower;
         }
-        int upper = cached_pattern->bounds.upper + ns_tricks_won;
+        int upper = bounds.upper + ns_tricks_won;
         VERBOSE(printf("%2d: alpha cut %d\n", depth, upper));
         return upper;
       }
@@ -932,7 +938,7 @@ class Play {
     new_shape_entry->shape = trick->shape;
     new_shape_entry->seat_to_play = seat_to_play;
     new_shape_entry->pattern.Update(new_pattern);
-    VERBOSE(ShowPattern("update", &new_pattern, trick->shape));
+    VERBOSE(ShowPattern("update", new_pattern, trick->shape));
     return ns_tricks;
   }
 
@@ -1130,7 +1136,7 @@ class Play {
     void SortDiscards(int num_discards, const Cards& playable_cards) {
       auto compare = [playable_cards](int c1, int c2) {
         return playable_cards.Suit(SuitOf(c1)).Size() >
-          playable_cards.Suit(SuitOf(c2)).Size();
+               playable_cards.Suit(SuitOf(c2)).Size();
       };
       std::sort(ordered_cards + num_ordered_cards - num_discards,
                 ordered_cards + num_ordered_cards, compare);
@@ -1352,9 +1358,9 @@ class Play {
       printf(" (%d) -> %d\n", beta, ns_tricks);
   }
 
-  void ShowPattern(const char* action, const Pattern* pattern, Shape shape) const {
+  void ShowPattern(const char* action, const Pattern& pattern, Shape shape) const {
     printf("%2d: %s ", depth, action);
-    pattern->Show(shape);
+    pattern.Show(shape);
     printf(" / ");
     hands.Show();
   }
