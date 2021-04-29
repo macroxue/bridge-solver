@@ -973,16 +973,16 @@ class Play {
   }
 
   int EvaluatePlayableCards(int beta, Cards* rank_winners) {
-    int ordered_cards[TOTAL_TRICKS], num_ordered_cards = 0;
+    ordered_cards.Reset();
     auto playable_cards = GetPlayableCards();
     Cards cutoff_index[2];
     BuildCutoffIndex(cutoff_index);
     Cards cutoff_cards = playable_cards.Intersect(LookupCutoffCards(cutoff_index));
     if (!cutoff_cards.Empty()) {
-      ordered_cards[num_ordered_cards++] = cutoff_cards.Top();
+      ordered_cards.AddCard(cutoff_cards.Top());
       playable_cards.Remove(cutoff_cards);
     } else {
-      OrderCards(playable_cards, ordered_cards, num_ordered_cards);
+      OrderCards(playable_cards);
       playable_cards = Cards();
     }
 
@@ -990,8 +990,8 @@ class Play {
     int min_relevant_ranks[NUM_SUITS] = {TWO, TWO, TWO, TWO};
     Cards root_rank_winners;
     Cards tried_cards;
-    for (int i = 0; i < num_ordered_cards; ++i) {
-      int card = ordered_cards[i], suit = SuitOf(card), rank = RankOf(card);
+    for (int i = 0; i < ordered_cards.Size(); ++i) {
+      int card = ordered_cards.Card(i), suit = SuitOf(card), rank = RankOf(card);
       // Try a card if its rank is still relevant and it isn't equivalent to a tried card.
       if (rank >= min_relevant_ranks[suit] &&
           !trick->IsEquivalent(card, tried_cards.Suit(suit), hands[seat_to_play])) {
@@ -1020,7 +1020,7 @@ class Play {
       }
       tried_cards.Add(card);
       if (!playable_cards.Empty()) {
-        OrderCards(playable_cards, ordered_cards, num_ordered_cards);
+        OrderCards(playable_cards);
         playable_cards = Cards();
       }
     }
@@ -1029,10 +1029,10 @@ class Play {
     return ns_tricks;
   }
 
-  void OrderCards(Cards playable_cards, int ordered_cards[], int& num_ordered_cards) {
+  void OrderCards(Cards playable_cards) {
     if (playable_cards.Empty()) return;
     if (playable_cards.Size() == 1) {
-      ordered_cards[num_ordered_cards++] = playable_cards.Top();
+      ordered_cards.AddCard(playable_cards.Top());
       return;
     }
     if (TrickStarting()) {  // lead
@@ -1044,7 +1044,7 @@ class Play {
           top_bottom.Add(suit_cards.Top());
           top_bottom.Add(suit_cards.Bottom());
         }
-        AddCards(top_bottom, ordered_cards, num_ordered_cards);
+        ordered_cards.AddCards(top_bottom);
         playable_cards.Remove(top_bottom);
       } else {
         Cards trump_top_bottom;
@@ -1062,22 +1062,22 @@ class Play {
           top_bottom.Add(suit_cards.Top());
           top_bottom.Add(suit_cards.Bottom());
         }
-        AddCards(top_bottom, ordered_cards, num_ordered_cards);
+        ordered_cards.AddCards(top_bottom);
         playable_cards.Remove(top_bottom);
-        AddCards(trump_top_bottom, ordered_cards, num_ordered_cards);
+        ordered_cards.AddCards(trump_top_bottom);
         playable_cards.Remove(trump_top_bottom);
       }
-      AddCards(playable_cards, ordered_cards, num_ordered_cards);
+      ordered_cards.AddCards(playable_cards);
       return;
     }
     if (!playable_cards.Suit(LeadSuit()).Empty()) {  // follow
       int winning_card = PreviousPlay().WinningCard();
       if (WinOver(playable_cards.Top(), winning_card)) {
         auto higher_cards = playable_cards.Slice(playable_cards.Top(), winning_card);
-        AddCards(higher_cards, ordered_cards, num_ordered_cards);
+        ordered_cards.AddCards(higher_cards);
         playable_cards.Remove(higher_cards);
       }
-      AddReversedCards(playable_cards, ordered_cards, num_ordered_cards);
+      ordered_cards.AddReversedCards(playable_cards);
       return;
     }
     if (trump != NOTRUMP && !playable_cards.Suit(trump).Empty()) {  // ruff
@@ -1087,11 +1087,11 @@ class Play {
         int winning_seat = PreviousPlay().WinningSeat();
         if (winning_seat != Partner() && WinOver(my_trumps.Top(), winning_card)) {
           auto higher_trumps = my_trumps.Slice(my_trumps.Top(), winning_card);
-          AddReversedCards(higher_trumps, ordered_cards, num_ordered_cards);
+          ordered_cards.AddReversedCards(higher_trumps);
           playable_cards.Remove(higher_trumps);
         }
       } else {
-        AddReversedCards(my_trumps, ordered_cards, num_ordered_cards);
+        ordered_cards.AddReversedCards(my_trumps);
         playable_cards.Remove(my_trumps);
       }
     }
@@ -1101,31 +1101,48 @@ class Play {
       if (suit == trump) continue;
       auto suit_cards = playable_cards.Suit(suit);
       if (!suit_cards.Empty()) {
-        ordered_cards[num_ordered_cards++] = suit_cards.Bottom();
+        ordered_cards.AddCard(suit_cards.Bottom());
+        playable_cards.Remove(suit_cards.Bottom());
         ++num_discards;
       }
     }
-    auto compare = [playable_cards](int c1, int c2) {
-      return playable_cards.Suit(SuitOf(c1)).Size() >
-             playable_cards.Suit(SuitOf(c2)).Size();
-    };
-    std::sort(ordered_cards + num_ordered_cards - num_discards,
-              ordered_cards + num_ordered_cards, compare);
-    for (int i = num_ordered_cards - num_discards; i < num_ordered_cards; ++i)
-      playable_cards.Remove(ordered_cards[i]);
-    AddCards(playable_cards, ordered_cards, num_ordered_cards);
+    ordered_cards.SortDiscards(num_discards, playable_cards);
+    ordered_cards.AddCards(playable_cards);
   }
 
-  void AddCards(Cards cards, int ordered_cards[], int& num_ordered_cards) const {
-    for (int card : cards) ordered_cards[num_ordered_cards++] = card;
-  }
+  class OrderedCards {
+   public:
+    void Reset() { num_ordered_cards = 0; }
 
-  void AddReversedCards(Cards cards, int ordered_cards[], int& num_ordered_cards) const {
-    while (!cards.Empty()) {
-      ordered_cards[num_ordered_cards++] = cards.Bottom();
-      cards.Remove(cards.Bottom());
+    void AddCard(int card) { ordered_cards[num_ordered_cards++] = card; }
+
+    void AddCards(Cards cards) {
+      for (int card : cards) AddCard(card);
     }
-  }
+
+    void AddReversedCards(Cards cards) {
+      while (!cards.Empty()) {
+        AddCard(cards.Bottom());
+        cards.Remove(cards.Bottom());
+      }
+    }
+
+    void SortDiscards(int num_discards, const Cards& playable_cards) {
+      auto compare = [playable_cards](int c1, int c2) {
+        return playable_cards.Suit(SuitOf(c1)).Size() >
+          playable_cards.Suit(SuitOf(c2)).Size();
+      };
+      std::sort(ordered_cards + num_ordered_cards - num_discards,
+                ordered_cards + num_ordered_cards, compare);
+    }
+
+    int Size() const { return num_ordered_cards; }
+    int Card(int i) const { return ordered_cards[i]; }
+
+   private:
+    short num_ordered_cards = 0;
+    char ordered_cards[TOTAL_TRICKS];
+  };
 
   void ComputeShape() const {
     if (depth < 4) {
@@ -1143,8 +1160,7 @@ class Play {
     const Cards& hand = hands[seat_to_play];
     if (TrickStarting()) return hand;
 
-    int lead_suit = SuitOf(LeadCard());
-    Cards suit_cards = hand.Suit(lead_suit);
+    Cards suit_cards = hand.Suit(LeadSuit());
     if (!suit_cards.Empty()) return suit_cards;
 
     if (!options.discard_suit_bottom) return hand;
@@ -1376,6 +1392,7 @@ class Play {
   int seat_to_play;
   int card_played;
   int winning_play;
+  OrderedCards ordered_cards;
 
   friend class InteractivePlay;
 };
