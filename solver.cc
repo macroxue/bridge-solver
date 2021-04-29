@@ -112,7 +112,6 @@ struct Options {
   char* input = nullptr;
   int trump = -1;
   int guess = TOTAL_TRICKS;
-  int small_card = TWO;
   int displaying_depth = -1;
   bool discard_suit_bottom = false;
   bool randomize = false;
@@ -130,7 +129,6 @@ struct Options {
         case 'g': guess = atoi(optarg); break;
         case 'i': input = optarg; break;
         case 'r': randomize = true; break;
-        case 's': small_card = CharToRank(optarg[0]); break;
         case 't': trump = CharToSuit(optarg[0]); break;
         case 'D': displaying_depth = atoi(optarg); break;
         case 'I': interactive = true; break;
