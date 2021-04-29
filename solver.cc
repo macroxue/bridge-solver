@@ -141,6 +141,12 @@ struct Options {
   }
 } options;
 
+double Now() {
+  timeval now;
+  gettimeofday(&now, NULL);
+  return now.tv_sec + now.tv_usec * 1e-6;
+}
+
 template <class T>
 int BitSize(T v) {
   return sizeof(v) * 8;
@@ -250,9 +256,7 @@ class Cards {
 class Hands {
  public:
   void Randomize() {
-    struct timeval time;
-    gettimeofday(&time, NULL);
-    std::mt19937 random(time.tv_sec * 1000 + time.tv_usec / 1000);
+    std::mt19937 random(Now() * 1000);
 
     int deck[TOTAL_CARDS];
     for (int card = 0; card < TOTAL_CARDS; ++card) deck[card] = card;
@@ -1504,10 +1508,6 @@ int MemoryEnhancedTestDriver(std::function<int(int)> search, int num_tricks,
   return ns_tricks;
 }
 
-double Elapse(const timeval& from, const timeval& to) {
-  return (to.tv_sec - from.tv_sec) + (double(to.tv_usec) - from.tv_usec) * 1e-6;
-}
-
 }  // namespace
 
 class InteractivePlay {
@@ -1796,6 +1796,7 @@ class InteractivePlay {
 };
 
 int main(int argc, char* argv[]) {
+  auto start_time = Now();
   options.Read(argc, argv);
 
   Hands hands;
@@ -1812,9 +1813,6 @@ int main(int argc, char* argv[]) {
     trumps.push_back(options.trump);
   }
 
-  timeval now;
-  gettimeofday(&now, NULL);
-  timeval start_time = now;
   for (int trump : trumps) {
     if (!options.interactive) {
       printf("%c", SuitName(trump)[0]);
@@ -1858,8 +1856,7 @@ int main(int argc, char* argv[]) {
     if (!options.interactive) {
       struct rusage usage;
       getrusage(RUSAGE_SELF, &usage);
-      gettimeofday(&now, NULL);
-      printf(" %4.1f s %5.1f M\n", Elapse(start_time, now), usage.ru_maxrss / 1024.0);
+      printf(" %4.1f s %5.1f M\n", Now() - start_time, usage.ru_maxrss / 1024.0);
       fflush(stdout);
     }
   }
