@@ -254,7 +254,7 @@ class Cards {
 class Hands {
  public:
   void Randomize() {
-    std::mt19937 random(Now() * 1000);
+    std::mt19937 random(static_cast<uint64_t>(Now() * 1000));
 
     int deck[TOTAL_CARDS];
     for (int card = 0; card < TOTAL_CARDS; ++card) deck[card] = card;
@@ -1817,7 +1817,6 @@ class InteractivePlay {
 };
 
 int main(int argc, char* argv[]) {
-  auto start_time = Now();
   options.Read(argc, argv);
 
   Hands hands;
@@ -1834,6 +1833,7 @@ int main(int argc, char* argv[]) {
     trumps.push_back(options.trump);
   }
 
+  auto start_time = Now();
   for (int trump : trumps) {
     if (!options.interactive) {
       printf("%c", SuitName(trump)[0]);
