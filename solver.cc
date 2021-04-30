@@ -529,11 +529,60 @@ class Shape {
   uint64_t value;
 };
 
+template <class T>
+class Vector {
+ public:
+  ~Vector() { clear(); }
+
+  void clear() {
+    for (size_t i = 0; i < count; ++i) (*this)[i].~T();
+    count = capacity = 0;
+    delete[] items;
+    items = nullptr;
+  }
+
+  void resize(size_t new_size) {
+    if (capacity < new_size) {
+      capacity = std::max(capacity * 2, 1);
+      auto old_items = items;
+      items = new char[capacity * sizeof(T)];
+      memcpy(items, old_items, count * sizeof(T));
+      delete[] old_items;
+    }
+    memset(items + count * sizeof(T), 0, (new_size - count) * sizeof(T));
+    count = new_size;
+  }
+
+  size_t size() const { return count; }
+
+  T& operator[](size_t i) { return reinterpret_cast<T*>(items)[i]; }
+  const T& operator[](size_t i) const { return reinterpret_cast<T*>(items)[i]; }
+
+  T& back() { return (*this)[count - 1]; }
+  const T& back() const { return (*this)[count - 1]; }
+
+  void pop_back() {
+    back().~T();
+    --count;
+  }
+
+  void swap(Vector<T>& v) {
+    std::swap(count, v.count);
+    std::swap(capacity, v.capacity);
+    std::swap(items, v.items);
+  }
+
+ private:
+  uint16_t count = 0;
+  uint16_t capacity = 0;
+  char* items = nullptr;
+};
+
 struct Pattern {
   Hands hands;
   Bounds bounds;
-  uint16_t paddings[3];
-  std::vector<Pattern> patterns;
+  uint16_t padding;
+  Vector<Pattern> patterns;
 
   Pattern(const Hands& hands = Hands(), Bounds bounds = Bounds())
       : hands(hands), bounds(bounds) {}
@@ -541,18 +590,18 @@ struct Pattern {
   void Reset() {
     hands = Hands();
     bounds = {0, TOTAL_TRICKS};
-    patterns.clear();
-    patterns.shrink_to_fit();
+    patterns.clear();  // patterns.shrink_to_fit();
   }
 
   void MoveFrom(Pattern& p) {
     hands = p.hands;
     bounds = p.bounds;
-    std::swap(patterns, p.patterns);
+    patterns.swap(p.patterns);  // std::swap(patterns, p.patterns);
   }
 
   const Pattern* Lookup(const Pattern& new_pattern, int beta) const {
-    for (auto& pattern : patterns) {
+    for (size_t i = 0; i < patterns.size(); ++i) {
+      auto& pattern = patterns[i];
       if (!(new_pattern <= pattern)) continue;
       if (pattern.bounds.Cutoff(beta)) return &pattern;
       if (auto detail = pattern.Lookup(new_pattern, beta)) return detail;
@@ -600,7 +649,7 @@ struct Pattern {
     if (bounds.Width() == 0)
       patterns.clear();
     else
-      for (auto& pattern : patterns) pattern.UpdateBounds(bounds);
+      for (size_t i = 0; i < patterns.size(); ++i) patterns[i].UpdateBounds(bounds);
   }
 
   void Append(Pattern& new_pattern) {
@@ -632,7 +681,7 @@ struct Pattern {
 
   int Size() const {
     int sum = 1;
-    for (const auto& pattern : patterns) sum += pattern.Size();
+    for (size_t i = 0; i < patterns.size(); ++i) sum += patterns[i].Size();
     return sum;
   }
 
@@ -655,7 +704,7 @@ struct Pattern {
       }
       printf("\n");
     }
-    for (const auto& pattern : patterns) pattern.Show(shape, level + 1);
+    for (size_t i = 0; i < patterns.size(); ++i) patterns[i].Show(shape, level + 1);
   }
 };
 
