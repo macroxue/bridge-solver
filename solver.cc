@@ -1125,9 +1125,14 @@ class Play {
       ordered_cards.AddCards(playable_cards);
       return;
     }
+    int winning_seat = PreviousPlay().WinningSeat();
+    int winning_card = PreviousPlay().WinningCard();
+    Cards lho_suit = hands[LeftHandOpp()].Suit(LeadSuit());
     if (!playable_cards.Suit(LeadSuit()).Empty()) {  // follow
-      int winning_card = PreviousPlay().WinningCard();
-      if (WinOver(playable_cards.Top(), winning_card)) {
+      if (winning_seat == Partner() &&
+          (TrickEnding() || !lho_suit || WinOver(winning_card, lho_suit.Top()))) {
+        // Partner can win.
+      } else if (WinOver(playable_cards.Top(), winning_card)) {
         auto higher_cards = playable_cards.Slice(playable_cards.Top(), winning_card);
         ordered_cards.AddCards(higher_cards);
         playable_cards.Remove(higher_cards);
@@ -1136,18 +1141,21 @@ class Play {
       return;
     }
     if (trump != NOTRUMP && !playable_cards.Suit(trump).Empty()) {  // ruff
-      int winning_card = PreviousPlay().WinningCard();
-      Cards my_trumps = playable_cards.Suit(trump);
-      if (SuitOf(winning_card) == trump) {
-        int winning_seat = PreviousPlay().WinningSeat();
-        if (winning_seat != Partner() && WinOver(my_trumps.Top(), winning_card)) {
-          auto higher_trumps = my_trumps.Slice(my_trumps.Top(), winning_card);
-          ordered_cards.AddReversedCards(higher_trumps);
-          playable_cards.Remove(higher_trumps);
-        }
+      if (winning_seat == Partner() &&
+          (TrickEnding() || (lho_suit && WinOver(winning_card, lho_suit.Top())))) {
+        // Partner can win.
       } else {
-        ordered_cards.AddReversedCards(my_trumps);
-        playable_cards.Remove(my_trumps);
+        Cards my_trumps = playable_cards.Suit(trump);
+        if (SuitOf(winning_card) == trump) {
+          if (winning_seat != Partner() && WinOver(my_trumps.Top(), winning_card)) {
+            auto higher_trumps = my_trumps.Slice(my_trumps.Top(), winning_card);
+            ordered_cards.AddReversedCards(higher_trumps);
+            playable_cards.Remove(higher_trumps);
+          }
+        } else {
+          ordered_cards.AddReversedCards(my_trumps);
+          playable_cards.Remove(my_trumps);
+        }
       }
     }
     // discard
