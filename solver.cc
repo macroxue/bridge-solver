@@ -183,7 +183,6 @@ class Cards {
   uint64_t Value() const { return bits; }
 
   int Size() const { return __builtin_popcountll(bits); }
-  bool Empty() const { return bits == 0; }
   bool Have(int card) const { return bits & Bit(card); }
   bool operator==(const Cards& c) const { return bits == c.bits; }
   bool operator!=(const Cards& c) const { return bits != c.bits; }
@@ -221,12 +220,11 @@ class Cards {
   }
 
   void ShowSuit(int suit) const {
-    Cards suit_cards = Suit(suit);
     printf("%s ", SuitSign(suit));
-    if (suit_cards.Empty())
-      putchar('-');
+    if (Suit(suit))
+      for (int card : Suit(suit)) putchar(NameOf(card)[1]);
     else
-      for (int card : suit_cards) putchar(NameOf(card)[1]);
+      putchar('-');
   }
 
   class Iterator {
@@ -673,7 +671,7 @@ struct Pattern {
     Cards relative_rank_winners = hands.all_cards();
     Cards rank_winners;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
-      if (relative_rank_winners.Suit(suit).Empty()) continue;
+      if (!relative_rank_winners.Suit(suit)) continue;
       auto packed = relative_rank_winners.Suit(suit).Value() >> (suit * NUM_RANKS);
       rank_winners.Add(Cards(UnpackBits(packed, all_cards.Suit(suit).Value())));
     }
@@ -812,7 +810,7 @@ struct Trick {
 
   // Whether a card is equivalent to one of the tried cards.
   bool IsEquivalent(int card, Cards tried_suit_cards, Cards hand) const {
-    if (tried_suit_cards.Empty()) return false;
+    if (!tried_suit_cards) return false;
     if (auto above = tried_suit_cards.Slice(0, card))
       if (all_cards.Slice(above.Bottom(), card) == hand.Slice(above.Bottom(), card))
         return true;
@@ -826,7 +824,7 @@ struct Trick {
     Cards filtered_cards;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       auto suit_cards = playable_cards.Suit(suit);
-      if (suit_cards.Empty()) continue;
+      if (!suit_cards) continue;
       int prev_card = suit_cards.Top();
       filtered_cards.Add(prev_card);
       suit_cards.Remove(prev_card);
@@ -843,7 +841,7 @@ struct Trick {
   Hands ComputePatternHands(Cards rank_winners) const {
     Cards relative_rank_winners;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
-      if (rank_winners.Suit(suit).Empty()) continue;
+      if (!rank_winners.Suit(suit)) continue;
 
       // Extend bottom rank winner to its lowest equivalent card.
       int bottom_rank_winner = RelativeCard(rank_winners.Suit(suit).Bottom(), suit);
@@ -1027,7 +1025,7 @@ class Play {
     Cards cutoff_index[2];
     BuildCutoffIndex(cutoff_index);
     Cards cutoff_cards = playable_cards.Intersect(LookupCutoffCards(cutoff_index));
-    if (!cutoff_cards.Empty()) {
+    if (cutoff_cards) {
       ordered_cards.AddCard(cutoff_cards.Top());
       playable_cards.Remove(cutoff_cards);
     } else {
@@ -1063,11 +1061,11 @@ class Play {
         rank_winners.Add(branch_rank_winners);
         // If this card's rank is irrelevant, a relevant rank must be higher.
         auto suit_rank_winners = branch_rank_winners.Suit(suit);
-        if (suit_rank_winners.Empty() || rank < RankOf(suit_rank_winners.Bottom()))
+        if (!suit_rank_winners || rank < RankOf(suit_rank_winners.Bottom()))
           min_relevant_ranks[suit] = std::max(min_relevant_ranks[suit], rank + 1);
       }
       tried_cards.Add(card);
-      if (!playable_cards.Empty()) {
+      if (playable_cards) {
         OrderCards(playable_cards);
         playable_cards = Cards();
       }
@@ -1077,7 +1075,7 @@ class Play {
   }
 
   void OrderCards(Cards playable_cards) {
-    if (playable_cards.Empty()) return;
+    if (!playable_cards) return;
     if (playable_cards.Size() == 1) {
       ordered_cards.AddCard(playable_cards.Top());
       return;
@@ -1087,7 +1085,7 @@ class Play {
       if (trump == NOTRUMP) {
         for (int suit = 0; suit < NUM_SUITS; ++suit) {
           auto suit_cards = playable_cards.Suit(suit);
-          if (suit_cards.Empty()) continue;
+          if (!suit_cards) continue;
           auto rho_suit = hands[RightHandOpp()].Suit(suit);
           if (suit_cards.Size() >= 2 && rho_suit.Size() >= 2) {
             auto all_suit_cards = trick->all_cards.Suit(suit);
@@ -1109,7 +1107,7 @@ class Play {
         auto lho_hand = hands[LeftHandOpp()], rho_hand = hands[RightHandOpp()];
         for (int suit = 0; suit < NUM_SUITS; ++suit) {
           auto suit_cards = playable_cards.Suit(suit);
-          if (suit_cards.Empty()) continue;
+          if (!suit_cards) continue;
           if (suit == trump) {
             trump_top_bottom.Add(suit_cards.Top());
             trump_top_bottom.Add(suit_cards.Bottom());
@@ -1131,7 +1129,7 @@ class Play {
     int winning_seat = PreviousPlay().WinningSeat();
     int winning_card = PreviousPlay().WinningCard();
     Cards lho_suit = hands[LeftHandOpp()].Suit(LeadSuit());
-    if (!playable_cards.Suit(LeadSuit()).Empty()) {  // follow
+    if (playable_cards.Suit(LeadSuit())) {  // follow
       if (winning_seat == Partner() &&
           (TrickEnding() || !lho_suit || WinOver(winning_card, lho_suit.Top()))) {
         // Partner can win.
@@ -1143,7 +1141,7 @@ class Play {
       ordered_cards.AddReversedCards(playable_cards);
       return;
     }
-    if (trump != NOTRUMP && !playable_cards.Suit(trump).Empty()) {  // ruff
+    if (trump != NOTRUMP && playable_cards.Suit(trump)) {  // ruff
       if (winning_seat == Partner() &&
           (TrickEnding() || (lho_suit && WinOver(winning_card, lho_suit.Top())))) {
         // Partner can win.
@@ -1166,7 +1164,7 @@ class Play {
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       if (suit == trump) continue;
       auto suit_cards = playable_cards.Suit(suit);
-      if (!suit_cards.Empty()) {
+      if (suit_cards) {
         ordered_cards.AddCard(suit_cards.Bottom());
         playable_cards.Remove(suit_cards.Bottom());
         ++num_discards;
@@ -1187,7 +1185,7 @@ class Play {
     }
 
     void AddReversedCards(Cards cards) {
-      while (!cards.Empty()) {
+      while (cards) {
         AddCard(cards.Bottom());
         cards.Remove(cards.Bottom());
       }
@@ -1227,14 +1225,14 @@ class Play {
     if (TrickStarting()) return hand;
 
     Cards suit_cards = hand.Suit(LeadSuit());
-    if (!suit_cards.Empty()) return suit_cards;
+    if (suit_cards) return suit_cards;
 
     if (!options.discard_suit_bottom) return hand;
 
     Cards playable_cards;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       Cards suit_cards = hand.Suit(suit);
-      if (suit_cards.Empty()) continue;
+      if (!suit_cards) continue;
       if (suit == trump) {
         playable_cards.Add(suit_cards);
       } else {
@@ -1268,10 +1266,10 @@ class Play {
     if (TrickStarting()) {
       cutoff_index[0] = hands[seat_to_play];
     } else {
-      if (hands[seat_to_play].Suit(LeadSuit()).Empty())
-        cutoff_index[0] = hands[seat_to_play];
-      else
+      if (hands[seat_to_play].Suit(LeadSuit()))
         cutoff_index[0] = trick->all_cards.Suit(LeadSuit());
+      else
+        cutoff_index[0] = hands[seat_to_play];
       cutoff_index[1].Add(PreviousPlay().WinningCard());
     }
   }
@@ -1330,8 +1328,8 @@ class Play {
 
       auto max_suit_winners = TOTAL_TRICKS;
       if (trump != NOTRUMP) {
-        if (!lho_hand.Suit(trump).Empty()) max_suit_winners = lho_hand.Suit(suit).Size();
-        if (!rho_hand.Suit(trump).Empty())
+        if (lho_hand.Suit(trump)) max_suit_winners = lho_hand.Suit(suit).Size();
+        if (rho_hand.Suit(trump))
           max_suit_winners = std::min(max_suit_winners, rho_hand.Suit(suit).Size());
         while (my_suit.Size() > max_suit_winners) my_suit.Remove(my_suit.Bottom());
         while (partner_suit.Size() > max_suit_winners)
@@ -1364,13 +1362,13 @@ class Play {
   int SuitFastTricks(Cards my_suit, int my_winners, bool& my_entry, Cards partner_suit,
                      int partner_winners) const {
     // Entry from partner if my top winner can cover partner's bottom card.
-    if (!partner_suit.Empty() && my_winners > 0 &&
+    if (partner_suit && my_winners > 0 &&
         RankOf(my_suit.Top()) > RankOf(partner_suit.Bottom()))
       my_entry = true;
     // Partner has no winners.
     if (partner_winners == 0) return my_winners;
     // Cash all my winners, then partner's.
-    if (my_winners == 0) return my_suit.Empty() ? 0 : partner_winners;
+    if (my_winners == 0) return my_suit ? partner_winners : 0;
     // Suit blocked by partner.
     if (RankOf(my_suit.Top()) < RankOf(partner_suit.Bottom())) return partner_winners;
     // Suit blocked by me.
