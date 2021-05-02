@@ -1096,6 +1096,16 @@ class Play {
         for (int suit = 0; suit < NUM_SUITS; ++suit) {
           auto suit_cards = playable_cards.Suit(suit);
           if (suit_cards.Empty()) continue;
+          auto rho_suit = hands[RightHandOpp()].Suit(suit);
+          if (suit_cards.Size() >= 2 && rho_suit.Size() >= 2) {
+            auto all_suit_cards = trick->all_cards.Suit(suit);
+            int top1 = all_suit_cards.Top();
+            int top2 = all_suit_cards.Remove(top1).Top();
+            int top3 = all_suit_cards.Remove(top2).Top();
+            if (suit_cards.Have(top1) && rho_suit.Have(top2)) continue;
+            if (suit_cards.Have(top2) && rho_suit.Have(top1) &&
+                !hands.partnership_cards(seat_to_play).Have(top3)) continue;
+          }
           top_bottom.Add(suit_cards.Top());
           top_bottom.Add(suit_cards.Bottom());
         }
