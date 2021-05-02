@@ -22,9 +22,11 @@
 #ifdef _DEBUG
 #define CHECK(statement) assert(statement)
 #define VERBOSE(statement) if (depth <= options.displaying_depth) statement
+#define STATS(statement) statement
 #else
 #define CHECK(statement) if (statement) {}
 #define VERBOSE(statement)
+#define STATS(statement)
 #endif
 // clang-format on
 
@@ -113,15 +115,15 @@ struct Options {
   int trump = -1;
   int guess = TOTAL_TRICKS;
   int displaying_depth = -1;
+  int stats_level = 0;
   bool discard_suit_bottom = false;
   bool randomize = false;
-  bool show_stats = false;
   bool full_analysis = false;
   bool interactive = false;
 
   void Read(int argc, char* argv[]) {
     int c;
-    while ((c = getopt(argc, argv, "dfg:i:rs:t:D:IS")) != -1) {
+    while ((c = getopt(argc, argv, "dfg:i:rs:t:D:IS:")) != -1) {
       switch (c) {
         // clang-format off
         case 'd': discard_suit_bottom = true; break;
@@ -132,7 +134,7 @@ struct Options {
         case 't': trump = CharToSuit(optarg[0]); break;
         case 'D': displaying_depth = atoi(optarg); break;
         case 'I': interactive = true; break;
-        case 'S': show_stats = true; break;
+        case 'S': stats_level = atoi(optarg); break;
           // clang-format on
       }
     }
@@ -378,13 +380,13 @@ class Cache {
     for (int i = 0; i < size; ++i)
       if (entries[i].hash != 0) {
         recursive_load += entries[i].Size();
-        entries[i].Show();
+        if (options.stats_level > 1) entries[i].Show();
       }
     if (recursive_load > load_count) printf("recursive load: %8d\n", recursive_load);
   }
 
   const Entry* Lookup(Cards cards[input_size]) const {
-    ++lookup_count;
+    STATS(++lookup_count);
 
     uint64_t hash = Hash(cards);
     if (hash == 0) return NULL;
@@ -393,7 +395,7 @@ class Cache {
     for (int d = 0; d < probe_distance; ++d) {
       const Entry& entry = entries[(index + d) & (size - 1)];
       if (entry.hash == hash) {
-        ++hit_count;
+        STATS(++hit_count);
         return &entry;
       }
       if (entry.hash == 0) break;
@@ -404,7 +406,7 @@ class Cache {
   Entry* Update(Cards cards[input_size]) {
     if (load_count >= size * 3 / 4) Resize();
 
-    ++update_count;
+    STATS(++update_count);
 
     uint64_t hash = Hash(cards);
     if (hash == 0) return NULL;
@@ -417,7 +419,7 @@ class Cache {
       bool collided = entry.hash != 0 && entry.hash != hash;
       if (!collided || d == max_probe_distance - 1) {
         probe_distance = std::max(probe_distance, d + 1);
-        collision_count += collided;
+        STATS(collision_count += collided);
         if (entry.hash != hash) {
           if (entry.hash == 0) ++load_count;
           entry.Reset(hash);
@@ -883,41 +885,15 @@ struct Trick {
   }
 };
 
-class Stats {
- public:
-  Stats(bool e) : enabled(e) { Clear(); }
-  void Clear() {
-    if (enabled) memset(cutoff_at, 0, sizeof(cutoff_at));
-  }
-  void CutoffAt(int depth, int card_count) {
-    if (enabled) ++cutoff_at[depth][card_count];
-  }
-  void Show() {
-    if (!enabled) return;
-    puts("---- Cut-off Quality ----");
-    for (int d = 0; d < TOTAL_CARDS; ++d) {
-      int sum = 0;
-      int last = TOTAL_TRICKS - 1;
-      for (int i = 0; i < TOTAL_TRICKS; ++i) {
-        if (cutoff_at[d][i] == 0) continue;
-        last = i;
-        sum += cutoff_at[d][i];
-      }
-      if (sum == 0) continue;
+struct Stat {
+  int num_visits = 0;
+  int num_branches = 0;
 
-      printf("%d: ", d);
-      printf("%.1f%% ", cutoff_at[d][0] * 100.0 / sum);
-      for (int i = 0; i <= last; ++i) printf("%d ", cutoff_at[d][i]);
-      puts("");
-    }
+  void Show(int depth) {
+    if (num_visits)
+      printf("%2d: %7d * %.2f\n", depth, num_visits, double(num_branches) / num_visits);
   }
-
- private:
-  bool enabled;
-  int cutoff_at[TOTAL_CARDS][16];
-};
-
-Stats stats(false);
+} stats[TOTAL_CARDS];
 
 class Play {
  public:
@@ -1020,6 +996,7 @@ class Play {
   }
 
   Result EvaluatePlayableCards(int beta) {
+    STATS(++stats[depth].num_visits);
     ordered_cards.Reset();
     auto playable_cards = GetPlayableCards();
     Cards cutoff_index[2];
@@ -1042,6 +1019,7 @@ class Play {
       // Try a card if its rank is still relevant and it isn't equivalent to a tried card.
       if (rank >= min_relevant_ranks[suit] &&
           !trick->IsEquivalent(card, tried_cards.Suit(suit), hands[seat_to_play])) {
+        STATS(++stats[depth].num_branches);
         PlayCard(card);
         VERBOSE(ShowTricks(beta, 0, true));
         auto [branch_ns_tricks, branch_rank_winners] = NextPlay().SearchWithCache(beta);
@@ -1053,7 +1031,6 @@ class Play {
                                : std::min(ns_tricks, branch_ns_tricks);
         if (NsToPlay() ? ns_tricks >= beta : ns_tricks < beta) {  // cut-off
           if (!cutoff_cards.Have(card)) SaveCutoffCard(cutoff_index, card);
-          stats.CutoffAt(depth, i);
           VERBOSE(printf("%2d: search cut @%d\n", depth, i));
           return {ns_tricks, branch_rank_winners};
         }
@@ -1070,7 +1047,6 @@ class Play {
         playable_cards = Cards();
       }
     }
-    stats.CutoffAt(depth, TOTAL_TRICKS - 1);
     return {ns_tricks, rank_winners};
   }
 
@@ -1469,10 +1445,15 @@ class MinMax {
     tricks[0].all_cards = hands.all_cards();
     for (int i = 0; i < TOTAL_CARDS; ++i)
       new (&plays[i]) Play(plays, tricks + i / 4, hands, trump, i, seat_to_play);
-    new (&stats) Stats(options.show_stats);
+    if (options.stats_level) memset(stats, 0, sizeof(stats));
   }
 
-  ~MinMax() { stats.Show(); }
+  ~MinMax() {
+    if (options.stats_level) {
+      puts("");
+      for (int i = 0; i < TOTAL_CARDS; ++i) stats[i].Show(i);
+    }
+  }
 
   int Search(int beta) { return plays[0].SearchWithCache(beta).first; }
 
@@ -1921,7 +1902,7 @@ int main(int argc, char* argv[]) {
         printf("%s can't make a %s contract.\n", SeatName(declarer), SuitSign(trump));
       }
     }
-    if (options.show_stats) {
+    if (options.stats_level) {
       common_bounds_cache.ShowStatistics();
       cutoff_cache.ShowStatistics();
     }
