@@ -1445,7 +1445,7 @@ class MinMax {
     tricks[0].all_cards = hands.all_cards();
     for (int i = 0; i < TOTAL_CARDS; ++i)
       new (&plays[i]) Play(plays, tricks + i / 4, hands, trump, i, seat_to_play);
-    if (options.stats_level) memset(stats, 0, sizeof(stats));
+    if (options.stats_level) memset((void*)stats, 0, sizeof(stats));
   }
 
   ~MinMax() {
