@@ -153,7 +153,7 @@ int BitSize(T v) {
 }
 
 uint64_t PackBits(uint64_t source, uint64_t mask) {
-#ifdef _BMI2
+#ifdef __BMI2__
   return _pext_u64(source, mask);
 #else
   if (source == 0) return 0;
@@ -165,7 +165,7 @@ uint64_t PackBits(uint64_t source, uint64_t mask) {
 }
 
 uint64_t UnpackBits(uint64_t source, uint64_t mask) {
-#ifdef _BMI2
+#ifdef __BMI2__
   return _pdep_u64(source, mask);
 #else
   if (source == 0) return 0;
@@ -230,20 +230,18 @@ class Cards {
   }
 
   class Iterator {
-   public:
-    Iterator() : pos(TOTAL_CARDS) {}
-    Iterator(uint64_t b) : bits(b | Bit(TOTAL_CARDS)), pos(__builtin_ctzll(bits)) {}
-    void operator++() { pos = __builtin_ctzll(bits &= ~Bit(pos)); }
-    bool operator!=(const Iterator& it) const { return pos != *it; }
-    int operator*() const { return pos; }
+    public:
+      Iterator(uint64_t bits) : bits(bits) {}
+      void operator++() { bits &= bits - 1; }
+      bool operator!=(const Iterator& it) const { return bits != it.bits; }
+      int operator*() const { return __builtin_ctzll(bits); }
 
-   private:
-    uint64_t bits;
-    int pos;
+    private:
+      uint64_t bits;
   };
 
   Iterator begin() const { return Iterator(bits); }
-  Iterator end() const { return Iterator(); }
+  Iterator end() const { return Iterator(0); }
 
  private:
   static uint64_t Bit(int index) { return uint64_t(1) << index; }
