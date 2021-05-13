@@ -230,14 +230,14 @@ class Cards {
   }
 
   class Iterator {
-    public:
-      Iterator(uint64_t bits) : bits(bits) {}
-      void operator++() { bits &= bits - 1; }
-      bool operator!=(const Iterator& it) const { return bits != it.bits; }
-      int operator*() const { return __builtin_ctzll(bits); }
+   public:
+    Iterator(uint64_t bits) : bits(bits) {}
+    void operator++() { bits &= bits - 1; }
+    bool operator!=(const Iterator& it) const { return bits != it.bits; }
+    int operator*() const { return __builtin_ctzll(bits); }
 
-    private:
-      uint64_t bits;
+   private:
+    uint64_t bits;
   };
 
   Iterator begin() const { return Iterator(bits); }
@@ -1366,8 +1366,9 @@ class Play {
   Result CollectLastTrick() const {
     int winning_card = hands[seat_to_play].Top();
     int winning_seat = seat_to_play;
-    for (int seat = seat_to_play + 1; seat < seat_to_play + NUM_SEATS; ++seat) {
-      int card_to_play = hands[seat % NUM_SEATS].Top();
+    for (int seat = (seat_to_play + 1) % NUM_SEATS; seat != seat_to_play;
+         seat = (seat + 1) % NUM_SEATS) {
+      int card_to_play = hands[seat].Top();
       if (WinOver(card_to_play, winning_card)) {
         winning_card = card_to_play;
         winning_seat = seat;
