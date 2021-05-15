@@ -30,8 +30,6 @@
 #endif
 // clang-format on
 
-namespace {
-
 enum { SPADE, HEART, DIAMOND, CLUB, NUM_SUITS, NOTRUMP = NUM_SUITS };
 enum { TWO, TEN = 8, JACK, QUEEN, KING, ACE, NUM_RANKS };
 enum { WEST, NORTH, EAST, SOUTH, NUM_SEATS };
@@ -44,6 +42,7 @@ const char* SeatName(int seat) {
   return seat_names[seat];
 }
 char SeatLetter(int seat) { return SeatName(seat)[0]; }
+bool IsNs(int seat) { return seat & 1; }
 
 const char* SuitName(int suit) {
   static const char* suit_names[] = {"Spade", "Heart", "Diamond", "Club", "NoTrump"};
@@ -175,8 +174,6 @@ uint64_t UnpackBits(uint64_t source, uint64_t mask) {
   return unpacked;
 #endif
 }
-
-}  // namespace
 
 class Cards {
  public:
@@ -1010,8 +1007,7 @@ class Play {
 
     int ns_tricks = NsToPlay() ? 0 : TOTAL_TRICKS;
     int min_relevant_ranks[NUM_SUITS] = {TWO, TWO, TWO, TWO};
-    Cards rank_winners;
-    Cards tried_cards;
+    Cards rank_winners, tried_cards;
     for (int i = 0; i < ordered_cards.Size(); ++i) {
       int card = ordered_cards.Card(i), suit = SuitOf(card), rank = RankOf(card);
       // Try a card if its rank is still relevant and it isn't equivalent to a tried card.
@@ -1425,7 +1421,6 @@ class Play {
   bool SecondSeat() const { return (depth & 3) == 1; }
   bool ThirdSeat() const { return (depth & 3) == 2; }
   bool TrickEnding() const { return (depth & 3) == 3; }
-  bool IsNs(int seat) const { return seat & 1; }
   bool NsToPlay() const { return IsNs(seat_to_play); }
   bool NsWon() const { return IsNs(WinningSeat()); }
   bool WinOver(int c1, int c2) const {
@@ -1484,8 +1479,6 @@ class MinMax {
   Play plays[TOTAL_CARDS];
   Trick tricks[TOTAL_TRICKS];
 };
-
-namespace {
 
 Cards ParseHand(char* line) {
   // Filter out invalid characters.
@@ -1587,7 +1580,30 @@ int MemoryEnhancedTestDriver(std::function<int(int)> search, int num_tricks,
   return ns_tricks;
 }
 
-}  // namespace
+void Solve(const Hands& hands, const std::vector<int>& trumps,
+           const std::vector<int>& lead_seats, std::function<void(int trump)> trump_start,
+           std::function<void(int trump, int lead_seat, int ns_tricks)> seat_done,
+           std::function<void(int trump)> trump_done) {
+  int num_tricks = hands[WEST].Size();
+  for (int trump : trumps) {
+    trump_start(trump);
+    int guess_tricks = std::min(options.guess, num_tricks);
+    for (int lead_seat : lead_seats) {
+      MinMax min_max(hands, trump, lead_seat);
+      auto search = [&min_max](int beta) { return min_max.Search(beta); };
+      int ns_tricks = MemoryEnhancedTestDriver(search, num_tricks, guess_tricks);
+      guess_tricks = std::min(ns_tricks + 1, TOTAL_TRICKS);
+      if (options.stats_level) {
+        common_bounds_cache.ShowStatistics();
+        cutoff_cache.ShowStatistics();
+      }
+      seat_done(trump, lead_seat, ns_tricks);
+    }
+    common_bounds_cache.Reset();
+    cutoff_cache.Reset();
+    trump_done(trump);
+  }
+}
 
 class InteractivePlay {
  public:
@@ -1740,7 +1756,7 @@ class InteractivePlay {
 
     // Choose the optimal play, using rank as the tie-breaker.
     *card_to_play = -1;
-    if (play.IsNs(play.seat_to_play)) {
+    if (IsNs(play.seat_to_play)) {
       int max_ns_tricks = -1;
       for (const auto& pair : card_tricks) {
         if (pair.second > max_ns_tricks || (pair.second == max_ns_tricks &&
@@ -1888,54 +1904,33 @@ int main(int argc, char* argv[]) {
     trumps.clear();
     trumps.push_back(options.trump);
   }
-
-  auto start_time = Now();
-  for (int trump : trumps) {
-    if (!options.interactive) {
-      printf("%c", SuitName(trump)[0]);
-    }
-    // TODO: Best guess with losing trick count.
-    int num_tricks = hands[WEST].Size();
-    int guess_tricks = std::min(options.guess, num_tricks);
-    for (int seat_to_play : lead_seats) {
-      MinMax min_max(hands, trump, seat_to_play);
-      auto search = [&min_max](int beta) { return min_max.Search(beta); };
-      int ns_tricks = MemoryEnhancedTestDriver(search, num_tricks, guess_tricks);
-      guess_tricks = std::min(ns_tricks + 1, TOTAL_TRICKS);
-
-      if (!options.interactive) {
-        if (seat_to_play == WEST || seat_to_play == EAST)
-          printf(" %2d", ns_tricks);
-        else
-          printf(" %2d", num_tricks - ns_tricks);
-        fflush(stdout);
-        continue;
-      }
-      if (num_tricks < TOTAL_TRICKS ||
-          (num_tricks == TOTAL_TRICKS && ns_tricks >= 7 &&
-           (seat_to_play == WEST || seat_to_play == EAST)) ||
-          (num_tricks == TOTAL_TRICKS && ns_tricks < 7 &&
-           (seat_to_play == NORTH || seat_to_play == SOUTH)))
-        InteractivePlay(hands, trump, seat_to_play, ns_tricks);
-      else {
-        int declarer = (seat_to_play + 3) % NUM_SEATS;
+  if (options.interactive) {
+    auto do_nothing = [](int trump) {};
+    auto seat_done = [&hands](int trump, int lead_seat, int ns_tricks) {
+      if (hands.num_tricks() < TOTAL_TRICKS ||
+          (hands.num_tricks() == TOTAL_TRICKS && ns_tricks >= 7 && !IsNs(lead_seat)) ||
+          (hands.num_tricks() == TOTAL_TRICKS && ns_tricks < 7 && IsNs(lead_seat))) {
+        InteractivePlay(hands, trump, lead_seat, ns_tricks);
+      } else {
+        int declarer = (lead_seat + 3) % NUM_SEATS;
         printf("%s can't make a %s contract.\n", SeatName(declarer), SuitSign(trump));
       }
-    }
-    if (options.stats_level) {
-      common_bounds_cache.ShowStatistics();
-      cutoff_cache.ShowStatistics();
-    }
-
-    common_bounds_cache.Reset();
-    cutoff_cache.Reset();
-
-    if (!options.interactive) {
+    };
+    Solve(hands, trumps, lead_seats, do_nothing, seat_done, do_nothing);
+  } else {
+    auto start_time = Now();
+    auto trump_start = [](int trump) { printf("%c", SuitName(trump)[0]); };
+    auto seat_done = [&hands](int trump, int lead_seat, int ns_tricks) {
+      printf(" %2d", IsNs(lead_seat) ? hands.num_tricks() - ns_tricks : ns_tricks);
+      fflush(stdout);
+    };
+    auto trump_done = [start_time](int trump) {
       struct rusage usage;
       getrusage(RUSAGE_SELF, &usage);
       printf(" %4.1f s %5.1f M\n", Now() - start_time, usage.ru_maxrss / 1024.0);
       fflush(stdout);
-    }
+    };
+    Solve(hands, trumps, lead_seats, trump_start, seat_done, trump_done);
   }
   return 0;
 }
