@@ -1056,7 +1056,9 @@ class Play {
         int top1 = all_suit_cards.Top();
         int top2 = all_suit_cards.Remove(top1).Top();
         int top3 = all_suit_cards.Remove(top2).Top();
-        if ((partner_suit.Have(top1) && partner_suit.Have(top3) && lho_suit.Have(top2)) ||
+        int top4 = all_suit_cards.Remove(top3).Top();
+        if ((partner_suit.Have(top1) && lho_suit.Have(top2) &&
+             (partner_suit.Have(top3) || (my_suit.Have(top3) && my_suit.Have(top4)))) ||
             (partner_suit.Have(top2) && lho_suit.Have(top1))) {
           good_top_bottom.Add(my_suit.Top());
           good_top_bottom.Add(my_suit.Bottom());
