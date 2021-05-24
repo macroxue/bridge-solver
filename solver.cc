@@ -1100,10 +1100,10 @@ class Play {
     ordered_cards.AddCards(top_bottom);
     playable_cards.Remove(top_bottom);
     if (SUIT_CONTRACT) {
-      ordered_cards.AddCards(bad_top_bottom);
-      playable_cards.Remove(bad_top_bottom);
       ordered_cards.AddCards(trump_top_bottom);
       playable_cards.Remove(trump_top_bottom);
+      ordered_cards.AddCards(bad_top_bottom);
+      playable_cards.Remove(bad_top_bottom);
     }
     ordered_cards.AddCards(playable_cards);
   }
