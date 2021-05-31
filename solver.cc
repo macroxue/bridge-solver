@@ -110,11 +110,13 @@ struct CardInitializer {
 } card_initializer;
 
 struct Options {
+  char* code = nullptr;
   char* input = nullptr;
   int trump = -1;
   int guess = TOTAL_TRICKS;
   int displaying_depth = -1;
   int stats_level = 0;
+  int show_hands = 0;
   bool discard_suit_bottom = false;
   bool randomize = false;
   bool full_analysis = false;
@@ -122,9 +124,10 @@ struct Options {
 
   void Read(int argc, char* argv[]) {
     int c;
-    while ((c = getopt(argc, argv, "dfg:i:rs:t:D:IS:")) != -1) {
+    while ((c = getopt(argc, argv, "c:dfg:i:rs:t:D:H:IS:")) != -1) {
       switch (c) {
         // clang-format off
+        case 'c': code = optarg; break;
         case 'd': discard_suit_bottom = true; break;
         case 'f': full_analysis = true; break;
         case 'g': guess = atoi(optarg); break;
@@ -132,6 +135,7 @@ struct Options {
         case 'r': randomize = true; break;
         case 't': trump = CharToSuit(optarg[0]); break;
         case 'D': displaying_depth = atoi(optarg); break;
+        case 'H': show_hands = atoi(optarg); break;
         case 'I': interactive = true; break;
         case 'S': stats_level = atoi(optarg); break;
           // clang-format on
@@ -259,6 +263,20 @@ class Hands {
       for (int i = 0; i < NUM_RANKS; ++i) hands[seat].Add(deck[seat * NUM_RANKS + i]);
   }
 
+  void Decode(char* code) {
+    uint64_t values[3];
+    int num_values = sscanf(code, "%lX,%lX,%lX", values, values + 1, values + 2);
+    assert(num_values == 3);
+    auto mask = (1ULL << TOTAL_CARDS) - 1;
+    for (int seat = 0; seat < NUM_SEATS - 1; ++seat) {
+      hands[seat] = UnpackBits(values[seat], mask);
+      mask &= ~hands[seat].Value();
+    }
+    hands[NUM_SEATS - 1] = UnpackBits((1ULL << TOTAL_TRICKS) - 1, mask);
+    assert(hands[0].Size() == hands[1].Size() && hands[1].Size() == hands[2].Size() &&
+           hands[2].Size() == hands[3].Size());
+  }
+
   Cards all_cards() const {
     return hands[WEST].Union(hands[NORTH]).Union(hands[EAST]).Union(hands[SOUTH]);
   }
@@ -280,6 +298,16 @@ class Hands {
       if (seat < NUM_SEATS - 1) printf(", ");
     }
     puts("");
+  }
+
+  void ShowCode() const {
+    uint64_t values[3];
+    auto mask = (1ULL << TOTAL_CARDS) - 1;
+    for (int seat = 0; seat < NUM_SEATS - 1; ++seat) {
+      values[seat] = PackBits(hands[seat].Value(), mask);
+      mask &= ~hands[seat].Value();
+    }
+    printf("# %lX,%lX,%lX\n", values[0], values[1], values[2]);
   }
 
   void ShowCompact(int rotation = 0) const {
@@ -1894,11 +1922,16 @@ int main(int argc, char* argv[]) {
   Hands hands;
   std::vector<int> trumps = {NOTRUMP, SPADE, HEART, DIAMOND, CLUB};
   std::vector<int> lead_seats = {WEST, EAST, NORTH, SOUTH};
-  if (options.randomize) {
+  if (options.code)
+    hands.Decode(options.code);
+  else if (options.randomize)
     hands.Randomize();
-    if (!options.interactive) hands.ShowCompact();
-  } else
+  else
     ReadHands(hands, trumps, lead_seats);
+
+  if (options.show_hands & 1) hands.ShowCode();
+  if (options.show_hands & 2) hands.ShowCompact();
+  if (options.show_hands & 4) hands.ShowDetailed();
 
   if (options.trump != -1) {
     trumps.clear();
