@@ -112,11 +112,12 @@ struct CardInitializer {
 struct Options {
   char* code = nullptr;
   char* input = nullptr;
+  char* shuffle_seats = nullptr;
   int trump = -1;
   int guess = TOTAL_TRICKS;
   int displaying_depth = -1;
   int stats_level = 0;
-  int show_hands = 0;
+  int show_hands = 2;
   bool discard_suit_bottom = false;
   bool randomize = false;
   bool full_analysis = false;
@@ -133,6 +134,7 @@ struct Options {
         case 'g': guess = atoi(optarg); break;
         case 'i': input = optarg; break;
         case 'r': randomize = true; break;
+        case 's': shuffle_seats = optarg; break;
         case 't': trump = CharToSuit(optarg[0]); break;
         case 'D': displaying_depth = atoi(optarg); break;
         case 'H': show_hands = atoi(optarg); break;
@@ -253,14 +255,27 @@ class Cards {
 class Hands {
  public:
   void Randomize() {
-    std::mt19937 random(static_cast<uint64_t>(Now() * 1000));
-
-    int deck[TOTAL_CARDS];
-    for (int card = 0; card < TOTAL_CARDS; ++card) deck[card] = card;
-    std::shuffle(deck, deck + TOTAL_CARDS, random);
-
     for (int seat = 0; seat < NUM_SEATS; ++seat)
-      for (int i = 0; i < NUM_RANKS; ++i) hands[seat].Add(deck[seat * NUM_RANKS + i]);
+      for (int i = 0; i < NUM_RANKS; ++i) hands[seat].Add(CardOf(seat, i));
+    Shuffle("NEWS");
+  }
+
+  void Shuffle(const char* shuffle_seats) {
+    int tricks = num_tricks();
+    std::vector<int> deck, seats;
+    for (auto* s = shuffle_seats; *s; ++s) seats.push_back(CharToSeat(*s));
+    for (int seat : seats) {
+      for (int card : hands[seat]) deck.push_back(card);
+      hands[seat] = Cards();
+    }
+    std::mt19937 random(static_cast<uint64_t>(Now() * 1000));
+    std::shuffle(deck.begin(), deck.end(), random);
+    for (int seat : seats) {
+      for (int i = 0; i < tricks; ++i) {
+        hands[seat].Add(deck.back());
+        deck.pop_back();
+      }
+    }
   }
 
   void Decode(char* code) {
@@ -1928,6 +1943,7 @@ int main(int argc, char* argv[]) {
     hands.Randomize();
   else
     ReadHands(hands, trumps, lead_seats);
+  if (options.shuffle_seats) hands.Shuffle(options.shuffle_seats);
 
   if (options.show_hands & 1) hands.ShowCode();
   if (options.show_hands & 2) hands.ShowCompact();

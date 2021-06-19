@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [[ $1 == '-r' ]]; then
-  echo $3 $(./solver -fi $2/$3 | sed -e "s/[0-9]*\.[0-9]* [sM]//g")
+  echo $3 $(./solver -fi $2/$3 -H0 | sed -e "s/[0-9]*\.[0-9]* [sM]//g")
   exit
 fi
 

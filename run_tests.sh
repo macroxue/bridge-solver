@@ -9,7 +9,7 @@ cat $test_dir/* > /dev/null  # bring files into cache
 start=$(date +"%s.%N")
 for deal in $(ls $test_dir -I RESULTS); do
   echo $deal
-  ./solver -fi $test_dir/$deal
+  ./solver -fi $test_dir/$deal -H0
 done > $results
 finish=$(date +"%s.%N")
 
