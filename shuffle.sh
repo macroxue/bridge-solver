@@ -11,7 +11,7 @@ do
 done
 
 if [[ -z $code ]]; then
-  output=($(./solver -r -H5 | tee /dev/tty))
+  output=($(./solver -r -H5 | tee /dev/stderr))
   code=${output[1]}
 else
   ./solver -c $code -H5
