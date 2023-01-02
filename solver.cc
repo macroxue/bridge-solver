@@ -201,6 +201,7 @@ class Cards {
   Cards Union(const Cards& c) const { return bits | c.bits; }
   Cards Intersect(const Cards& c) const { return bits & c.bits; }
   Cards Different(const Cards& c) const { return bits & ~c.bits; }
+  Cards Complement() const { return ((1ULL << TOTAL_CARDS) - 1) ^ bits; }
   bool Include(const Cards& c) const { return Intersect(c) == c; }
 
   Cards Add(int card) { return bits |= Bit(card); }
@@ -261,15 +262,22 @@ class Hands {
   }
 
   void Shuffle(const char* shuffle_seats) {
-    int tricks = num_tricks();
-    std::vector<int> deck, seats;
+    std::vector<int> seats;
     for (auto* s = shuffle_seats; *s; ++s) seats.push_back(CharToSeat(*s));
+    Cards cards;
     for (int seat : seats) {
-      for (int card : hands[seat]) deck.push_back(card);
+      cards.Add(hands[seat]);
       hands[seat] = Cards();
     }
+    Deal(cards, seats);
+  }
+
+  void Deal(Cards cards, std::vector<int> seats) {
     std::mt19937 random(static_cast<uint64_t>(Now() * 1000));
+    std::vector<int> deck;
+    for (int card : cards) deck.push_back(card);
     std::shuffle(deck.begin(), deck.end(), random);
+    int tricks = deck.size() / seats.size();
     for (int seat : seats) {
       for (int i = 0; i < tricks; ++i) {
         hands[seat].Add(deck.back());
@@ -1523,14 +1531,13 @@ class MinMax {
   Trick tricks[TOTAL_TRICKS];
 };
 
-Cards ParseHand(char* line) {
+Cards ParseHand(char* line, Cards all_cards) {
   // Filter out invalid characters.
   int pos = 0;
   for (char* c = line; *c; ++c)
     if (strchr("AaKkQqJjTt1098765432- ", *c)) line[pos++] = *c;
   line[pos] = '\0';
 
-  static Cards all_cards;
   Cards hand;
   for (int suit = 0; suit < NUM_SUITS; ++suit) {
     while (line[0] && isspace(line[0])) ++line;
@@ -1583,15 +1590,26 @@ void ReadHands(Hands& hands, std::vector<int>& trumps, std::vector<int>& lead_se
   CHECK(fgets(line[SOUTH], sizeof(line[SOUTH]), input_file));
 
   int num_tricks = 0;
+  Cards all_cards;
+  std::vector<int> empty_seats;
   for (int seat = 0; seat < NUM_SEATS; ++seat) {
-    hands[seat] = ParseHand(line[seat]);
-    if (seat == 0)
+    hands[seat] = ParseHand(line[seat], all_cards);
+    all_cards.Add(hands[seat]);
+    if (num_tricks == 0 && hands[seat])
       num_tricks = hands[seat].Size();
-    else if (num_tricks != hands[seat].Size()) {
+    else if (hands[seat] && hands[seat].Size() != num_tricks) {
       printf("%s has %d cards, while %s has %d.\n", SeatName(seat), hands[seat].Size(),
              SeatName(0), num_tricks);
       exit(-1);
+    } else if (!hands[seat])
+      empty_seats.push_back(seat);
+  }
+  if (!empty_seats.empty()) {
+    if (num_tricks != TOTAL_TRICKS) {
+      printf("%d trick(s) already played.\n", TOTAL_TRICKS - num_tricks);
+      exit(-1);
     }
+    hands.Deal(all_cards.Complement(), empty_seats);
   }
 
   if (!options.full_analysis && fscanf(input_file, " %s ", line[0]) == 1)
