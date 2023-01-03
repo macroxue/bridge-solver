@@ -1605,7 +1605,7 @@ void ReadHands(Hands& hands, std::vector<int>& trumps, std::vector<int>& lead_se
       empty_seats.push_back(seat);
   }
   if (!empty_seats.empty()) {
-    if (num_tricks != TOTAL_TRICKS) {
+    if (num_tricks != TOTAL_TRICKS && empty_seats.size() != NUM_SEATS) {
       printf("%d trick(s) already played.\n", TOTAL_TRICKS - num_tricks);
       exit(-1);
     }
