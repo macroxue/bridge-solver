@@ -41,7 +41,12 @@ for seats in EW NS; do
     north_avg=$(echo "scale=1;$north_sum/$rounds" | bc)
     west_avg=$(echo "scale=1;$west_sum/$rounds" | bc)
     east_avg=$(echo "scale=1;$east_sum/$rounds" | bc)
-    printf "$trump %4.1f %4.1f %4.1f %4.1f\n" \
-      $south_avg $north_avg $west_avg $east_avg
+    if [[ $seats = EW ]]; then
+      printf "$trump  %4.1f %4.1f (%4.1f %4.1f)\n" \
+        $south_avg $north_avg $west_avg $east_avg
+    else
+      printf "$trump (%4.1f %4.1f) %4.1f %4.1f\n" \
+        $south_avg $north_avg $west_avg $east_avg
+    fi
   done
 done
