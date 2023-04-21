@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <termios.h>
 #include <unistd.h>
@@ -50,12 +51,15 @@ const char* SuitName(int suit) {
 }
 
 const char* SuitSign(int suit) {
+  static const char* plain_suit_signs[] = {"♠", "♥", "♦", "♣", "NT"};
+  static const char* color_suit_signs[] = {"♠", "\e[31m♥\e[0m", "\e[31m♦\e[0m", "♣", "NT"};
 #ifdef _DEBUG
-  static const char* suit_signs[] = {"♠", "♥", "♦", "♣", "NT"};
+  return plain_suit_signs[suit];
 #else
-  static const char* suit_signs[] = {"♠", "\e[31m♥\e[0m", "\e[31m♦\e[0m", "♣", "NT"};
+  static struct stat stdout_stat;
+  static bool is_terminal = fstat(1, &stdout_stat) == 0 && !S_ISFIFO(stdout_stat.st_mode);
+  return is_terminal ? color_suit_signs[suit] : plain_suit_signs[suit];
 #endif
-  return suit_signs[suit];
 }
 
 const char RankName(int rank) {
@@ -118,6 +122,7 @@ struct Options {
   int displaying_depth = -1;
   int stats_level = 0;
   int show_hands = 2;
+  bool deal_only = false;
   bool discard_suit_bottom = false;
   bool randomize = false;
   bool full_analysis = false;
@@ -125,7 +130,7 @@ struct Options {
 
   void Read(int argc, char* argv[]) {
     int c;
-    while ((c = getopt(argc, argv, "c:dfg:i:rs:t:D:H:IS:")) != -1) {
+    while ((c = getopt(argc, argv, "c:dfg:i:ors:t:D:H:IS:")) != -1) {
       switch (c) {
         // clang-format off
         case 'c': code = optarg; break;
@@ -133,6 +138,7 @@ struct Options {
         case 'f': full_analysis = true; break;
         case 'g': guess = atoi(optarg); break;
         case 'i': input = optarg; break;
+        case 'o': deal_only = true; break;
         case 'r': randomize = true; break;
         case 's': shuffle_seats = optarg; break;
         case 't': trump = CharToSuit(optarg[0]); break;
@@ -335,22 +341,22 @@ class Hands {
 
   void ShowCompact(int rotation = 0) const {
     int seat = (NORTH + rotation) % NUM_SEATS;
-    printf("%25s%c ", " ", SeatLetter(seat));
+    printf("%25s%c %2d ", " ", SeatLetter(seat), hands[seat].CountPoints());
     hands[seat].Show();
     printf("\n");
 
     seat = (WEST + rotation) % NUM_SEATS;
     int num_cards = hands[seat].Size();
-    printf("%*s%c ", 14 - num_cards, " ", SeatLetter(seat));
+    printf("%*s%c %2d ", 14 - num_cards, " ", SeatLetter(seat), hands[seat].CountPoints());
     hands[seat].Show();
 
     seat = (EAST + rotation) % NUM_SEATS;
-    printf("%*s%c ", num_cards + 8, " ", SeatLetter(seat));
+    printf("%*s%c %2d ", num_cards + 8, " ", SeatLetter(seat), hands[seat].CountPoints());
     hands[seat].Show();
     printf("\n");
 
     seat = (SOUTH + rotation) % NUM_SEATS;
-    printf("%25s%c ", " ", SeatLetter(seat));
+    printf("%25s%c %2d ", " ", SeatLetter(seat), hands[seat].CountPoints());
     hands[seat].Show();
     printf("\n");
   }
@@ -1966,6 +1972,7 @@ int main(int argc, char* argv[]) {
   if (options.show_hands & 1) hands.ShowCode();
   if (options.show_hands & 2) hands.ShowCompact();
   if (options.show_hands & 4) hands.ShowDetailed();
+  if (options.deal_only) return 0;
 
   if (options.trump != -1) {
     trumps.clear();

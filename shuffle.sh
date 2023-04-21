@@ -11,13 +11,11 @@ do
 done
 
 if [[ -z $code ]]; then
-  output=($(./solver -r -H5 | tee /dev/stderr))
+  output=($(./solver -ro -H1))
   code=${output[1]}
-else
-  ./solver -c $code -H5
 fi
+./solver -c $code -H5
 
-space="                        "
 eraser="\b\b\b\b"
 
 for seats in EW NS; do
@@ -28,13 +26,17 @@ for seats in EW NS; do
     west_sum=0
     east_sum=0
     for round in $(seq 1 $rounds); do
-      printf "$round"
+      if [[ -t 1 ]]; then
+        printf "$round"
+      fi
       result=($(./solver -c $code -s $seats -t $trump -d -H0))
       south_sum=$((south_sum+${result[1]}))
       north_sum=$((north_sum+${result[2]}))
       west_sum=$((west_sum+${result[3]}))
       east_sum=$((east_sum+${result[4]}))
-      printf "$eraser"
+      if [[ -t 1 ]]; then
+        printf "$eraser"
+      fi
     done
 
     south_avg=$(echo "scale=1;$south_sum/$rounds" | bc)
