@@ -5,7 +5,7 @@ if [[ $1 == '-r' ]]; then
   exit
 fi
 
-test_dir=${1:-old_deals}
+test_dir=${1:-fixed_deals}
 test_dir=${test_dir%%/*}  # remove trailing slashes
 parallelism=${2:-2}
 results=results.$test_dir.$parallelism

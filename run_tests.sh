@@ -1,6 +1,6 @@
 #!/bin/bash
 
-test_dir=${1:-old_deals}
+test_dir=${1:-fixed_deals}
 test_dir=${test_dir%%/*}  # remove trailing slashes
 results=results.$test_dir
 echo Results are in $results

@@ -52,10 +52,10 @@ const char* SuitName(int suit) {
 
 const char* SuitSign(int suit) {
   static const char* plain_suit_signs[] = {"♠", "♥", "♦", "♣", "NT"};
-  static const char* color_suit_signs[] = {"♠", "\e[31m♥\e[0m", "\e[31m♦\e[0m", "♣", "NT"};
 #ifdef _DEBUG
   return plain_suit_signs[suit];
 #else
+  static const char* color_suit_signs[] = {"♠", "\e[31m♥\e[0m", "\e[31m♦\e[0m", "♣", "NT"};
   static struct stat stdout_stat;
   static bool is_terminal = fstat(1, &stdout_stat) == 0 && !S_ISFIFO(stdout_stat.st_mode);
   return is_terminal ? color_suit_signs[suit] : plain_suit_signs[suit];
@@ -892,8 +892,8 @@ struct Trick {
   }
 
   // A pattern hand contains relative cards and rank-irrelevant cards.
-  Hands ComputePatternHands(Cards rank_winners) const {
-    Cards relative_rank_winners;
+  std::pair<Hands, Cards> ComputePatternHands(Cards rank_winners) const {
+    Cards relative_rank_winners, extended_rank_winners;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       if (!rank_winners.Suit(suit)) continue;
 
@@ -911,12 +911,15 @@ struct Trick {
       relative_rank_winners.Add(Cards(MaskOf(suit)).Slice(0, bottom_rank_winner + 1));
       // Suit bottom can't win by rank. Compensate the inaccuracy with fast tricks.
       relative_rank_winners.Remove(RelativeCard(all_cards.Suit(suit).Bottom(), suit));
+
+      auto packed = relative_rank_winners.Suit(suit).Value() >> (suit * NUM_RANKS);
+      extended_rank_winners.Add(Cards(UnpackBits(packed, all_cards.Suit(suit).Value())));
     }
 
     Hands pattern_hands;
     for (int seat = 0; seat < NUM_SEATS; ++seat)
       pattern_hands[seat] = relative_hands[seat].Intersect(relative_rank_winners);
-    return pattern_hands;
+    return {pattern_hands, extended_rank_winners};
   }
 
  private:
@@ -1008,14 +1011,14 @@ class Play {
                       ? Bounds{0, char(ns_tricks - ns_tricks_won)}
                       : Bounds{char(ns_tricks - ns_tricks_won), char(remaining_tricks)};
 
-    Hands pattern_hands = trick->ComputePatternHands(rank_winners);
+    auto [pattern_hands, extended_rank_winners] = trick->ComputePatternHands(rank_winners);
     Pattern new_pattern(pattern_hands, bounds);
     auto* new_shape_entry = common_bounds_cache.Update(shape_index);
     new_shape_entry->shape = trick->shape;
     new_shape_entry->seat_to_play = seat_to_play;
     new_shape_entry->pattern.Update(new_pattern);
     VERBOSE(ShowPattern("update", new_pattern, trick->shape));
-    return {ns_tricks, rank_winners};
+    return {ns_tricks, extended_rank_winners};
   }
 
  private:

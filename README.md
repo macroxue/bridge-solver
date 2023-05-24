@@ -110,8 +110,8 @@ From ♠ A-8(-2)3(-2) ♥ K(-2) ♦ A-6(-2) ♣ K= North plays ♣ K?
 ## Performance
 
 Run one of the following commands to measure performance and check correctness.
-The directory can be `old_deals` (the default), `new_deals`, `hard_deals` or
-`1k_deals`. For parallel runs, the number of threads is 2 by default.
+The directory can be `fixed_deals` (the default), `old_deals`, `new_deals`, `hard_deals`
+or `1k_deals`. For parallel runs, the number of threads is 2 by default.
 ```
 ./run_tests.sh [DIRECTORY]
 ./parallel_run_tests.sh [DIRECTORY] [THREADS]
