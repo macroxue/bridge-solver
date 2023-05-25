@@ -667,6 +667,12 @@ struct Pattern {
       if (new_pattern == pattern) {
         pattern.UpdateBounds(new_pattern.bounds);
         return;
+      } else if (new_pattern <= pattern) {
+        // Old pattern is more generic. Add new pattern under.
+        new_pattern.bounds = new_pattern.bounds.Intersect(pattern.bounds);
+        CHECK(!new_pattern.bounds.Empty());
+        if (new_pattern.bounds != pattern.bounds) pattern.Update(new_pattern);
+        return;
       } else if (pattern <= new_pattern) {
         // New pattern is more generic. Absorb sub-patterns.
         pattern.UpdateBounds(new_pattern.bounds);
@@ -681,12 +687,6 @@ struct Pattern {
           --i;
         }
         pattern.MoveFrom(new_pattern);
-        return;
-      } else if (new_pattern <= pattern) {
-        // Old pattern is more generic. Add new pattern under.
-        new_pattern.bounds = new_pattern.bounds.Intersect(pattern.bounds);
-        CHECK(!new_pattern.bounds.Empty());
-        if (new_pattern.bounds != pattern.bounds) pattern.Update(new_pattern);
         return;
       }
     }
