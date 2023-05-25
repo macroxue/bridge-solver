@@ -542,7 +542,6 @@ struct Bounds {
   char upper;
 
   bool Empty() const { return upper < lower; }
-  int Width() const { return upper - lower; }
   Bounds Intersect(Bounds b) const {
     return {std::max(lower, b.lower), std::min(upper, b.upper)};
   }
@@ -698,11 +697,8 @@ struct Pattern {
     auto old_bounds = bounds;
     bounds = bounds.Intersect(new_bounds);
     CHECK(!bounds.Empty());
-    if (bounds.Width() == old_bounds.Width()) return;
-    if (bounds.Width() == 0)
-      patterns.clear();
-    else
-      for (size_t i = 0; i < patterns.size(); ++i) patterns[i].UpdateBounds(bounds);
+    if (bounds == old_bounds) return;
+    for (size_t i = 0; i < patterns.size(); ++i) patterns[i].UpdateBounds(bounds);
   }
 
   void Append(Pattern& new_pattern) {
