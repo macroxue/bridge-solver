@@ -595,7 +595,6 @@ class Vector {
   void resize(size_t new_size) {
     if (capacity < new_size) {
       capacity = std::max(capacity * 2, capacity + 1);
-      if (capacity == 0) --capacity;
       auto old_items = items;
       items = new char[capacity * sizeof(T)];
       memcpy(items, old_items, count * sizeof(T));
