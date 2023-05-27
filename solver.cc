@@ -707,13 +707,13 @@ struct Pattern {
 
   // This pattern is more detailed than (a subset of) the other pattern.
   bool operator<=(const Pattern& p) const {
-    return hands[WEST].Include(p.hands[WEST]) && hands[NORTH].Include(p.hands[NORTH]) &&
-           hands[EAST].Include(p.hands[EAST]) && hands[SOUTH].Include(p.hands[SOUTH]);
+    return hands[WEST].Include(p.hands[WEST]) & hands[NORTH].Include(p.hands[NORTH]) &
+           hands[EAST].Include(p.hands[EAST]) & hands[SOUTH].Include(p.hands[SOUTH]);
   }
 
   bool operator==(const Pattern& p) const {
-    return p.hands[WEST] == hands[WEST] && p.hands[NORTH] == hands[NORTH] &&
-           p.hands[EAST] == hands[EAST] && p.hands[SOUTH] == hands[SOUTH];
+    return (p.hands[WEST] == hands[WEST]) & (p.hands[NORTH] == hands[NORTH]) &
+           (p.hands[EAST] == hands[EAST]) & (p.hands[SOUTH] == hands[SOUTH]);
   }
 
   Cards GetRankWinners(Cards all_cards) const {
