@@ -892,21 +892,33 @@ struct Trick {
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       if (!rank_winners.Suit(suit)) continue;
 
-      // Extend bottom rank winner to its lowest equivalent card.
       int bottom_rank_winner = RelativeCard(rank_winners.Suit(suit).Bottom(), suit);
       for (int seat = 0; seat < NUM_SEATS; ++seat) {
         if (!relative_hands[seat].Have(bottom_rank_winner)) continue;
         auto suit_cards = relative_hands[seat].Suit(suit);
-        for (int card : suit_cards.Slice(bottom_rank_winner + 1, TOTAL_CARDS)) {
-          if (bottom_rank_winner + 1 != card) break;
-          bottom_rank_winner = card;
+        auto suit_bottom = relative_hands.all_cards().Suit(suit).Bottom();
+
+        // Suit bottom can't win by rank. Compensate the inaccuracy of fast tricks.
+        if (suit_cards.Have(suit_bottom) &&
+            suit_cards.Slice(bottom_rank_winner, suit_bottom).Size() ==
+            RankOf(bottom_rank_winner) - RankOf(suit_bottom)) {
+          // Extend bottom rank winner to its highest equivalent card.
+          suit_cards = suit_cards.Slice(0, bottom_rank_winner);
+          while (suit_cards && suit_cards.Bottom() == bottom_rank_winner - 1) {
+            bottom_rank_winner = suit_cards.Bottom();
+            suit_cards.Remove(bottom_rank_winner);
+          }
+          bottom_rank_winner = bottom_rank_winner - 1;  // one higher rank
+        } else {
+          // Extend bottom rank winner to its lowest equivalent card.
+          for (int card : suit_cards.Slice(bottom_rank_winner + 1, TOTAL_CARDS)) {
+            if (bottom_rank_winner + 1 != card) break;
+            bottom_rank_winner = card;
+          }
         }
         break;
       }
       relative_rank_winners.Add(Cards(MaskOf(suit)).Slice(0, bottom_rank_winner + 1));
-      // Suit bottom can't win by rank. Compensate the inaccuracy with fast tricks.
-      relative_rank_winners.Remove(RelativeCard(all_cards.Suit(suit).Bottom(), suit));
-
       auto packed = relative_rank_winners.Suit(suit).Value() >> (suit * NUM_RANKS);
       extended_rank_winners.Add(Cards(UnpackBits(packed, all_cards.Suit(suit).Value())));
     }
