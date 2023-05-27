@@ -676,11 +676,18 @@ struct Pattern {
         // New pattern is more generic. Absorb sub-patterns.
         pattern.UpdateBounds(new_pattern.bounds);
         if (pattern.bounds != new_pattern.bounds) new_pattern.Append(pattern);
+        else new_pattern.patterns.swap(pattern.patterns);
         for (++i; i < patterns.size(); ++i) {
           auto& old_pattern = patterns[i];
           if (!(old_pattern <= new_pattern)) continue;
           old_pattern.UpdateBounds(new_pattern.bounds);
           if (old_pattern.bounds != new_pattern.bounds) new_pattern.Append(old_pattern);
+          else if (new_pattern.patterns.size() == 0)
+            new_pattern.patterns.swap(old_pattern.patterns);
+#if 0
+          else for (size_t j = 0; j < old_pattern.patterns.size(); ++j)
+            new_pattern.Update(old_pattern.patterns[j]);
+#endif
           old_pattern.MoveFrom(patterns.back());
           patterns.pop_back();
           --i;
@@ -797,18 +804,15 @@ struct ShapeEntry {
 
   std::pair<const Hands*, Bounds> Lookup(const Pattern& new_pattern, int beta) const {
     ++hits;
-    bool multi_pattern = pattern.patterns.size() >= 2;
-    if (multi_pattern && last_bounds.Cutoff(beta) && new_pattern <= Pattern(last_hands)) {
+    if (last_bounds.Cutoff(beta) && new_pattern <= Pattern(last_hands)) {
       ++cuts;
       return {&last_hands, last_bounds};
     }
     auto cached_pattern = pattern.Lookup(new_pattern, beta);
     if (cached_pattern) {
       ++cuts;
-      if (multi_pattern) {
-        last_hands = cached_pattern->hands;
-        last_bounds = cached_pattern->bounds;
-      }
+      last_hands = cached_pattern->hands;
+      last_bounds = cached_pattern->bounds;
       return {&cached_pattern->hands, cached_pattern->bounds};
     }
     return {nullptr, Bounds{}};
