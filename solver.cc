@@ -1104,8 +1104,10 @@ class Play {
         rank_winners.Add(branch_rank_winners);
         // If this card's rank is irrelevant, a relevant rank must be higher.
         auto suit_rank_winners = branch_rank_winners.Suit(suit);
-        if (!suit_rank_winners || rank < RankOf(suit_rank_winners.Bottom()))
-          min_relevant_ranks[suit] = std::max(min_relevant_ranks[suit], rank + 1);
+        if (!suit_rank_winners) min_relevant_ranks[suit] = NUM_RANKS;
+        else if (rank < RankOf(suit_rank_winners.Bottom()))
+          min_relevant_ranks[suit] = std::max(min_relevant_ranks[suit],
+                                              RankOf(suit_rank_winners.Bottom()));
       }
       tried_cards.Add(card);
       if (playable_cards) {
