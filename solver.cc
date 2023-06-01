@@ -209,6 +209,7 @@ class Cards {
   Cards Different(const Cards& c) const { return bits & ~c.bits; }
   Cards Complement() const { return ((1ULL << TOTAL_CARDS) - 1) ^ bits; }
   bool Include(const Cards& c) const { return Intersect(c) == c; }
+  bool StrictlyInclude(const Cards& c) const { return Include(c) && bits != c.bits; }
 
   Cards Add(int card) { return bits |= Bit(card); }
   Cards Remove(int card) { return bits &= ~Bit(card); }
@@ -1036,6 +1037,10 @@ class Play {
  private:
   Result SearchAtTrickStart(int beta) {
     auto [fast_tricks, fast_rank_winners] = FastTricks();
+    if (fast_tricks == 0 && trump != NOTRUMP)
+      std::tie(fast_tricks, fast_rank_winners) =
+        SlowTrumpTricks(hands[seat_to_play].Suit(trump), hands[Partner()].Suit(trump),
+                        hands[LeftHandOpp()].Suit(trump), hands[RightHandOpp()].Suit(trump), true);
     if (NsToPlay() && ns_tricks_won + fast_tricks >= beta) {
       VERBOSE(printf("%2d: beta fast cut %d+%d\n", depth, ns_tricks_won, fast_tricks));
       return {ns_tricks_won + fast_tricks, fast_rank_winners};
@@ -1048,7 +1053,11 @@ class Play {
     }
     if (trump != NOTRUMP) {
       auto [slow_tricks, slow_rank_winners] =
-          SureTrumpTricks(hands[LeftHandOpp()], hands[RightHandOpp()]);
+        TopTrumpTricks(hands[LeftHandOpp()].Suit(trump), hands[RightHandOpp()].Suit(trump));
+      if (slow_tricks == 0)
+        std::tie(slow_tricks, slow_rank_winners) =
+          SlowTrumpTricks(hands[LeftHandOpp()].Suit(trump), hands[RightHandOpp()].Suit(trump),
+                          hands[Partner()].Suit(trump), hands[seat_to_play].Suit(trump), false);
       if (NsToPlay() && ns_tricks_won + (remaining_tricks - slow_tricks) < beta) {
         VERBOSE(printf("%2d: alpha slow cut %d+%d\n", depth, ns_tricks_won,
                        remaining_tricks - slow_tricks));
@@ -1352,32 +1361,43 @@ class Play {
       entry->card[seat_to_play] = cutoff_card;
   }
 
-  Result SureTrumpTricks(Cards my_hand, Cards partner_hand) const {
-    auto my_suit = my_hand.Suit(trump);
-    if (my_suit == trick->all_cards.Suit(trump)) return {my_suit.Size(), {}};
+  Result TopTrumpTricks(Cards my_trumps, Cards pd_trumps) const {
+    auto all_trumps = trick->all_cards.Suit(trump);
+    if (my_trumps == all_trumps) return {my_trumps.Size(), {}};
+    if (pd_trumps == all_trumps) return {pd_trumps.Size(), {}};
 
-    auto partner_suit = partner_hand.Suit(trump);
-    if (partner_suit == trick->all_cards.Suit(trump)) return {partner_suit.Size(), {}};
-
-    auto both_suits = my_suit.Union(partner_suit);
-    auto max_trump_tricks = std::max(my_suit.Size(), partner_suit.Size());
+    auto both_trumps = my_trumps.Union(pd_trumps);
+    auto max_trump_tricks = std::max(my_trumps.Size(), pd_trumps.Size());
     int sure_tricks = 0;
     Cards rank_winners;
-    for (int card : trick->all_cards.Suit(trump))
-      if (both_suits.Have(card)) {
+    for (int card : all_trumps)
+      if (both_trumps.Have(card) && sure_tricks < max_trump_tricks) {
         ++sure_tricks;
-        if (sure_tricks <= max_trump_tricks) rank_winners.Add(card);
+        rank_winners.Add(card);
       } else
         break;
-    return {std::min(sure_tricks, max_trump_tricks), rank_winners};
+    return {sure_tricks, rank_winners};
+  }
+
+  Result SlowTrumpTricks(Cards my_trumps, Cards pd_trumps,
+                         Cards lho_trumps, Cards rho_trumps, bool leading) const {
+    auto all_trumps = trick->all_cards.Suit(trump);
+    if (all_trumps.Size() >= 3) {
+      auto top = Cards().Add(all_trumps.Top());
+      auto second = Cards().Add(all_trumps.Different(top).Top());
+      if ((pd_trumps.StrictlyInclude(second) && lho_trumps.Include(top)) ||
+          (my_trumps.StrictlyInclude(second) && rho_trumps.Include(top) && !leading))
+        return {1, top.Union(second)};
+    }
+    return {0, {}};
   }
 
   Result FastTricks() const {
     Cards my_hand = hands[seat_to_play], partner_hand = hands[Partner()];
     Cards lho_hand = hands[LeftHandOpp()], rho_hand = hands[RightHandOpp()];
     Cards partner_rank_winners;
-    auto [trump_tricks, rank_winners] =
-        trump == NOTRUMP ? Result{0, {}} : SureTrumpTricks(my_hand, partner_hand);
+    auto [trump_tricks, rank_winners] = trump == NOTRUMP ?
+        Result{0, {}} : TopTrumpTricks(my_hand.Suit(trump), partner_hand.Suit(trump));
     int fast_tricks = 0, my_tricks = 0, partner_tricks = 0;
     bool my_entry = false, partner_entry = false;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
