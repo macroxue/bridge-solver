@@ -855,10 +855,12 @@ struct Trick {
     } else {
       // Recompute the relative cards for suits changed by the last trick.
       auto prev_trick = this - 1;
+      auto prev_trick_cards = prev_trick->all_cards.Different(all_cards);
       relative_hands = prev_trick->relative_hands;
-      for (int suit = 0; suit < NUM_SUITS; ++suit) {
-        if (all_cards.Suit(suit) != prev_trick->all_cards.Suit(suit))
-          ConvertToRelativeSuit(hands, suit, all_cards.Suit(suit));
+      while (prev_trick_cards) {
+        auto suit = SuitOf(prev_trick_cards.Top());
+        prev_trick_cards.ClearSuit(suit);
+        ConvertToRelativeSuit(hands, suit, all_cards.Suit(suit));
       }
     }
   }
@@ -902,26 +904,12 @@ struct Trick {
       for (int seat = 0; seat < NUM_SEATS; ++seat) {
         if (!relative_hands[seat].Have(bottom_rank_winner)) continue;
         auto suit_cards = relative_hands[seat].Suit(suit);
-        auto suit_bottom = relative_hands.all_cards().Suit(suit).Bottom();
-
+        // Extend bottom rank winner to its lowest equivalent card.
+        bottom_rank_winner += __builtin_ctzll(~(suit_cards.Value() >> (bottom_rank_winner + 1)));
         // Suit bottom can't win by rank. Compensate the inaccuracy of fast tricks.
-        if (suit_cards.Have(suit_bottom) &&
-            suit_cards.Slice(bottom_rank_winner, suit_bottom).Size() ==
-            RankOf(bottom_rank_winner) - RankOf(suit_bottom)) {
-          // Extend bottom rank winner to its highest equivalent card.
-          suit_cards = suit_cards.Slice(0, bottom_rank_winner);
-          while (suit_cards && suit_cards.Bottom() == bottom_rank_winner - 1) {
-            bottom_rank_winner = suit_cards.Bottom();
-            suit_cards.Remove(bottom_rank_winner);
-          }
-          bottom_rank_winner = bottom_rank_winner - 1;  // one higher rank
-        } else {
-          // Extend bottom rank winner to its lowest equivalent card.
-          for (int card : suit_cards.Slice(bottom_rank_winner + 1, TOTAL_CARDS)) {
-            if (bottom_rank_winner + 1 != card) break;
-            bottom_rank_winner = card;
-          }
-        }
+        if (bottom_rank_winner == relative_hands.all_cards().Suit(suit).Bottom())
+          // Extend bottom rank winner to its highest equivalent card and go one rank higher.
+          bottom_rank_winner -= __builtin_clzll(~(suit_cards.Value() << (63 - bottom_rank_winner)));
         break;
       }
       relative_rank_winners.Add(Cards(MaskOf(suit)).Slice(0, bottom_rank_winner + 1));
