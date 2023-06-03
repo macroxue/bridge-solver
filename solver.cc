@@ -100,6 +100,9 @@ int CardOf(int suit, int rank) { return card_of[suit][rank]; }
 uint64_t MaskOf(int suit) { return 0x1fffULL << (suit * NUM_RANKS); }
 const char* NameOf(int card) { return name_of[card]; }
 
+bool LowerRank(int card1, int card2) { return card1 > card2; }
+bool HigherRank(int card1, int card2) { return card1 < card2; }
+
 struct CardInitializer {
   CardInitializer() {
     for (int card = 0; card < TOTAL_CARDS; ++card) {
@@ -1102,7 +1105,7 @@ class Play {
         // If this card's rank is irrelevant, a relevant rank must be higher.
         auto suit_rank_winners = branch_rank_winners.Suit(suit);
         if (!suit_rank_winners) min_relevant_ranks[suit] = NUM_RANKS;
-        else if (rank < RankOf(suit_rank_winners.Bottom()))
+        else if (LowerRank(card, suit_rank_winners.Bottom()))
           min_relevant_ranks[suit] = std::max(min_relevant_ranks[suit],
                                               RankOf(suit_rank_winners.Bottom()));
       }
@@ -1435,17 +1438,16 @@ class Play {
   int SuitFastTricks(Cards my_suit, int my_winners, bool& my_entry, Cards partner_suit,
                      int partner_winners) const {
     // Entry from partner if my top winner can cover partner's bottom card.
-    if (partner_suit && my_winners > 0 &&
-        RankOf(my_suit.Top()) > RankOf(partner_suit.Bottom()))
+    if (partner_suit && my_winners > 0 && HigherRank(my_suit.Top(), partner_suit.Bottom()))
       my_entry = true;
     // Partner has no winners.
     if (partner_winners == 0) return my_winners;
     // Cash all my winners, then partner's.
     if (my_winners == 0) return my_suit ? partner_winners : 0;
     // Suit blocked by partner.
-    if (RankOf(my_suit.Top()) < RankOf(partner_suit.Bottom())) return partner_winners;
+    if (LowerRank(my_suit.Top(), partner_suit.Bottom())) return partner_winners;
     // Suit blocked by me.
-    if (RankOf(my_suit.Bottom()) > RankOf(partner_suit.Top())) return my_winners;
+    if (HigherRank(my_suit.Bottom(), partner_suit.Top())) return my_winners;
     // If partner has no small cards, treat one winner as a small card.
     if (partner_winners == partner_suit.Size()) --partner_winners;
     return std::min(my_suit.Size(), my_winners + partner_winners);
@@ -1506,7 +1508,7 @@ class Play {
   bool NsToPlay() const { return IsNs(seat_to_play); }
   bool NsWon() const { return IsNs(WinningSeat()); }
   bool WinOver(int c1, int c2) const {
-    return SuitOf(c1) == SuitOf(c2) ? RankOf(c1) > RankOf(c2) : SuitOf(c1) == trump;
+    return SuitOf(c1) == SuitOf(c2) ? HigherRank(c1, c2) : SuitOf(c1) == trump;
   }
   int WinningCard() const { return plays[winning_play].card_played; }
   int WinningSeat() const { return plays[winning_play].seat_to_play; }
@@ -1852,7 +1854,7 @@ class InteractivePlay {
       int max_ns_tricks = -1;
       for (const auto& pair : card_tricks) {
         if (pair.second > max_ns_tricks || (pair.second == max_ns_tricks &&
-                                            RankOf(pair.first) < RankOf(*card_to_play))) {
+                                            LowerRank(pair.first, *card_to_play))) {
           *card_to_play = pair.first;
           max_ns_tricks = pair.second;
         }
@@ -1861,7 +1863,7 @@ class InteractivePlay {
       int min_ns_tricks = TOTAL_TRICKS + 1;
       for (const auto& pair : card_tricks) {
         if (pair.second < min_ns_tricks || (pair.second == min_ns_tricks &&
-                                            RankOf(pair.first) < RankOf(*card_to_play))) {
+                                            LowerRank(pair.first, *card_to_play))) {
           *card_to_play = pair.first;
           min_ns_tricks = pair.second;
         }
