@@ -419,17 +419,17 @@ class Cache {
 
   void Reset() {
     probe_distance = 0;
-    load_count = lookup_count = hit_count = update_count = collision_count = 0;
+    load_count = lookups = lookup_probes = hits = updates = update_probes = 0;
     for (int i = 0; i < size; ++i) entries[i].Reset(0);
   }
 
   void ShowStatistics() const {
     printf("--- %s Statistics ---\n", cache_name);
-    printf("lookups: %8d   hits:     %8d (%5.2f%%)   probe distance: %d\n", lookup_count,
-           hit_count, hit_count * 100.0 / lookup_count, probe_distance);
-    printf("updates: %8d   collisions: %6d (%5.2f%%)\n", update_count, collision_count,
-           collision_count * 100.0 / update_count);
-    printf("entries: %8d   loaded:   %8d (%5.2f%%)\n", size, load_count,
+    printf("lookups: %8d   probes: %8d (%.2f/lookup)   hits: %8d (%5.2f%%)\n",
+           lookups, lookup_probes, lookup_probes * 1.0 / lookups, hits, hits * 100.0 / lookups);
+    printf("updates: %8d   probes: %8d (%.2f/update)\n",
+           updates, update_probes, update_probes * 1.0 / updates);
+    printf("entries: %8d   loaded: %8d (%5.2f%%)\n", size, load_count,
            load_count * 100.0 / size);
 
     int recursive_load = 0;
@@ -442,7 +442,7 @@ class Cache {
   }
 
   const Entry* Lookup(Cards cards[input_size]) const {
-    STATS(++lookup_count);
+    STATS(++lookups);
 
     uint64_t hash = Hash(cards);
     if (hash == 0) return NULL;
@@ -451,10 +451,11 @@ class Cache {
     for (int d = 0; d < probe_distance; ++d) {
       const Entry& entry = entries[(index + d) & (size - 1)];
       if (entry.hash == hash) {
-        STATS(++hit_count);
+        STATS(++hits);
         return &entry;
       }
       if (entry.hash == 0) break;
+      STATS(++lookup_probes);
     }
     return NULL;
   }
@@ -462,7 +463,7 @@ class Cache {
   Entry* Update(Cards cards[input_size]) {
     if (load_count >= size * 3 / 4) Resize();
 
-    STATS(++update_count);
+    STATS(++updates);
 
     uint64_t hash = Hash(cards);
     if (hash == 0) return NULL;
@@ -470,24 +471,22 @@ class Cache {
 
     // Linear probing benefits from hardware prefetch and thus is faster
     // than collision resolution with multiple hash functions.
-    for (int d = 0; d < max_probe_distance; ++d) {
+    for (int d = 0; ; ++d) {
       Entry& entry = entries[(index + d) & (size - 1)];
-      bool collided = entry.hash != 0 && entry.hash != hash;
-      if (!collided || d == max_probe_distance - 1) {
+      if (entry.hash == hash) return &entry;
+      if (entry.hash == 0) {
         probe_distance = std::max(probe_distance, d + 1);
-        STATS(collision_count += collided);
-        if (entry.hash != hash) {
-          if (entry.hash == 0) ++load_count;
-          entry.Reset(hash);
-        }
+        ++load_count;
+        entry.Reset(hash);
         return &entry;
       }
+      STATS(++update_probes);
     }
-    return NULL;
   }
 
  private:
   uint64_t Hash(Cards cards[input_size]) const {
+    static constexpr uint64_t hash_rand[2] = {0x6b8b4567327b23c7ULL, 0x643c986966334873ULL};
     uint64_t sum = 0;
     for (int i = 0; i < (input_size + 1) / 2; ++i)
       sum += (cards[i * 2].Value() + hash_rand[i * 2]) *
@@ -512,7 +511,7 @@ class Cache {
       auto hash = old_entries[i].hash;
       if (hash == 0) continue;
       uint64_t index = hash >> (BitSize(hash) - bits);
-      for (int d = 0; d < max_probe_distance; ++d) {
+      for (int d = 0; ; ++d) {
         Entry& entry = entries[(index + d) & (size - 1)];
         if (entry.hash == 0) {
           probe_distance = std::max(probe_distance, d + 1);
@@ -524,9 +523,6 @@ class Cache {
     }
   }
 
-  static constexpr int max_probe_distance = 16;
-  static constexpr uint64_t hash_rand[2] = {0x6b8b4567327b23c7ULL, 0x643c986966334873ULL};
-
   const char* cache_name;
   int bits;
   int size;
@@ -534,10 +530,8 @@ class Cache {
   std::unique_ptr<Entry[]> entries;
 
   mutable int load_count;
-  mutable int lookup_count;
-  mutable int hit_count;
-  mutable int update_count;
-  mutable int collision_count;
+  mutable int lookups, lookup_probes, hits;
+  mutable int updates, update_probes;
 };
 
 #pragma pack(push, 4)
@@ -2028,7 +2022,7 @@ int main(int argc, char* argv[]) {
     auto trump_done = [start_time](int trump) {
       struct rusage usage;
       getrusage(RUSAGE_SELF, &usage);
-      printf(" %4.1f s %5.1f M\n", Now() - start_time, usage.ru_maxrss / 1024.0);
+      printf(" %5.2f s %5.1f M\n", Now() - start_time, usage.ru_maxrss / 1024.0);
       fflush(stdout);
     };
     Solve(hands, trumps, lead_seats, trump_start, seat_done, trump_done);
