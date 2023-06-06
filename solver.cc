@@ -684,7 +684,8 @@ struct Pattern {
           else if (new_pattern.patterns.size() == 0)
             new_pattern.patterns.swap(old_pattern.patterns);
           else for (size_t j = 0; j < old_pattern.patterns.size(); ++j)
-            new_pattern.Update(old_pattern.patterns[j]);
+            if (new_pattern.bounds != old_pattern.patterns[j].bounds)
+              new_pattern.Append(old_pattern.patterns[j]);
           old_pattern.MoveFrom(patterns.back());
           patterns.pop_back();
           --i;
@@ -701,7 +702,14 @@ struct Pattern {
     bounds = bounds.Intersect(new_bounds);
     CHECK(!bounds.Empty());
     if (bounds == old_bounds) return;
-    for (size_t i = 0; i < patterns.size(); ++i) patterns[i].UpdateBounds(bounds);
+    for (size_t i = 0; i < patterns.size(); ++i) {
+      patterns[i].UpdateBounds(bounds);
+      if (patterns[i].bounds == new_bounds) {
+        if (i < patterns.size() - 1) patterns[i].MoveFrom(patterns.back());
+        patterns.pop_back();
+        --i;
+      }
+    }
   }
 
   void Append(Pattern& new_pattern) {
@@ -803,7 +811,6 @@ struct ShapeEntry {
     ++hits;
     if (last_bounds.Cutoff(beta) && new_pattern <= Pattern(last_hands)) {
       ++cuts;
-      CHECK(pattern.Lookup(new_pattern, beta));
       return {&last_hands, last_bounds};
     }
     auto cached_pattern = pattern.Lookup(new_pattern, beta);
