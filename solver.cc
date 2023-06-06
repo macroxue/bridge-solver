@@ -25,7 +25,7 @@
 #define VERBOSE(statement) if (depth <= options.displaying_depth) statement
 #define STATS(statement) statement
 #else
-#define CHECK(statement) if (statement) {}
+#define CHECK(statement)
 #define VERBOSE(statement)
 #define STATS(statement)
 #endif
@@ -683,10 +683,8 @@ struct Pattern {
           if (old_pattern.bounds != new_pattern.bounds) new_pattern.Append(old_pattern);
           else if (new_pattern.patterns.size() == 0)
             new_pattern.patterns.swap(old_pattern.patterns);
-#if 0
           else for (size_t j = 0; j < old_pattern.patterns.size(); ++j)
             new_pattern.Update(old_pattern.patterns[j]);
-#endif
           old_pattern.MoveFrom(patterns.back());
           patterns.pop_back();
           --i;
@@ -805,6 +803,7 @@ struct ShapeEntry {
     ++hits;
     if (last_bounds.Cutoff(beta) && new_pattern <= Pattern(last_hands)) {
       ++cuts;
+      CHECK(pattern.Lookup(new_pattern, beta));
       return {&last_hands, last_bounds};
     }
     auto cached_pattern = pattern.Lookup(new_pattern, beta);
@@ -1603,8 +1602,8 @@ void ReadHands(Hands& hands, std::vector<int>& trumps, std::vector<int>& lead_se
   }
   // read hands
   char line[NUM_SEATS][120];
-  CHECK(fgets(line[NORTH], sizeof(line[NORTH]), input_file));
-  CHECK(fgets(line[WEST], sizeof(line[WEST]), input_file));
+  assert(fgets(line[NORTH], sizeof(line[NORTH]), input_file));
+  assert(fgets(line[WEST], sizeof(line[WEST]), input_file));
   char* gap = strstr(line[WEST], "    ");
   if (!gap) gap = strstr(line[WEST], "\t");
   if (gap != NULL && gap != line[WEST]) {
@@ -1612,9 +1611,9 @@ void ReadHands(Hands& hands, std::vector<int>& trumps, std::vector<int>& lead_se
     strcpy(line[EAST], gap);
     *gap = '\0';
   } else {
-    CHECK(fgets(line[EAST], sizeof(line[EAST]), input_file));
+    assert(fgets(line[EAST], sizeof(line[EAST]), input_file));
   }
-  CHECK(fgets(line[SOUTH], sizeof(line[SOUTH]), input_file));
+  assert(fgets(line[SOUTH], sizeof(line[SOUTH]), input_file));
 
   int num_tricks = 0;
   Cards all_cards;
