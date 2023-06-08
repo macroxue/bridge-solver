@@ -1042,22 +1042,21 @@ class Play {
                      remaining_tricks - fast_tricks));
       return {ns_tricks_won + (remaining_tricks - fast_tricks), fast_rank_winners};
     }
-    if (trump != NOTRUMP) {
-      auto [slow_tricks, slow_rank_winners] =
-        TopTrumpTricks(hands[LeftHandOpp()].Suit(trump), hands[RightHandOpp()].Suit(trump));
-      if (slow_tricks == 0)
-        std::tie(slow_tricks, slow_rank_winners) =
-          SlowTrumpTricks(hands[LeftHandOpp()].Suit(trump), hands[RightHandOpp()].Suit(trump),
-                          hands[Partner()].Suit(trump), hands[seat_to_play].Suit(trump), false);
-      if (NsToPlay() && ns_tricks_won + (remaining_tricks - slow_tricks) < beta) {
-        VERBOSE(printf("%2d: alpha slow cut %d+%d\n", depth, ns_tricks_won,
-                       remaining_tricks - slow_tricks));
-        return {ns_tricks_won + (remaining_tricks - slow_tricks), slow_rank_winners};
-      }
-      if (!NsToPlay() && ns_tricks_won + slow_tricks >= beta) {
-        VERBOSE(printf("%2d: beta slow cut %d+%d\n", depth, ns_tricks_won, slow_tricks));
-        return {ns_tricks_won + slow_tricks, slow_rank_winners};
-      }
+    auto [slow_tricks, slow_rank_winners] = trump == NOTRUMP
+        ? SlowNoTrumpTricks(hands[seat_to_play], hands[Partner()])
+        : TopTrumpTricks(hands[LeftHandOpp()].Suit(trump), hands[RightHandOpp()].Suit(trump));
+    if (trump != NOTRUMP && slow_tricks == 0)
+      std::tie(slow_tricks, slow_rank_winners) =
+        SlowTrumpTricks(hands[LeftHandOpp()].Suit(trump), hands[RightHandOpp()].Suit(trump),
+                        hands[Partner()].Suit(trump), hands[seat_to_play].Suit(trump), false);
+    if (NsToPlay() && ns_tricks_won + (remaining_tricks - slow_tricks) < beta) {
+      VERBOSE(printf("%2d: alpha slow cut %d+%d\n", depth, ns_tricks_won,
+                     remaining_tricks - slow_tricks));
+      return {ns_tricks_won + (remaining_tricks - slow_tricks), slow_rank_winners};
+    }
+    if (!NsToPlay() && ns_tricks_won + slow_tricks >= beta) {
+      VERBOSE(printf("%2d: beta slow cut %d+%d\n", depth, ns_tricks_won, slow_tricks));
+      return {ns_tricks_won + slow_tricks, slow_rank_winners};
     }
     return EvaluatePlayableCards(beta);
   }
@@ -1381,6 +1380,22 @@ class Play {
         return {1, top.Union(second)};
     }
     return {0, {}};
+  }
+
+  Result SlowNoTrumpTricks(Cards my_hand, Cards partner_hand) const {
+    auto both_hands = my_hand.Union(partner_hand);
+    Cards rank_winners;
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      if (!my_hand.Suit(suit)) continue;
+      auto top = trick->all_cards.Suit(suit).Top();
+      if (both_hands.Have(top)) return {0, {}};
+      rank_winners.Add(top);
+    }
+    if (hands[LeftHandOpp()].Include(rank_winners) ||
+        hands[RightHandOpp()].Include(rank_winners)) {
+      return {rank_winners.Size(), rank_winners};
+    } else
+      return {1, rank_winners};
   }
 
   Result FastTricks() const {
