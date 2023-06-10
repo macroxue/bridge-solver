@@ -1194,8 +1194,9 @@ class Play {
     Cards lho_suit = hands[LeftHandOpp()].Suit(LeadSuit());
     if (playable_cards.Suit(LeadSuit())) {  // follow
       if (winning_seat == Partner() &&
-          (TrickEnding() || !lho_suit || WinOver(winning_card, lho_suit.Top()))) {
-        // Partner can win.
+          (TrickEnding() || !lho_suit || WinOver(winning_card, lho_suit.Top()) ||
+           lho_suit.Slice(0, winning_card) == lho_suit.Slice(0, playable_cards.Top()))) {
+        // Partner can win or force LHO's winner.
       } else if (WinOver(playable_cards.Top(), winning_card)) {
         auto higher_cards = playable_cards.Slice(playable_cards.Top(), winning_card);
         ordered_cards.AddCards(higher_cards);
