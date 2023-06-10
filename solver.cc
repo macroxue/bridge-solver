@@ -980,10 +980,9 @@ class Play {
       seat_to_play = PreviousPlay().WinningSeat();
     }
 
-    if (NsToPlay() && ns_tricks_won >= beta) return {ns_tricks_won, {}};
+    if (ns_tricks_won >= beta) return {ns_tricks_won, {}};
     int remaining_tricks = hands.num_tricks();
-    if (!NsToPlay() && ns_tricks_won + remaining_tricks < beta)
-      return {ns_tricks_won + remaining_tricks, {}};
+    if (ns_tricks_won + remaining_tricks < beta) return {ns_tricks_won + remaining_tricks, {}};
 
     if (remaining_tricks == 1) return CollectLastTrick();
 
@@ -1042,10 +1041,10 @@ class Play {
                      remaining_tricks - fast_tricks));
       return {ns_tricks_won + (remaining_tricks - fast_tricks), fast_rank_winners};
     }
-    auto [slow_tricks, slow_rank_winners] = trump == NOTRUMP
-        ? SlowNoTrumpTricks(hands[seat_to_play], hands[Partner()])
-        : TopTrumpTricks(hands[LeftHandOpp()].Suit(trump), hands[RightHandOpp()].Suit(trump));
-    if (trump != NOTRUMP && slow_tricks == 0)
+    auto [slow_tricks, slow_rank_winners] = trick->all_cards.Suit(trump)
+        ? TopTrumpTricks(hands[LeftHandOpp()].Suit(trump), hands[RightHandOpp()].Suit(trump))
+        : SlowNoTrumpTricks(hands[seat_to_play], hands[Partner()]);
+    if (slow_tricks == 0 && trick->all_cards.Suit(trump))
       std::tie(slow_tricks, slow_rank_winners) =
         SlowTrumpTricks(hands[LeftHandOpp()].Suit(trump), hands[RightHandOpp()].Suit(trump),
                         hands[Partner()].Suit(trump), hands[seat_to_play].Suit(trump), false);

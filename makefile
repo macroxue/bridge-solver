@@ -1,6 +1,6 @@
 all: solver.p solver
 
-OPTS=-std=c++17 -Wall
+OPTS=-std=c++17 -Wall -Wno-missing-profile
 ifeq (sse4_2, $(shell grep -m1 -o sse4_2 /proc/cpuinfo))
 	OPTS+=-msse4.2
 endif
