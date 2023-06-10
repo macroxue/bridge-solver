@@ -1191,6 +1191,7 @@ class Play {
     }
     int winning_seat = PreviousPlay().WinningSeat();
     int winning_card = PreviousPlay().WinningCard();
+    Cards pd_suit = hands[Partner()].Suit(LeadSuit());
     Cards lho_suit = hands[LeftHandOpp()].Suit(LeadSuit());
     if (playable_cards.Suit(LeadSuit())) {  // follow
       if (winning_seat == Partner() &&
@@ -1198,6 +1199,11 @@ class Play {
            lho_suit.Slice(0, winning_card) == lho_suit.Slice(0, playable_cards.Top()))) {
         // Partner can win or force LHO's winner.
       } else if (WinOver(playable_cards.Top(), winning_card)) {
+        if (SecondSeat() && lho_suit && pd_suit &&
+            HigherRank(lho_suit.Top(), pd_suit.Union(playable_cards).Top()) &&
+            lho_suit.Slice(0, pd_suit.Top()) == lho_suit.Slice(0, playable_cards.Top()))
+          // Play low as LHO may play a winner to prevent partner from winning.
+          return ordered_cards.AddReversedCards(playable_cards);
         auto higher_cards = playable_cards.Slice(playable_cards.Top(), winning_card);
         ordered_cards.AddCards(higher_cards);
         playable_cards.Remove(higher_cards);
