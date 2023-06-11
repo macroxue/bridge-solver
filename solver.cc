@@ -1335,12 +1335,13 @@ class Play {
   void BuildCutoffIndex(Cards cutoff_index[2]) const {
     if (TrickStarting()) {
       cutoff_index[0] = hands[seat_to_play];
-    } else {
-      if (hands[seat_to_play].Suit(LeadSuit()))
-        cutoff_index[0] = trick->all_cards.Suit(LeadSuit());
-      else
-        cutoff_index[0] = hands[seat_to_play];
+    } else if (hands[seat_to_play].Suit(LeadSuit())) {
+      cutoff_index[0] = trick->all_cards.Suit(LeadSuit());
       cutoff_index[1].Add(PreviousPlay().WinningCard());
+    } else {
+      cutoff_index[0] = hands[seat_to_play];
+      if (trump == NOTRUMP) cutoff_index[1].Add(PreviousPlay().WinningSeat());
+      else cutoff_index[1].Add(PreviousPlay().WinningCard());
     }
   }
 
