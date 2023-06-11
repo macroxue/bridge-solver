@@ -1194,22 +1194,28 @@ class Play {
     Cards pd_suit = hands[Partner()].Suit(LeadSuit());
     Cards lho_suit = hands[LeftHandOpp()].Suit(LeadSuit());
     if (playable_cards.Suit(LeadSuit())) {  // follow
+      if (!WinOver(playable_cards.Top(), winning_card))
+        return ordered_cards.AddReversedCards(playable_cards);
       if (winning_seat == Partner() &&
           (TrickEnding() || !lho_suit || WinOver(winning_card, lho_suit.Top()) ||
-           lho_suit.Slice(0, winning_card) == lho_suit.Slice(0, playable_cards.Top()))) {
+           lho_suit.Slice(0, winning_card) == lho_suit.Slice(0, playable_cards.Top())))
         // Partner can win or force LHO's winner.
-      } else if (WinOver(playable_cards.Top(), winning_card)) {
-        if (SecondSeat() && lho_suit && pd_suit &&
-            HigherRank(lho_suit.Top(), pd_suit.Union(playable_cards).Top()) &&
+        return ordered_cards.AddReversedCards(playable_cards);
+      if (SecondSeat() && pd_suit) {
+        if (lho_suit && HigherRank(lho_suit.Top(), pd_suit.Union(playable_cards).Top()) &&
             lho_suit.Slice(0, pd_suit.Top()) == lho_suit.Slice(0, playable_cards.Top()))
           // Play low as LHO may play a winner to prevent partner from winning.
           return ordered_cards.AddReversedCards(playable_cards);
-        auto higher_cards = playable_cards.Slice(playable_cards.Top(), winning_card);
-        ordered_cards.AddCards(higher_cards);
-        playable_cards.Remove(higher_cards);
+        Cards rho_suit = hands[RightHandOpp()].Suit(LeadSuit());
+        if (HigherRank(pd_suit.Top(), winning_card) &&
+            (!lho_suit || HigherRank(pd_suit.Top(), lho_suit.Top())) &&
+            HigherRank(playable_cards.Top(), rho_suit.Top()))
+          // Play low as partner can win and I need to cover RHO's high card.
+          return ordered_cards.AddReversedCards(playable_cards);
       }
-      ordered_cards.AddReversedCards(playable_cards);
-      return;
+      auto higher_cards = playable_cards.Slice(playable_cards.Top(), winning_card);
+      ordered_cards.AddCards(higher_cards);
+      return ordered_cards.AddReversedCards(playable_cards.Different(higher_cards));
     }
     if (trump != NOTRUMP && playable_cards.Suit(trump)) {  // ruff
       if (winning_seat == Partner() &&
