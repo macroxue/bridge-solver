@@ -3,6 +3,9 @@
 test_dir=${1:-fixed_deals}
 test_dir=${test_dir%%/*}  # remove trailing slashes
 results=results.$test_dir
+if [[ -n $2 ]]; then
+  results=$results.$2
+fi
 echo Results are in $results
 cat $test_dir/* > /dev/null  # bring files into cache
 
