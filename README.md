@@ -118,26 +118,26 @@ or `1k_deals`. For parallel runs, the number of threads is 2 by default.
 ```
 
 On ThinkPad X1 Carbon running with Intel(R) Core(TM) i7-10610U CPU @ 2.9 GHz,
-the solver was able to fully analyze 1000 random deals in just 341 seconds,
-averaging nearly three deals per second. Below is a more detailed breakdown.
-The longest one took 3.6 seconds and consumed 65.6 MB of memory.
+the solver was able to fully analyze 1000 random deals in just 254 seconds,
+averaging nearly four deals per second. Below is a more detailed breakdown.
+The longest one took 3.24 seconds and consumed 67.4 MB of memory.
 | Time    | Count   |
 |---------|---------|
-| <= .5 s | 848     |
-| <= 1 s  | 956     |
-| <= 2 s  | 991     |
+| <= .5 s | 887     |
+| <= 1 s  | 968     |
+| <= 2 s  | 995     |
 | <= 4 s  | 1000    |
 
 The most difficult deal known to the author is this symmetric one, with four
 void suits and nobody holding consecutive ranks in any suit. It took the solver
-less than eighteen seconds.
+just over thirteen seconds.
 ```
                   - Q853 AJ962 KT74
 KT74 - Q853 AJ962                   Q853 AJ962 KT74 -
                   AJ962 KT74 - Q853
-N  5  5  5  5 11.6 s 329.4 M
-S  4  4  8  7 12.9 s 329.9 M
-H  8  7  4  4 14.4 s 329.9 M
-D  4  4  7  8 16.1 s 329.9 M
-C  7  8  4  4 17.6 s 329.9 M
+N  5  5  5  5  7.48 s 262.3 M
+S  4  4  8  7  8.49 s 262.6 M
+H  8  7  4  4 10.52 s 262.6 M
+D  4  4  7  8 11.99 s 262.6 M
+C  7  8  4  4 13.11 s 262.6 M
 ```

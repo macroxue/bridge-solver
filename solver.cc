@@ -1197,7 +1197,7 @@ class Play {
       if (!WinOver(playable_cards.Top(), winning_card))
         return ordered_cards.AddReversedCards(playable_cards);
       if (winning_seat == Partner() &&
-          (TrickEnding() || !lho_suit || WinOver(winning_card, lho_suit.Top()) ||
+          (TrickEnding() || !lho_suit || HigherRank(winning_card, lho_suit.Top()) ||
            lho_suit.Slice(0, winning_card) == lho_suit.Slice(0, playable_cards.Top())))
         // Partner can win or force LHO's winner.
         return ordered_cards.AddReversedCards(playable_cards);
@@ -1212,9 +1212,16 @@ class Play {
             HigherRank(playable_cards.Top(), rho_suit.Top()))
           // Play low as partner can win and I need to cover RHO's high card.
           return ordered_cards.AddReversedCards(playable_cards);
+        if (!lho_suit && hands[LeftHandOpp()].Suit(trump) &&
+            HigherRank(pd_suit.Top(), winning_card))
+          // Play low if LHO may ruff and partner may win.
+          return ordered_cards.AddReversedCards(playable_cards);
       }
       auto higher_cards = playable_cards.Slice(playable_cards.Top(), winning_card);
-      ordered_cards.AddCards(higher_cards);
+      if (TrickEnding() || !lho_suit || HigherRank(winning_card, lho_suit.Top()))
+        ordered_cards.AddReversedCards(higher_cards);
+      else
+        ordered_cards.AddCards(higher_cards);
       return ordered_cards.AddReversedCards(playable_cards.Different(higher_cards));
     }
     if (trump != NOTRUMP && playable_cards.Suit(trump)) {  // ruff
@@ -1511,7 +1518,7 @@ class Play {
   }
 
   void ShowTricks(int beta, int ns_tricks, bool starting) const {
-    printf("%2d:", depth);
+    printf("%2d: %c", depth, SuitName(trump)[0]);
     for (int i = 0; i <= depth; ++i) {
       if ((i & 3) == 0) printf(" %c", SeatLetter(plays[i].seat_to_play));
       printf(" %s", NameOf(plays[i].card_played));
