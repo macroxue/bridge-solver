@@ -110,34 +110,34 @@ From ♠ A-8(-2)3(-2) ♥ K(-2) ♦ A-6(-2) ♣ K= North plays ♣ K?
 ## Performance
 
 Run one of the following commands to measure performance and check correctness.
-The directory can be `fixed_deals` (the default), `old_deals`, `new_deals`, `hard_deals`
-or `1k_deals`. For parallel runs, the number of threads is 2 by default.
+The directory can be `fixed_deals` (the default), `old_deals`, `new_deals`, `hard_deals`,
+`long_deals` or `1k_deals`. For parallel runs, the number of threads is 2 by default.
 ```
 ./run_tests.sh [DIRECTORY]
 ./parallel_run_tests.sh [DIRECTORY] [THREADS]
 ```
 
 On ThinkPad X1 Carbon running with Intel(R) Core(TM) i7-10610U CPU @ 2.9 GHz,
-the solver was able to fully analyze 1000 random deals in just 254 seconds,
-averaging nearly four deals per second. Below is a more detailed breakdown.
-The longest one took 3.24 seconds and consumed 67.4 MB of memory.
+the solver was able to fully analyze 1000 random deals in just 230 seconds,
+averaging more than four deals per second. Below is a more detailed breakdown.
+The longest one took 2.85 seconds and consumed 62.6 MB of memory.
 | Time    | Count   |
 |---------|---------|
-| <= .5 s | 887     |
-| <= 1 s  | 968     |
-| <= 2 s  | 995     |
-| <= 4 s  | 1000    |
+| <= .5 s | 910     |
+| <= 1 s  | 980     |
+| <= 2 s  | 996     |
+| <= 3 s  | 1000    |
 
-The most difficult deal known to the author is this symmetric one, with four
+One of most difficult deals known to the author is this symmetric one, with four
 void suits and nobody holding consecutive ranks in any suit. It took the solver
-just over thirteen seconds.
+less than eight seconds.
 ```
                   - Q853 AJ962 KT74
 KT74 - Q853 AJ962                   Q853 AJ962 KT74 -
                   AJ962 KT74 - Q853
-N  5  5  5  5  7.48 s 262.3 M
-S  4  4  8  7  8.49 s 262.6 M
-H  8  7  4  4 10.52 s 262.6 M
-D  4  4  7  8 11.99 s 262.6 M
-C  7  8  4  4 13.11 s 262.6 M
+N  5  5  5  5  3.96 s 167.4 M
+S  4  4  8  7  4.72 s 167.7 M
+H  8  7  4  4  5.87 s 167.7 M
+D  4  4  7  8  6.99 s 167.7 M
+C  7  8  4  4  7.92 s 167.7 M
 ```

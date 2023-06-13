@@ -1355,6 +1355,7 @@ class Play {
     } else if (hands[seat_to_play].Suit(LeadSuit())) {
       cutoff_index[0] = trick->all_cards.Suit(LeadSuit());
       cutoff_index[1].Add(PreviousPlay().WinningCard());
+      cutoff_index[1].Add(TOTAL_CARDS + (depth & 3));
     } else {
       cutoff_index[0] = hands[seat_to_play];
       if (trump == NOTRUMP) cutoff_index[1].Add(PreviousPlay().WinningSeat());
