@@ -1236,6 +1236,10 @@ class Play {
             ordered_cards.AddReversedCards(higher_trumps);
             playable_cards.Remove(higher_trumps);
           }
+        } else if (TrickEnding() || lho_suit || !hands[LeftHandOpp()].Suit(trump)) {
+          // The lowest trump is guaranteed to win.
+          ordered_cards.AddCard(my_trumps.Bottom());
+          playable_cards.Remove(my_trumps.Bottom());
         } else {
           ordered_cards.AddReversedCards(my_trumps);
           playable_cards.Remove(my_trumps);
