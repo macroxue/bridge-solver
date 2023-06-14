@@ -1217,8 +1217,8 @@ class Play {
           // Play low if LHO may ruff and partner may win.
           return ordered_cards.AddReversedCards(playable_cards);
       }
-      auto higher_cards = playable_cards.Slice(playable_cards.Top(), winning_card);
-      if (TrickEnding() || !lho_suit || HigherRank(winning_card, lho_suit.Top()))
+      auto higher_cards = playable_cards.Slice(0, winning_card);
+      if (TrickEnding() || !lho_suit || HigherRank(higher_cards.Bottom(), lho_suit.Top()))
         ordered_cards.AddReversedCards(higher_cards);
       else
         ordered_cards.AddCards(higher_cards);
