@@ -1206,15 +1206,9 @@ class Play {
             lho_suit.Slice(0, pd_suit.Top()) == lho_suit.Slice(0, playable_cards.Top()))
           // Play low as LHO may play a winner to prevent partner from winning.
           return ordered_cards.AddReversedCards(playable_cards);
-        Cards rho_suit = hands[RightHandOpp()].Suit(LeadSuit());
         if (HigherRank(pd_suit.Top(), winning_card) &&
-            (!lho_suit || HigherRank(pd_suit.Top(), lho_suit.Top())) &&
-            HigherRank(playable_cards.Top(), rho_suit.Top()))
-          // Play low as partner can win and I need to cover RHO's high card.
-          return ordered_cards.AddReversedCards(playable_cards);
-        if (!lho_suit && hands[LeftHandOpp()].Suit(trump) &&
-            HigherRank(pd_suit.Top(), winning_card))
-          // Play low if LHO may ruff and partner may win.
+            (!lho_suit || HigherRank(pd_suit.Top(), lho_suit.Top())))
+          // Play low as partner can win later.
           return ordered_cards.AddReversedCards(playable_cards);
       }
       auto higher_cards = playable_cards.Slice(0, winning_card);
