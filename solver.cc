@@ -1132,17 +1132,17 @@ class Play {
         if (lho_hand.Suit(trump) && !lho_hand.Suit(suit)) continue;
         if (rho_hand.Suit(trump) && !rho_hand.Suit(suit)) continue;
       }
-      auto partner_suit = hands[Partner()].Suit(suit);
+      auto pd_suit = hands[Partner()].Suit(suit);
       auto lho_suit = hands[LeftHandOpp()].Suit(suit);
       auto all_suit_cards = trick->all_cards.Suit(suit);
       int top1 = all_suit_cards.Top();
       int top2 = all_suit_cards.Remove(top1).Top();
       int top3 = all_suit_cards.Remove(top2).Top();
       int top4 = all_suit_cards.Remove(top3).Top();
-      if (partner_suit.Size() >= 2 && lho_suit.Size() >= 2) {
-        if ((partner_suit.Have(top1) && lho_suit.Have(top2) &&
-             (partner_suit.Have(top3) || (my_suit.Have(top3) && my_suit.Have(top4)))) ||
-            (partner_suit.Have(top2) && lho_suit.Have(top1))) {
+      if (pd_suit.Size() >= 2 && lho_suit.Size() >= 2) {
+        if ((pd_suit.Have(top1) && lho_suit.Have(top2) &&
+             (pd_suit.Have(top3) || (my_suit.Have(top3) && my_suit.Have(top4)))) ||
+            (pd_suit.Have(top2) && lho_suit.Have(top1))) {
           good_leads.Add(my_suit.Top());
           good_leads.Add(my_suit.Bottom());
           continue;
@@ -1405,8 +1405,8 @@ class Play {
     return {0, {}};
   }
 
-  Result SlowNoTrumpTricks(Cards my_hand, Cards partner_hand) const {
-    auto both_hands = my_hand.Union(partner_hand);
+  Result SlowNoTrumpTricks(Cards my_hand, Cards pd_hand) const {
+    auto both_hands = my_hand.Union(pd_hand);
     Cards rank_winners;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       if (!my_hand.Suit(suit)) continue;
@@ -1422,22 +1422,22 @@ class Play {
   }
 
   Result FastTricks() const {
-    Cards my_hand = hands[seat_to_play], partner_hand = hands[Partner()];
+    Cards my_hand = hands[seat_to_play], pd_hand = hands[Partner()];
     Cards lho_hand = hands[LeftHandOpp()], rho_hand = hands[RightHandOpp()];
-    Cards partner_rank_winners;
+    Cards pd_rank_winners;
     auto [trump_tricks, rank_winners] = trump == NOTRUMP ?
-        Result{0, {}} : TopTrumpTricks(my_hand.Suit(trump), partner_hand.Suit(trump));
-    int fast_tricks = 0, my_tricks = 0, partner_tricks = 0;
-    bool my_entry = false, partner_entry = false;
+        Result{0, {}} : TopTrumpTricks(my_hand.Suit(trump), pd_hand.Suit(trump));
+    int fast_tricks = 0, my_tricks = 0, pd_tricks = 0;
+    bool my_entry = false, pd_entry = false;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       if (suit == trump) continue;
       auto my_suit = my_hand.Suit(suit);
-      auto partner_suit = partner_hand.Suit(suit);
+      auto pd_suit = pd_hand.Suit(suit);
       auto lho_suit = lho_hand.Suit(suit);
       auto rho_suit = rho_hand.Suit(suit);
       int my_max_rank_winners =
-          std::max({partner_suit.Size(), lho_suit.Size(), rho_suit.Size()});
-      int partner_max_rank_winners =
+          std::max({pd_suit.Size(), lho_suit.Size(), rho_suit.Size()});
+      int pd_max_rank_winners =
           std::max({my_suit.Size(), lho_suit.Size(), rho_suit.Size()});
 
       auto max_suit_winners = TOTAL_TRICKS;
@@ -1446,49 +1446,49 @@ class Play {
         if (rho_hand.Suit(trump))
           max_suit_winners = std::min(max_suit_winners, rho_hand.Suit(suit).Size());
         while (my_suit.Size() > max_suit_winners) my_suit.Remove(my_suit.Bottom());
-        while (partner_suit.Size() > max_suit_winners)
-          partner_suit.Remove(partner_suit.Bottom());
+        while (pd_suit.Size() > max_suit_winners)
+          pd_suit.Remove(pd_suit.Bottom());
       }
 
-      int my_winners = 0, partner_winners = 0;
+      int my_winners = 0, pd_winners = 0;
       for (int card : trick->all_cards.Suit(suit))
         if (my_suit.Have(card)) {
           ++my_winners;
           if (my_winners <= my_max_rank_winners) rank_winners.Add(card);
-        } else if (partner_suit.Have(card)) {
-          ++partner_winners;
-          if (partner_winners <= partner_max_rank_winners) partner_rank_winners.Add(card);
+        } else if (pd_suit.Have(card)) {
+          ++pd_winners;
+          if (pd_winners <= pd_max_rank_winners) pd_rank_winners.Add(card);
         } else
           break;
       my_tricks +=
-          SuitFastTricks(my_suit, my_winners, my_entry, partner_suit, partner_winners);
-      partner_tricks += SuitFastTricks(partner_suit, partner_winners, partner_entry,
+          SuitFastTricks(my_suit, my_winners, my_entry, pd_suit, pd_winners);
+      pd_tricks += SuitFastTricks(pd_suit, pd_winners, pd_entry,
                                        my_suit, my_winners);
     }
-    if (partner_entry) {
-      fast_tricks = std::max(my_tricks, partner_tricks);
-      rank_winners.Add(partner_rank_winners);
+    if (pd_entry) {
+      fast_tricks = std::max(my_tricks, pd_tricks);
+      rank_winners.Add(pd_rank_winners);
     } else
       fast_tricks = my_tricks;
     return {std::min(trump_tricks + fast_tricks, my_hand.Size()), rank_winners};
   }
 
-  int SuitFastTricks(Cards my_suit, int my_winners, bool& my_entry, Cards partner_suit,
-                     int partner_winners) const {
+  int SuitFastTricks(Cards my_suit, int my_winners, bool& my_entry, Cards pd_suit,
+                     int pd_winners) const {
     // Entry from partner if my top winner can cover partner's bottom card.
-    if (partner_suit && my_winners > 0 && HigherRank(my_suit.Top(), partner_suit.Bottom()))
+    if (pd_suit && my_winners > 0 && HigherRank(my_suit.Top(), pd_suit.Bottom()))
       my_entry = true;
     // Partner has no winners.
-    if (partner_winners == 0) return my_winners;
+    if (pd_winners == 0) return my_winners;
     // Cash all my winners, then partner's.
-    if (my_winners == 0) return my_suit ? partner_winners : 0;
+    if (my_winners == 0) return my_suit ? pd_winners : 0;
     // Suit blocked by partner.
-    if (LowerRank(my_suit.Top(), partner_suit.Bottom())) return partner_winners;
+    if (LowerRank(my_suit.Top(), pd_suit.Bottom())) return pd_winners;
     // Suit blocked by me.
-    if (HigherRank(my_suit.Bottom(), partner_suit.Top())) return my_winners;
+    if (HigherRank(my_suit.Bottom(), pd_suit.Top())) return my_winners;
     // If partner has no small cards, treat one winner as a small card.
-    if (partner_winners == partner_suit.Size()) --partner_winners;
-    return std::min(my_suit.Size(), my_winners + partner_winners);
+    if (pd_winners == pd_suit.Size()) --pd_winners;
+    return std::min(my_suit.Size(), my_winners + pd_winners);
   }
 
   Cards GetTrickRankWinner() const {
