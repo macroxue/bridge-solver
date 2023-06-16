@@ -1118,15 +1118,15 @@ class Play {
 
   template <bool SUIT_CONTRACT>
   void Lead(Cards playable_cards) {
-    Cards good_top_bottom, high_top_bottom, top_bottom, bad_top_bottom, trump_top_bottom;
+    Cards good_leads, high_leads, leads, bad_leads, trump_leads;
     auto lho_hand = hands[LeftHandOpp()], rho_hand = hands[RightHandOpp()];
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       auto my_suit = playable_cards.Suit(suit);
       if (!my_suit) continue;
       if (SUIT_CONTRACT) {
         if (suit == trump) {
-          trump_top_bottom.Add(my_suit.Top());
-          trump_top_bottom.Add(my_suit.Bottom());
+          trump_leads.Add(my_suit.Top());
+          trump_leads.Add(my_suit.Bottom());
           continue;
         }
         if (lho_hand.Suit(trump) && !lho_hand.Suit(suit)) continue;
@@ -1143,8 +1143,8 @@ class Play {
         if ((partner_suit.Have(top1) && lho_suit.Have(top2) &&
              (partner_suit.Have(top3) || (my_suit.Have(top3) && my_suit.Have(top4)))) ||
             (partner_suit.Have(top2) && lho_suit.Have(top1))) {
-          good_top_bottom.Add(my_suit.Top());
-          good_top_bottom.Add(my_suit.Bottom());
+          good_leads.Add(my_suit.Top());
+          good_leads.Add(my_suit.Bottom());
           continue;
         }
       }
@@ -1154,32 +1154,32 @@ class Play {
         if ((my_suit.Have(top1) && rho_suit.Have(top2)) ||
             (my_suit.Have(top2) && rho_suit.Have(top1) && !partnership_cards.Have(top3))) {
           if (SUIT_CONTRACT) {
-            bad_top_bottom.Add(my_suit.Top());
-            bad_top_bottom.Add(my_suit.Bottom());
+            bad_leads.Add(my_suit.Top());
+            bad_leads.Add(my_suit.Bottom());
           }
           continue;
         }
       }
       Cards tops = Cards().Add(top1).Add(top2).Add(top3);
       if (lho_suit && rho_suit && partnership_cards.Intersect(tops).Size() >= 2) {
-        high_top_bottom.Add(my_suit.Top());
-        high_top_bottom.Add(my_suit.Bottom());
+        high_leads.Add(my_suit.Top());
+        high_leads.Add(my_suit.Bottom());
         continue;
       }
-      top_bottom.Add(my_suit.Top());
-      top_bottom.Add(my_suit.Bottom());
+      leads.Add(my_suit.Top());
+      leads.Add(my_suit.Bottom());
     }
-    ordered_cards.AddCards(good_top_bottom);
-    playable_cards.Remove(good_top_bottom);
-    ordered_cards.AddCards(high_top_bottom);
-    playable_cards.Remove(high_top_bottom);
-    ordered_cards.AddCards(top_bottom);
-    playable_cards.Remove(top_bottom);
+    ordered_cards.AddCards(good_leads);
+    playable_cards.Remove(good_leads);
+    ordered_cards.AddCards(high_leads);
+    playable_cards.Remove(high_leads);
+    ordered_cards.AddCards(leads);
+    playable_cards.Remove(leads);
     if (SUIT_CONTRACT) {
-      ordered_cards.AddCards(trump_top_bottom);
-      playable_cards.Remove(trump_top_bottom);
-      ordered_cards.AddCards(bad_top_bottom);
-      playable_cards.Remove(bad_top_bottom);
+      ordered_cards.AddCards(trump_leads);
+      playable_cards.Remove(trump_leads);
+      ordered_cards.AddCards(bad_leads);
+      playable_cards.Remove(bad_leads);
     }
     ordered_cards.AddCards(playable_cards);
   }
