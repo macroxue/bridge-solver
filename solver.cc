@@ -1398,9 +1398,24 @@ class Play {
     if (all_trumps.Size() >= 3) {
       auto top = Cards().Add(all_trumps.Top());
       auto second = Cards().Add(all_trumps.Different(top).Top());
+      // Kx behind A
       if ((pd_trumps.StrictlyInclude(second) && lho_trumps.Include(top)) ||
-          (my_trumps.StrictlyInclude(second) && rho_trumps.Include(top) && !leading))
+          (my_trumps.StrictlyInclude(second) && rho_trumps.Include(top) &&
+           (!leading || hands.num_tricks() >= 3)))
         return {1, top.Union(second)};
+      // KQ against A
+      auto third = Cards().Add(all_trumps.Different(top).Different(second).Top());
+      if (lho_trumps.Union(rho_trumps).Have(top) &&
+          my_trumps.Union(pd_trumps).Have(second.Union(third)) &&
+          (my_trumps.Size() >= 1 || pd_trumps.Size() >= 1))
+        return {1, top.Union(second).Union(third)};
+      // Qxx behind AK
+      if (all_trumps.Size() >= 5)
+        if ((pd_trumps.Include(third) && pd_trumps.Size() >= 3 &&
+             lho_trumps.Include(top.Union(second))) ||
+            (my_trumps.Include(third) && my_trumps.Size() >= 3 &&
+             rho_trumps.Include(top.Union(second)) && (!leading || hands.num_tricks() >= 4)))
+          return {1, top.Union(second).Union(third)};
     }
     return {0, {}};
   }
