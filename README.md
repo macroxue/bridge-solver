@@ -120,38 +120,38 @@ The directory can be `fixed_deals` (the default), `old_deals`, `new_deals`, `har
 **All numbers below are on a single core.**
 
 On ThinkPad X1 Carbon 8th gen with Intel(R) Core(TM) i7-10610U CPU @ 1.80 GHz and turbo,
-the solver fully analyzed 1000 random deals (under `1k_deals`) in just 222 seconds,
-averaging four and half deals per second. Below is a more detailed breakdown.
-The longest one took 2.48 seconds and consumed 57.9 MB of memory.
+the solver fully analyzed 1000 random deals (under `1k_deals`) in just 203 seconds,
+averaging almost five deals per second. Below is a more detailed breakdown.
+The longest one took 2.04 seconds and consumed 52.9 MB of memory.
 | Time    | Count   |
 |---------|---------|
-| <= .5 s | 914     |
-| <= 1 s  | 978     |
+| <= .5 s | 926     |
+| <= 1 s  | 985     |
 | <= 2 s  | 999     |
 | <= 3 s  | 1000    |
 
 One of the most difficult deals is this symmetric one, with four void suits and
-nobody holding consecutive ranks in any suit. It took the solver over eight seconds.
+nobody holding consecutive ranks in any suit. It took the solver less than seven seconds.
 ```
                   - Q853 AJ962 KT74
 KT74 - Q853 AJ962                   Q853 AJ962 KT74 -
                   AJ962 KT74 - Q853
-N  5  5  5  5  4.39 s 173.6 M
-S  4  4  8  7  5.19 s 173.8 M
-H  8  7  4  4  6.44 s 173.8 M
-D  4  4  7  8  7.53 s 173.8 M
-C  7  8  4  4  8.34 s 173.8 M
+N  5  5  5  5  3.63 s 166.8 M
+S  4  4  8  7  4.24 s 166.8 M
+H  8  7  4  4  5.11 s 166.8 M
+D  4  4  7  8  5.98 s 166.8 M
+C  7  8  4  4  6.62 s 166.8 M
 ```
 
 An even more freakish deal with each player holding only two suits made the solver
-work hard for more than 43 seconds!
+work hard for more than 41 seconds!
 ```
                    KJ9753 - AQT8642 -
 AQT8642 KJ9753 - -                    - - KJ9753 AQT8642
                    - AQT8642 - KJ9753
-N  7  7  7  7 30.31 s 167.6 M
-S  6  6  7  7 33.25 s 167.6 M
-H  7  7  6  6 36.75 s 167.6 M
-D  7  7  6  6 40.54 s 167.6 M
-C  6  6  7  7 43.15 s 167.6 M
+N  7  7  7  7 29.77 s 163.1 M
+S  6  6  7  7 32.30 s 163.1 M
+H  7  7  6  6 35.30 s 163.1 M
+D  7  7  6  6 39.08 s 163.1 M
+C  6  6  7  7 41.17 s 163.1 M
 ```
