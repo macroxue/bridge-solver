@@ -21,3 +21,5 @@ solver: solver.cc
 	./$@ -f < hard_deals/deal.8 | tail
 solver.g: solver.cc
 	g++ $(OPTS) -D_DEBUG -Og -g -o $@ $^
+clean:
+	rm -f solver.p solver solver.g
