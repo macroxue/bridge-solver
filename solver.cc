@@ -446,9 +446,7 @@ class Cache {
 
   const Entry* Lookup(Cards cards[input_size]) const {
     STATS(++lookups);
-
     uint64_t hash = Hash(cards);
-    if (hash == 0) return NULL;
     uint64_t index = hash >> (BitSize(hash) - bits);
 
     for (int d = 0; d < probe_distance; ++d) {
@@ -467,13 +465,10 @@ class Cache {
     if (load_count >= size * 3 / 4) Resize();
 
     STATS(++updates);
-
     uint64_t hash = Hash(cards);
-    if (hash == 0) return NULL;
     uint64_t index = hash >> (BitSize(hash) - bits);
 
-    // Linear probing benefits from hardware prefetch and thus is faster
-    // than collision resolution with multiple hash functions.
+    // Linear probing benefits from hardware prefetch.
     for (int d = 0; ; ++d) {
       Entry& entry = entries[(index + d) & (size - 1)];
       if (entry.hash == hash) return &entry;
@@ -489,7 +484,7 @@ class Cache {
 
  private:
   uint64_t Hash(Cards cards[input_size]) const {
-    static constexpr uint64_t hash_rand[2] = {0x6b8b4567327b23c7ULL, 0x643c986966334873ULL};
+    static constexpr uint64_t hash_rand[2] = {0x9b8b4567327b23c7ULL, 0x643c986966334873ULL};
     uint64_t sum = 0;
     for (int i = 0; i < (input_size + 1) / 2; ++i)
       sum += (cards[i * 2].Value() + hash_rand[i * 2]) *
@@ -1373,8 +1368,8 @@ class Play {
   }
 
   void SaveCutoffCard(Cards cutoff_index[], int cutoff_card) const {
-    if (auto* entry = cutoff_cache.Update(cutoff_index))
-      entry->card[seat_to_play] = cutoff_card;
+    auto* entry = cutoff_cache.Update(cutoff_index);
+    entry->card[seat_to_play] = cutoff_card;
   }
 
   Result TopTrumpTricks(Cards my_trumps, Cards pd_trumps) const {
