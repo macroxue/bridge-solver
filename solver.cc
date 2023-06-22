@@ -590,8 +590,7 @@ class Vector {
 
   void resize(size_t new_size) {
     if (capacity < new_size) {
-      capacity = std::max(capacity * 2, capacity + 1);
-      if (capacity == 0) --capacity;  // handle overflow
+      capacity = std::max(capacity * 2, (int)new_size);
       auto old_items = items;
       items = new char[capacity * sizeof(T)];
       memcpy(items, old_items, count * sizeof(T));
@@ -679,13 +678,9 @@ struct Pattern {
           if (!(old_pattern <= new_pattern)) continue;
           old_pattern.UpdateBounds(new_pattern.bounds);
           if (old_pattern.bounds != new_pattern.bounds) new_pattern.Append(old_pattern);
-          else if (new_pattern.patterns.size() == 0)
-            new_pattern.patterns.swap(old_pattern.patterns);
-          else for (size_t j = 0; j < old_pattern.patterns.size(); ++j)
-            if (new_pattern.bounds != old_pattern.patterns[j].bounds)
-              new_pattern.Append(old_pattern.patterns[j]);
-          old_pattern.MoveFrom(patterns.back());
-          patterns.pop_back();
+          else if (!new_pattern.patterns.size()) new_pattern.patterns.swap(old_pattern.patterns);
+          else new_pattern.Append(old_pattern.patterns);
+          Delete(i);
           --i;
         }
         pattern.MoveFrom(new_pattern);
@@ -702,17 +697,30 @@ struct Pattern {
     if (bounds == old_bounds) return;
     for (size_t i = 0; i < patterns.size(); ++i) {
       patterns[i].UpdateBounds(bounds);
-      if (patterns[i].bounds == new_bounds) {
-        if (i < patterns.size() - 1) patterns[i].MoveFrom(patterns.back());
-        patterns.pop_back();
-        --i;
-      }
+      if (patterns[i].bounds != bounds) continue;
+      Append(patterns[i].patterns);
+      Delete(i);
+      --i;
     }
   }
 
   void Append(Pattern& new_pattern) {
     patterns.resize(patterns.size() + 1);
     patterns.back().MoveFrom(new_pattern);
+  }
+
+  void Append(Vector<Pattern>& new_patterns) {
+    auto new_size = new_patterns.size();
+    if (new_size == 0) return;
+    auto size = patterns.size();
+    patterns.resize(size + new_size);
+    for (size_t i = 0; i < new_size; ++i)
+      patterns[size + i].MoveFrom(new_patterns[i]);
+  }
+
+  void Delete(size_t i) {
+    patterns[i].MoveFrom(patterns.back());
+    patterns.pop_back();
   }
 
   // This pattern is more detailed than (a subset of) the other pattern.
@@ -743,7 +751,7 @@ struct Pattern {
     return sum;
   }
 
-  void Show(Shape shape, int level = 1) const {
+  void Show(Shape shape, int level = 1, Bounds parent_bounds = {0, TOTAL_TRICKS}) const {
     if (level > 0) {
       printf("%*d: (%d %d) ", level * 2, level, bounds.lower, bounds.upper);
       for (int seat = 0; seat < NUM_SEATS; ++seat) {
@@ -760,9 +768,9 @@ struct Pattern {
         }
         if (seat < NUM_SEATS - 1) printf(", ");
       }
-      printf("\n");
+      puts(bounds == parent_bounds ? " dup" : "");
     }
-    for (size_t i = 0; i < patterns.size(); ++i) patterns[i].Show(shape, level + 1);
+    for (size_t i = 0; i < patterns.size(); ++i) patterns[i].Show(shape, level + 1, bounds);
   }
 };
 
@@ -809,6 +817,7 @@ struct ShapeEntry {
     ++hits;
     if (last_bounds.Cutoff(beta) && new_pattern <= Pattern(last_hands)) {
       ++cuts;
+      CHECK(pattern.Lookup(new_pattern, beta));
       return {&last_hands, last_bounds};
     }
     auto cached_pattern = pattern.Lookup(new_pattern, beta);
