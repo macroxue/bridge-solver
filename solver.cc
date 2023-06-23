@@ -982,7 +982,6 @@ class Play {
     }
 
     if (depth > 0) {
-      trick->all_cards = hands.all_cards();
       ns_tricks_won = PreviousPlay().ns_tricks_won + PreviousPlay().NsWon();
       seat_to_play = PreviousPlay().WinningSeat();
     }
@@ -993,6 +992,7 @@ class Play {
 
     if (remaining_tricks == 1) return CollectLastTrick();
 
+    trick->all_cards = hands.all_cards();
     ComputeShape();
     trick->ComputeRelativeHands(depth, hands);
 
@@ -1536,8 +1536,7 @@ class Play {
       }
     }
     Cards rank_winners;
-    auto trick_cards = trick->all_cards;
-    if (trick_cards.Remove(winning_card).Suit(SuitOf(winning_card)))
+    if (hands.all_cards().Remove(winning_card).Suit(SuitOf(winning_card)))
       rank_winners.Add(winning_card);
     return {ns_tricks_won + IsNs(winning_seat), rank_winners};
   }
@@ -1601,7 +1600,6 @@ class Play {
 class MinMax {
  public:
   MinMax(const Hands& hands_in, int trump, int seat_to_play) : hands(hands_in) {
-    tricks[0].all_cards = hands.all_cards();
     for (int i = 0; i < TOTAL_CARDS; ++i)
       new (&plays[i]) Play(plays, tricks + i / 4, hands, trump, i, seat_to_play);
     if (options.stats_level) memset((void*)stats, 0, sizeof(stats));
@@ -1839,12 +1837,12 @@ class InteractivePlay {
   bool SetupTrick(Play& play) {
     // TODO: Clean up! SearchWithCache() recomputes the same info.
     if (play.depth > 0) {
-      play.trick->all_cards = play.hands.all_cards();
       play.ns_tricks_won =
           play.PreviousPlay().ns_tricks_won + play.PreviousPlay().NsWon();
       play.seat_to_play = play.PreviousPlay().WinningSeat();
     }
 
+    play.trick->all_cards = play.hands.all_cards();
     play.ComputeShape();
     play.trick->ComputeRelativeHands(play.depth, play.hands);
 
