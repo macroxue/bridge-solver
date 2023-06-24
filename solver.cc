@@ -121,7 +121,7 @@ struct Options {
   char* input = nullptr;
   char* shuffle_seats = nullptr;
   int trump = -1;
-  int guess = TOTAL_TRICKS;
+  int guess = -1;
   int displaying_depth = -1;
   int stats_level = 0;
   int show_hands = 2;
@@ -224,7 +224,7 @@ class Cards {
   Cards Remove(const Cards& c) { return bits &= ~c.bits; }
   Cards ClearSuit(int suit) { return bits &= ~MaskOf(suit); }
 
-  int CountPoints() const {
+  int Points() const {
     int points = 0;
     for (int card : *this)
       if (RankOf(card) > TEN) points += RankOf(card) - TEN;
@@ -348,22 +348,22 @@ class Hands {
 
   void ShowCompact(int rotation = 0) const {
     int seat = (NORTH + rotation) % NUM_SEATS;
-    printf("%25s%c %2d ", " ", SeatLetter(seat), hands[seat].CountPoints());
+    printf("%25s%c %2d ", " ", SeatLetter(seat), hands[seat].Points());
     hands[seat].Show();
     printf("\n");
 
     seat = (WEST + rotation) % NUM_SEATS;
     int num_cards = hands[seat].Size();
-    printf("%*s%c %2d ", 14 - num_cards, " ", SeatLetter(seat), hands[seat].CountPoints());
+    printf("%*s%c %2d ", 14 - num_cards, " ", SeatLetter(seat), hands[seat].Points());
     hands[seat].Show();
 
     seat = (EAST + rotation) % NUM_SEATS;
-    printf("%*s%c %2d ", num_cards + 8, " ", SeatLetter(seat), hands[seat].CountPoints());
+    printf("%*s%c %2d ", num_cards + 8, " ", SeatLetter(seat), hands[seat].Points());
     hands[seat].Show();
     printf("\n");
 
     seat = (SOUTH + rotation) % NUM_SEATS;
-    printf("%25s%c %2d ", " ", SeatLetter(seat), hands[seat].CountPoints());
+    printf("%25s%c %2d ", " ", SeatLetter(seat), hands[seat].Points());
     hands[seat].Show();
     printf("\n");
   }
@@ -402,7 +402,7 @@ class Hands {
     if (suit == SPADE)
       printf("%*s%c ", gap - 2, " ", SeatLetter(seat));
     else if (suit == CLUB)
-      printf("%*s%2d ", gap - 3, " ", hand.CountPoints());
+      printf("%*s%2d ", gap - 3, " ", hand.Points());
     else
       printf("%*s", gap, " ");
   }
@@ -1744,6 +1744,25 @@ int MemoryEnhancedTestDriver(std::function<int(int)> search, int num_tricks,
   return ns_tricks;
 }
 
+int GuessTricks(const Hands& hands, int trump) {
+  if (options.guess >= 0) return std::min(options.guess, hands.num_tricks());
+
+  int ns_points = hands[NORTH].Points() + hands[SOUTH].Points();
+  int ew_points = hands[EAST].Points() + hands[WEST].Points();
+  if (trump == NOTRUMP) {
+    if (ns_points < ew_points - 1) return hands.num_tricks() / 2 + 1;
+  } else {
+    int n_trumps = hands[NORTH].Suit(trump).Size(), s_trumps = hands[SOUTH].Suit(trump).Size();
+    int e_trumps = hands[EAST].Suit(trump).Size(), w_trumps = hands[WEST].Suit(trump).Size();
+    if (ns_points < ew_points - 1 &&
+        (std::max(n_trumps, s_trumps) < std::max(e_trumps, w_trumps) ||
+         (std::max(n_trumps, s_trumps) == std::max(e_trumps, w_trumps) &&
+          n_trumps + s_trumps < e_trumps + w_trumps)))
+      return 0;
+  }
+  return hands.num_tricks();
+}
+
 void Solve(const Hands& hands, const std::vector<int>& trumps,
            const std::vector<int>& lead_seats, std::function<void(int trump)> trump_start,
            std::function<void(int trump, int lead_seat, int ns_tricks)> seat_done,
@@ -1751,7 +1770,7 @@ void Solve(const Hands& hands, const std::vector<int>& trumps,
   int num_tricks = hands[WEST].Size();
   for (int trump : trumps) {
     trump_start(trump);
-    int guess_tricks = std::min(options.guess, num_tricks);
+    int guess_tricks = GuessTricks(hands, trump);
     for (int lead_seat : lead_seats) {
       MinMax min_max(hands, trump, lead_seat);
       auto search = [&min_max](int beta) { return min_max.Search(beta); };
