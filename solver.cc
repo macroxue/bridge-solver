@@ -856,6 +856,7 @@ struct Trick {
   Shape shape;
   Cards all_cards;
   Hands relative_hands;
+  int lead_suit;
 
   // A relative hand contains relative cards.
   void ComputeRelativeHands(int depth, const Hands& hands) {
@@ -1342,6 +1343,7 @@ class Play {
     hands[seat_to_play].Remove(card_played);
 
     // who's winning?
+    if (TrickStarting()) trick->lead_suit = SuitOf(card_played);
     if (TrickStarting() || WinOver(card_played, PreviousPlay().WinningCard())) {
       winning_play = depth;
     } else {
@@ -1571,8 +1573,7 @@ class Play {
   }
   int WinningCard() const { return plays[winning_play].card_played; }
   int WinningSeat() const { return plays[winning_play].seat_to_play; }
-  int LeadCard() const { return plays[depth & ~3].card_played; }
-  int LeadSuit() const { return SuitOf(LeadCard()); }
+  int LeadSuit() const { return trick->lead_suit; }
   int NextSeat(int count = 1) const { return (seat_to_play + count) & (NUM_SEATS - 1); }
   int LeftHandOpp() const { return NextSeat(1); }
   int Partner() const { return NextSeat(2); }
