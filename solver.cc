@@ -1126,7 +1126,8 @@ class Play {
 
   template <bool SUIT_CONTRACT>
   void Lead(Cards playable_cards) {
-    Cards good_leads, high_leads, leads, bad_leads, trump_leads;
+    Cards good_leads, high_leads, leads, bad_leads, trump_leads, ruff_leads;
+    auto pd_hand = hands[Partner()];
     auto lho_hand = hands[LeftHandOpp()], rho_hand = hands[RightHandOpp()];
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       auto my_suit = playable_cards.Suit(suit);
@@ -1140,8 +1141,8 @@ class Play {
         if (lho_hand.Suit(trump) && !lho_hand.Suit(suit)) continue;
         if (rho_hand.Suit(trump) && !rho_hand.Suit(suit)) continue;
       }
-      auto pd_suit = hands[Partner()].Suit(suit);
-      auto lho_suit = hands[LeftHandOpp()].Suit(suit);
+      auto pd_suit = pd_hand.Suit(suit);
+      auto lho_suit = lho_hand.Suit(suit);
       auto all_suit_cards = trick->all_cards.Suit(suit);
       int top1 = all_suit_cards.Top();
       int top2 = all_suit_cards.Remove(top1).Top();
@@ -1156,7 +1157,7 @@ class Play {
           continue;
         }
       }
-      auto rho_suit = hands[RightHandOpp()].Suit(suit);
+      auto rho_suit = rho_hand.Suit(suit);
       auto partnership_cards = hands.partnership_cards(seat_to_play);
       if (my_suit.Size() >= 2 && rho_suit.Size() >= 2) {
         if ((my_suit.Have(top1) && rho_suit.Have(top2)) ||
@@ -1174,8 +1175,18 @@ class Play {
         high_leads.Add(my_suit.Bottom());
         continue;
       }
+      if (SUIT_CONTRACT && !pd_suit && lho_suit && rho_suit && pd_hand.Suit(trump) &&
+          pd_hand.Suit(trump).Size() <= playable_cards.Suit(trump).Size() &&
+          my_suit.Bottom() != top1) {
+        ruff_leads.Add(my_suit.Bottom());
+        continue;
+      }
       leads.Add(my_suit.Top());
       leads.Add(my_suit.Bottom());
+    }
+    if (SUIT_CONTRACT) {
+      ordered_cards.AddCards(ruff_leads);
+      playable_cards.Remove(ruff_leads);
     }
     ordered_cards.AddCards(good_leads);
     playable_cards.Remove(good_leads);
