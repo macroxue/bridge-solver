@@ -1577,8 +1577,8 @@ class Play {
   int LeftHandOpp() const { return NextSeat(1); }
   int Partner() const { return NextSeat(2); }
   int RightHandOpp() const { return NextSeat(3); }
-  Play& PreviousPlay() const { return plays[depth - 1]; }
-  Play& NextPlay() const { return plays[depth + 1]; }
+  const Play& PreviousPlay() const { return *(this - 1); }
+  Play& NextPlay() { return *(this + 1); }
 
   // Fixed info.
   Play* const plays = nullptr;
