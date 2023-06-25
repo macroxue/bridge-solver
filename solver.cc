@@ -118,40 +118,59 @@ struct CardInitializer {
 
 struct Options {
   char* code = nullptr;
-  char* input = nullptr;
+  char* input_file = nullptr;
   char* shuffle_seats = nullptr;
   int trump = -1;
-  int guess = -1;
+  int guess_tricks = -1;
   int displaying_depth = -1;
   int stats_level = 0;
-  int show_hands = 2;
+  int show_hands_mask = 2;
   bool deal_only = false;
   bool discard_suit_bottom = false;
   bool randomize = false;
-  bool full_analysis = false;
-  bool interactive = false;
+  bool ignore_trump_and_lead = false;
+  bool play_interactively = false;
 
   void Read(int argc, char* argv[]) {
     int c;
-    while ((c = getopt(argc, argv, "c:dfg:i:ors:t:D:H:IS:")) != -1) {
+    while ((c = getopt(argc, argv, "c:df:im:oprs:t:D:G:S:")) != -1) {
       switch (c) {
         // clang-format off
         case 'c': code = optarg; break;
         case 'd': discard_suit_bottom = true; break;
-        case 'f': full_analysis = true; break;
-        case 'g': guess = atoi(optarg); break;
-        case 'i': input = optarg; break;
+        case 'f': input_file = optarg; break;
+        case 'i': ignore_trump_and_lead = true; break;
+        case 'm': show_hands_mask = atoi(optarg); break;
         case 'o': deal_only = true; break;
+        case 'p': play_interactively = true; break;
         case 'r': randomize = true; break;
         case 's': shuffle_seats = optarg; break;
         case 't': trump = CharToSuit(optarg[0]); break;
         case 'D': displaying_depth = atoi(optarg); break;
-        case 'H': show_hands = atoi(optarg); break;
-        case 'I': interactive = true; break;
+        case 'G': guess_tricks = atoi(optarg); break;
         case 'S': stats_level = atoi(optarg); break;
           // clang-format on
       }
     }
+  }
+
+  void ShowUsage(char* name) {
+    printf("%s  A fast double-dummy solver for the card game of Bridge.\n", name);
+    printf("\t-r           Solve a random deal.\n"
+           "\t-f <file>    Solve a deal in the input file. See files in *_deals/ for examples.\n"
+           "\t-c <code>    Solve a deal defined by its unique code. See -m below.\n"
+           "\t-p           Play interactively, possibly exploring all paths.\n"
+           "\n"
+           "\t-s <seats>   Shuffle hands in the specified seats, a combination of {W, N, E, S}.\n"
+           "\t-m <mask>    Mask for showing a deal. The following values can be added.\n"
+           "\t               1    Show the deal's unique code\n"
+           "\t               2    Show the deal in compact format\n"
+           "\t               4    Show the deal in expanded format\n"
+           "\t-o           Show the deal without solving it.\n"
+           "\t-i           Ignore the trump and the lead specified in the input file.\n"
+           "\t-t <trump>   Solve for the specified trump, one of {N, S, H, D, C}.\n"
+           "\t-d           Discard only the smallest card in a suit, imprecise but faster.\n");
+    exit(0);
   }
 } options;
 
@@ -348,22 +367,22 @@ class Hands {
 
   void ShowCompact(int rotation = 0) const {
     int seat = (NORTH + rotation) % NUM_SEATS;
-    printf("%25s%c %2d ", " ", SeatLetter(seat), hands[seat].Points());
+    printf("%25s ", " ");
     hands[seat].Show();
     printf("\n");
 
     seat = (WEST + rotation) % NUM_SEATS;
     int num_cards = hands[seat].Size();
-    printf("%*s%c %2d ", 14 - num_cards, " ", SeatLetter(seat), hands[seat].Points());
+    printf("%*s ", 14 - num_cards, " ");
     hands[seat].Show();
 
     seat = (EAST + rotation) % NUM_SEATS;
-    printf("%*s%c %2d ", num_cards + 8, " ", SeatLetter(seat), hands[seat].Points());
+    printf("%*s ", num_cards + 8, " ");
     hands[seat].Show();
     printf("\n");
 
     seat = (SOUTH + rotation) % NUM_SEATS;
-    printf("%25s%c %2d ", " ", SeatLetter(seat), hands[seat].Points());
+    printf("%25s ", " ");
     hands[seat].Show();
     printf("\n");
   }
@@ -1669,13 +1688,10 @@ Cards ParseHand(char* line, Cards all_cards) {
 }
 
 void ReadHands(Hands& hands, std::vector<int>& trumps, std::vector<int>& lead_seats) {
-  FILE* input_file = stdin;
-  if (options.input) {
-    input_file = fopen(options.input, "rt");
-    if (!input_file) {
-      fprintf(stderr, "Input file not found: '%s'.\n", options.input);
-      exit(-1);
-    }
+  auto input_file = fopen(options.input_file, "rt");
+  if (!input_file) {
+    fprintf(stderr, "Input file not found: '%s'.\n", options.input_file);
+    exit(-1);
   }
   // read hands
   char line[NUM_SEATS][120];
@@ -1715,13 +1731,13 @@ void ReadHands(Hands& hands, std::vector<int>& trumps, std::vector<int>& lead_se
     hands.Deal(all_cards.Complement(), empty_seats);
   }
 
-  if (!options.full_analysis && fscanf(input_file, " %s ", line[0]) == 1)
+  if (!options.ignore_trump_and_lead && fscanf(input_file, " %s ", line[0]) == 1)
     trumps = {CharToSuit(line[0][0])};
 
-  if (!options.full_analysis && fscanf(input_file, " %s ", line[0]) == 1)
+  if (!options.ignore_trump_and_lead && fscanf(input_file, " %s ", line[0]) == 1)
     lead_seats = {CharToSeat(line[0][0])};
 
-  if (input_file != stdin) fclose(input_file);
+  fclose(input_file);
 }
 
 int MemoryEnhancedTestDriver(std::function<int(int)> search, int num_tricks,
@@ -1745,16 +1761,17 @@ int MemoryEnhancedTestDriver(std::function<int(int)> search, int num_tricks,
 }
 
 int GuessTricks(const Hands& hands, int trump) {
-  if (options.guess >= 0) return std::min(options.guess, hands.num_tricks());
+  if (options.guess_tricks >= 0) return std::min(options.guess_tricks, hands.num_tricks());
 
   int ns_points = hands[NORTH].Points() + hands[SOUTH].Points();
   int ew_points = hands[EAST].Points() + hands[WEST].Points();
   if (trump == NOTRUMP) {
-    if (ns_points < ew_points - 1) return hands.num_tricks() / 2 + 1;
+    if (ns_points * 2 < ew_points) return 0;
+    if (ns_points < ew_points) return hands.num_tricks() / 2 + 1;
   } else {
     int n_trumps = hands[NORTH].Suit(trump).Size(), s_trumps = hands[SOUTH].Suit(trump).Size();
     int e_trumps = hands[EAST].Suit(trump).Size(), w_trumps = hands[WEST].Suit(trump).Size();
-    if (ns_points < ew_points - 1 &&
+    if (ns_points < ew_points &&
         (std::max(n_trumps, s_trumps) < std::max(e_trumps, w_trumps) ||
          (std::max(n_trumps, s_trumps) == std::max(e_trumps, w_trumps) &&
           n_trumps + s_trumps < e_trumps + w_trumps)))
@@ -2079,22 +2096,24 @@ int main(int argc, char* argv[]) {
   std::vector<int> lead_seats = {WEST, EAST, NORTH, SOUTH};
   if (options.code)
     hands.Decode(options.code);
+  else if (options.input_file)
+    ReadHands(hands, trumps, lead_seats);
   else if (options.randomize)
     hands.Randomize();
   else
-    ReadHands(hands, trumps, lead_seats);
+    options.ShowUsage(argv[0]);
   if (options.shuffle_seats) hands.Shuffle(options.shuffle_seats);
 
-  if (options.show_hands & 1) hands.ShowCode();
-  if (options.show_hands & 2) hands.ShowCompact();
-  if (options.show_hands & 4) hands.ShowDetailed();
+  if (options.show_hands_mask & 1) hands.ShowCode();
+  if (options.show_hands_mask & 2) hands.ShowCompact();
+  if (options.show_hands_mask & 4) hands.ShowDetailed();
   if (options.deal_only) return 0;
 
   if (options.trump != -1) {
     trumps.clear();
     trumps.push_back(options.trump);
   }
-  if (options.interactive) {
+  if (options.play_interactively) {
     auto do_nothing = [](int trump) {};
     auto seat_done = [&hands](int trump, int lead_seat, int ns_tricks) {
       if (hands.num_tricks() < TOTAL_TRICKS ||

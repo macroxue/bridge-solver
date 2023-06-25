@@ -14,11 +14,11 @@ endif
 solver.p: solver.cc
 	rm -f solver.gcda
 	g++ $(OPTS) -O3 -fprofile-generate -o $@ $^
-	./$@ -f < hard_deals/deal.8 | tail
+	./$@ -if hard_deals/deal.8 | tail
 	mv solver.p-solver.gcda solver.gcda
 solver: solver.cc
 	g++ $(OPTS) -O3 -fprofile-use -o $@ $^
-	./$@ -f < hard_deals/deal.8 | tail
+	./$@ -if hard_deals/deal.8 | tail
 solver.g: solver.cc
 	g++ $(OPTS) -D_DEBUG -Og -g -o $@ $^
 clean:

@@ -15,14 +15,14 @@ make
 ```
 The output looks like below.
 ```
-                         N ♠ KJT987 ♥ K5 ♦ 7 ♣ AQJ8
- W ♠ 3 ♥ J9764 ♦ Q642 ♣ KT2                      E ♠ Q64 ♥ QT8 ♦ KJ953 ♣ 94
-                         S ♠ A52 ♥ A32 ♦ AT8 ♣ 7653
-N 13 13  0  0  0.1 s   9.4 M
-S 13 13  0  0  0.1 s   9.7 M
-H  7  7  6  5  0.2 s  14.0 M
-D  6  6  6  6  0.5 s  16.6 M
-C 13 13  0  0  0.5 s  16.6 M
+                          ♠ KJT987 ♥ K5 ♦ 7 ♣ AQJ8
+  ♠ 3 ♥ J9764 ♦ Q642 ♣ KT2                       ♠ Q64 ♥ QT8 ♦ KJ953 ♣ 94
+                          ♠ A52 ♥ A32 ♦ AT8 ♣ 7653
+N 13 13  0  0  0.01 s  10.2 M
+S 13 13  0  0  0.02 s  10.2 M
+H  7  7  6  5  0.21 s  12.9 M
+D  6  6  6  6  0.34 s  13.2 M
+C 13 13  0  0  0.34 s  13.2 M
 ```
 Each line after the deal shows the strain to play, the number of tricks when
 South/North/West/East declares respectively, the cumulative time and the peak
@@ -31,7 +31,7 @@ memory usage.
 ## Solve a deal in a file
 
 ```
-./solver -i FILE
+./solver -f FILE
 ```
 
 The format of the deal in the file is like below.
@@ -50,11 +50,11 @@ all five strains.
 
 ## Interactive play
 ```
-./solver -r -I
+./solver -r -p
 ```
 or
 ```
-./solver -i FILE -I
+./solver -f FILE -p
 ```
 
 The solver automatically determines the contract. If nobody can make any
@@ -133,9 +133,9 @@ The longest one took 2.04 seconds and consumed 52.9 MB of memory.
 One of the most difficult deals is this symmetric one, with four void suits and
 nobody holding consecutive ranks in any suit. It took the solver less than seven seconds.
 ```
-                  - Q853 AJ962 KT74
-KT74 - Q853 AJ962                   Q853 AJ962 KT74 -
-                  AJ962 KT74 - Q853
+                          ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
+  ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
+                          ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
 N  5  5  5  5  3.63 s 166.8 M
 S  4  4  8  7  4.24 s 166.8 M
 H  8  7  4  4  5.11 s 166.8 M
@@ -146,9 +146,9 @@ C  7  8  4  4  6.62 s 166.8 M
 An even more freakish deal with each player holding only two suits made the solver
 work hard for more than 41 seconds!
 ```
-                   KJ9753 - AQT8642 -
-AQT8642 KJ9753 - -                    - - KJ9753 AQT8642
-                   - AQT8642 - KJ9753
+                          ♠ KJ9753 ♥ - ♦ AQT8642 ♣ -
+  ♠ AQT8642 ♥ KJ9753 ♦ - ♣ -                       ♠ - ♥ - ♦ KJ9753 ♣ AQT8642
+                          ♠ - ♥ AQT8642 ♦ - ♣ KJ9753
 N  7  7  7  7 29.77 s 163.1 M
 S  6  6  7  7 32.30 s 163.1 M
 H  7  7  6  6 35.30 s 163.1 M

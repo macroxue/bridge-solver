@@ -13,10 +13,10 @@ do
 done
 
 if [[ -z $code ]]; then
-  output=($(./solver -ro -H1))
+  output=($(./solver -ro -m1))
   code=${output[1]}
 fi
-./solver -c $code -H5
+./solver -c $code -m5
 
 eraser="\b\b\b\b"
 
@@ -37,7 +37,7 @@ for seats in EW NS; do
       if [[ -t 1 ]]; then
         printf "$round"
       fi
-      result=($(./solver -c $code -s $seats -t $trump -d -H0))
+      result=($(./solver -c $code -s $seats -t $trump -d -m0))
       south_sum=$((south_sum+${result[1]}))
       north_sum=$((north_sum+${result[2]}))
       west_sum=$((west_sum+${result[3]}))
