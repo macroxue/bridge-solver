@@ -458,7 +458,7 @@ class Cache {
     for (int i = 0; i < size; ++i)
       if (entries[i].hash != 0) {
         recursive_load += entries[i].Size();
-        if (options.stats_level > 1) entries[i].Show();
+        STATS(if (options.stats_level > 1) entries[i].Show());
       }
     if (recursive_load > load_count) printf("recursive load: %8d\n", recursive_load);
   }
@@ -656,13 +656,13 @@ struct Pattern {
   void Reset() {
     hands = Hands();
     bounds = {0, TOTAL_TRICKS};
-    patterns.clear();  // patterns.shrink_to_fit();
+    patterns.clear();
   }
 
   void MoveFrom(Pattern& p) {
     hands = p.hands;
     bounds = p.bounds;
-    patterns.swap(p.patterns);  // std::swap(patterns, p.patterns);
+    patterns.swap(p.patterns);
   }
 
   const Pattern* Lookup(const Pattern& new_pattern, int beta) const {
@@ -787,7 +787,7 @@ struct Pattern {
         }
         if (seat < NUM_SEATS - 1) printf(", ");
       }
-      puts(bounds == parent_bounds ? " dup" : "");
+      puts(level > 1 && bounds == parent_bounds ? " dup" : "");
     }
     for (size_t i = 0; i < patterns.size(); ++i) patterns[i].Show(shape, level + 1, bounds);
   }
@@ -795,14 +795,11 @@ struct Pattern {
 
 struct ShapeEntry {
   uint64_t hash;
+  Pattern pattern;
+#if _DEBUG
   Shape shape;
-  mutable Hands last_hands;
-  mutable Bounds last_bounds;
   short seat_to_play;
   mutable uint16_t hits, cuts;
-  Pattern pattern;
-
-  int Size() const { return pattern.Size() - 1; }
 
   void Show() const {
     printf("hash %016lx shape %016lx seat %c size %ld total size %d hits %d cuts %d\n",
@@ -810,40 +807,43 @@ struct ShapeEntry {
            hits, cuts);
     pattern.Show(shape, 0);
   }
+#endif
+
+  int Size() const { return pattern.Size() - 1; }
 
   void Reset(uint64_t hash_in) {
     hash = hash_in;
+    pattern.Reset();
+#ifdef _DEBUG
     shape = Shape();
-    last_hands = Hands();
-    last_bounds = {0, TOTAL_TRICKS};
     seat_to_play = -1;
     hits = cuts = 0;
-    pattern.Reset();
+#endif
   }
 
   void MoveTo(ShapeEntry& to) {
     to.hash = hash;
+    to.pattern.MoveFrom(pattern);
+#ifdef _DEBUG
     to.shape = shape;
-    to.last_bounds = last_bounds;
-    to.last_hands = last_hands;
     to.seat_to_play = seat_to_play;
     to.hits = hits;
     to.cuts = cuts;
-    to.pattern.MoveFrom(pattern);
+#endif
   }
 
   std::pair<const Hands*, Bounds> Lookup(const Pattern& new_pattern, int beta) const {
-    ++hits;
-    if (last_bounds.Cutoff(beta) && new_pattern <= Pattern(last_hands)) {
-      ++cuts;
+    STATS(++hits);
+    if (pattern.bounds.Cutoff(beta) && new_pattern <= pattern) {
+      STATS(++cuts);
       CHECK(pattern.Lookup(new_pattern, beta));
-      return {&last_hands, last_bounds};
+      return {&pattern.hands, pattern.bounds};
     }
     auto cached_pattern = pattern.Lookup(new_pattern, beta);
     if (cached_pattern) {
-      ++cuts;
-      last_hands = cached_pattern->hands;
-      last_bounds = cached_pattern->bounds;
+      STATS(++cuts);
+      const_cast<Pattern*>(&pattern)->hands = cached_pattern->hands;
+      const_cast<Pattern*>(&pattern)->bounds = cached_pattern->bounds;
       return {&cached_pattern->hands, cached_pattern->bounds};
     }
     return {nullptr, Bounds{}};
@@ -868,7 +868,7 @@ struct CutoffEntry {
 };
 #pragma pack(pop)
 
-Cache<ShapeEntry, 2> common_bounds_cache("Common Bounds Cache", 16);
+Cache<ShapeEntry, 2> common_bounds_cache("Common Bounds Cache", 15);
 Cache<CutoffEntry, 2> cutoff_cache("Cut-off Cache", 16);
 
 struct Trick {
@@ -1043,11 +1043,13 @@ class Play {
 
     auto [pattern_hands, extended_rank_winners] = trick->ComputePatternHands(rank_winners);
     Pattern new_pattern(pattern_hands, bounds);
+    VERBOSE(ShowPattern("update", new_pattern, trick->shape));
     auto* new_shape_entry = common_bounds_cache.Update(shape_index);
+#ifdef _DEBUG
     new_shape_entry->shape = trick->shape;
     new_shape_entry->seat_to_play = seat_to_play;
+#endif
     new_shape_entry->pattern.Update(new_pattern);
-    VERBOSE(ShowPattern("update", new_pattern, trick->shape));
     return {ns_tricks, extended_rank_winners};
   }
 

@@ -117,18 +117,18 @@ The directory can be `fixed_deals` (the default), `old_deals`, `new_deals`, `har
 ./parallel_run_tests.sh [DIRECTORY] [THREADS]
 ```
 
-**All numbers below are on a single core.**
+**All numbers below are on a single thread/core.**
 
 On ThinkPad X1 Carbon 8th gen with Intel(R) Core(TM) i7-10610U CPU @ 1.80 GHz and turbo,
-the solver fully analyzed 1000 random deals (under `1k_deals`) in just 203 seconds,
-averaging almost five deals per second. Below is a more detailed breakdown.
-The longest one took 2.04 seconds and consumed 52.9 MB of memory.
+the solver fully analyzed 1000 random deals (under `1k_deals`) in just 190 seconds,
+averaging more than five deals per second. Below is a more detailed breakdown.
+The longest one took 1.99 seconds and consumed 46.9 MB of memory.
 | Time    | Count   |
 |---------|---------|
-| <= .5 s | 926     |
+| <= .25 s| 784     |
+| <= .5 s | 939     |
 | <= 1 s  | 985     |
-| <= 2 s  | 999     |
-| <= 3 s  | 1000    |
+| <= 2 s  | 1000    |
 
 One of the most difficult deals is this symmetric one, with four void suits and
 nobody holding consecutive ranks in any suit. It took the solver less than seven seconds.
@@ -136,22 +136,22 @@ nobody holding consecutive ranks in any suit. It took the solver less than seven
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
-N  5  5  5  5  3.63 s 166.8 M
-S  4  4  8  7  4.24 s 166.8 M
-H  8  7  4  4  5.11 s 166.8 M
-D  4  4  7  8  5.98 s 166.8 M
-C  7  8  4  4  6.62 s 166.8 M
+N  5  5  5  5  3.31 s 154.9 M
+S  4  4  8  7  3.96 s 154.9 M
+H  8  7  4  4  4.86 s 154.9 M
+D  4  4  7  8  5.74 s 154.9 M
+C  7  8  4  4  6.38 s 154.9 M
 ```
 
 An even more freakish deal with each player holding only two suits made the solver
-work hard for more than 41 seconds!
+work hard for 42 seconds!
 ```
                           ♠ KJ9753 ♥ - ♦ AQT8642 ♣ -
   ♠ AQT8642 ♥ KJ9753 ♦ - ♣ -                       ♠ - ♥ - ♦ KJ9753 ♣ AQT8642
                           ♠ - ♥ AQT8642 ♦ - ♣ KJ9753
-N  7  7  7  7 29.77 s 163.1 M
-S  6  6  7  7 32.30 s 163.1 M
-H  7  7  6  6 35.30 s 163.1 M
-D  7  7  6  6 39.08 s 163.1 M
-C  6  6  7  7 41.17 s 163.1 M
+N  7  7  7  7 30.51 s 158.3 M
+S  6  6  7  7 33.08 s 158.3 M
+H  7  7  6  6 36.18 s 158.3 M
+D  7  7  6  6 40.04 s 158.3 M
+C  6  6  7  7 42.16 s 158.3 M
 ```
