@@ -1247,6 +1247,7 @@ class Play {
         return ordered_cards.AddReversedCards(playable_cards);
       if (SecondSeat() && pd_suit) {
         if (lho_suit && HigherRank(lho_suit.Top(), pd_suit.Union(playable_cards).Top()) &&
+            HigherRank(pd_suit.Top(), winning_card) &&
             lho_suit.Slice(0, pd_suit.Top()) == lho_suit.Slice(0, playable_cards.Top()))
           // Play low as LHO may play a winner to prevent partner from winning.
           return ordered_cards.AddReversedCards(playable_cards);
