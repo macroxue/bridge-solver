@@ -176,7 +176,7 @@ struct Options {
 
 double Now() {
   timeval now;
-  gettimeofday(&now, NULL);
+  gettimeofday(&now, nullptr);
   return now.tv_sec + now.tv_usec * 1e-6;
 }
 
@@ -477,7 +477,7 @@ class Cache {
       if (entry.hash == 0) break;
       STATS(++lookup_probes);
     }
-    return NULL;
+    return nullptr;
   }
 
   Entry* Update(Cards cards[input_size]) {
@@ -796,7 +796,7 @@ struct Pattern {
 struct ShapeEntry {
   uint64_t hash;
   Pattern pattern;
-#if _DEBUG
+#ifdef _DEBUG
   Shape shape;
   short seat_to_play;
   mutable uint16_t hits, cuts;
@@ -1701,7 +1701,7 @@ void ReadHands(Hands& hands, std::vector<int>& trumps, std::vector<int>& lead_se
   assert(fgets(line[WEST], sizeof(line[WEST]), input_file));
   char* gap = strstr(line[WEST], "    ");
   if (!gap) gap = strstr(line[WEST], "\t");
-  if (gap != NULL && gap != line[WEST]) {
+  if (gap != nullptr && gap != line[WEST]) {
     // East hand is on the same line as West.
     strcpy(line[EAST], gap);
     *gap = '\0';
