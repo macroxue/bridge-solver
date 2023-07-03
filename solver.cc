@@ -1162,17 +1162,20 @@ class Play {
         if (lho_hand.Suit(trump) && !lho_hand.Suit(suit)) continue;
         if (rho_hand.Suit(trump) && !rho_hand.Suit(suit)) continue;
       }
-      auto pd_suit = pd_hand.Suit(suit);
+      auto pd_suit = pd_hand.Suit(suit), our_suits = my_suit.Union(pd_suit);
       auto lho_suit = lho_hand.Suit(suit);
       auto all_suit_cards = trick->all_cards.Suit(suit);
       int a = all_suit_cards.Top();
       int k = all_suit_cards.Remove(a).Top();
       int q = all_suit_cards.Remove(k).Top();
       int j = all_suit_cards.Remove(q).Top();
+      int t = all_suit_cards.Remove(j).Top();
       if (pd_suit.Size() >= 2 && lho_suit.Size() >= 2) {
-        if ((pd_suit.Have(a) && lho_suit.Have(k) &&
-             (pd_suit.Have(q) || (my_suit.Have(q) && my_suit.Have(j)))) ||
-            (pd_suit.Have(k) && lho_suit.Have(a))) {
+        if ((pd_suit.Have(k) && lho_suit.Have(a)) ||
+            (pd_suit.Have(a) && lho_suit.Have(k) &&
+             (pd_suit.Have(q) || our_suits.Have(Cards().Add(q).Add(j)))) ||
+            (pd_suit.Have(k) && lho_suit.Have(q) &&
+             (pd_suit.Have(j) || our_suits.Have(Cards().Add(j).Add(t))))) {
           good_leads.Add(my_suit.Top());
           good_leads.Add(my_suit.Bottom());
           continue;
