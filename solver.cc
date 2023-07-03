@@ -1219,10 +1219,10 @@ class Play {
     ordered_cards.AddCards(leads);
     playable_cards.Remove(leads);
     if (SUIT_CONTRACT) {
-      ordered_cards.AddCards(trump_leads);
-      playable_cards.Remove(trump_leads);
       ordered_cards.AddCards(bad_leads);
       playable_cards.Remove(bad_leads);
+      ordered_cards.AddCards(trump_leads);
+      playable_cards.Remove(trump_leads);
     }
     ordered_cards.AddCards(playable_cards);
   }
