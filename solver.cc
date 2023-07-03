@@ -1245,14 +1245,12 @@ class Play {
            lho_suit.Slice(0, winning_card) == lho_suit.Slice(0, playable_cards.Top())))
         // Partner can win or force LHO's winner.
         return ordered_cards.AddReversedCards(playable_cards);
-      if (SecondSeat() && pd_suit) {
+      if (SecondSeat() && pd_suit && HigherRank(pd_suit.Top(), winning_card)) {
         if (lho_suit && HigherRank(lho_suit.Top(), pd_suit.Union(playable_cards).Top()) &&
-            HigherRank(pd_suit.Top(), winning_card) &&
             lho_suit.Slice(0, pd_suit.Top()) == lho_suit.Slice(0, playable_cards.Top()))
           // Play low as LHO may play a winner to prevent partner from winning.
           return ordered_cards.AddReversedCards(playable_cards);
-        if (HigherRank(pd_suit.Top(), winning_card) &&
-            (!lho_suit || HigherRank(pd_suit.Top(), lho_suit.Top())))
+        if (!lho_suit || HigherRank(pd_suit.Top(), lho_suit.Top()))
           // Play low as partner can win later.
           return ordered_cards.AddReversedCards(playable_cards);
       }
