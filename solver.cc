@@ -1165,14 +1165,14 @@ class Play {
       auto pd_suit = pd_hand.Suit(suit);
       auto lho_suit = lho_hand.Suit(suit);
       auto all_suit_cards = trick->all_cards.Suit(suit);
-      int top1 = all_suit_cards.Top();
-      int top2 = all_suit_cards.Remove(top1).Top();
-      int top3 = all_suit_cards.Remove(top2).Top();
-      int top4 = all_suit_cards.Remove(top3).Top();
+      int a = all_suit_cards.Top();
+      int k = all_suit_cards.Remove(a).Top();
+      int q = all_suit_cards.Remove(k).Top();
+      int j = all_suit_cards.Remove(q).Top();
       if (pd_suit.Size() >= 2 && lho_suit.Size() >= 2) {
-        if ((pd_suit.Have(top1) && lho_suit.Have(top2) &&
-             (pd_suit.Have(top3) || (my_suit.Have(top3) && my_suit.Have(top4)))) ||
-            (pd_suit.Have(top2) && lho_suit.Have(top1))) {
+        if ((pd_suit.Have(a) && lho_suit.Have(k) &&
+             (pd_suit.Have(q) || (my_suit.Have(q) && my_suit.Have(j)))) ||
+            (pd_suit.Have(k) && lho_suit.Have(a))) {
           good_leads.Add(my_suit.Top());
           good_leads.Add(my_suit.Bottom());
           continue;
@@ -1181,8 +1181,8 @@ class Play {
       auto rho_suit = rho_hand.Suit(suit);
       auto partnership_cards = hands.partnership_cards(seat_to_play);
       if (my_suit.Size() >= 2 && rho_suit.Size() >= 2) {
-        if ((my_suit.Have(top1) && rho_suit.Have(top2)) ||
-            (my_suit.Have(top2) && rho_suit.Have(top1) && !partnership_cards.Have(top3))) {
+        if ((my_suit.Have(a) && rho_suit.Have(k)) ||
+            (my_suit.Have(k) && rho_suit.Have(a) && !partnership_cards.Have(q))) {
           if (SUIT_CONTRACT) {
             bad_leads.Add(my_suit.Top());
             bad_leads.Add(my_suit.Bottom());
@@ -1190,15 +1190,15 @@ class Play {
           continue;
         }
       }
-      Cards tops = Cards().Add(top1).Add(top2).Add(top3);
-      if (lho_suit && rho_suit && partnership_cards.Intersect(tops).Size() >= 2) {
+      Cards akq = Cards().Add(a).Add(k).Add(q);
+      if (lho_suit && rho_suit && partnership_cards.Intersect(akq).Size() >= 2) {
         high_leads.Add(my_suit.Top());
         high_leads.Add(my_suit.Bottom());
         continue;
       }
       if (SUIT_CONTRACT && !pd_suit && lho_suit && rho_suit && pd_hand.Suit(trump) &&
           pd_hand.Suit(trump).Size() <= playable_cards.Suit(trump).Size() &&
-          my_suit.Bottom() != top1) {
+          my_suit.Bottom() != a) {
         ruff_leads.Add(my_suit.Bottom());
         continue;
       }
@@ -1438,26 +1438,26 @@ class Play {
                          Cards lho_trumps, Cards rho_trumps, bool leading) const {
     auto all_trumps = trick->all_cards.Suit(trump);
     if (all_trumps.Size() >= 3) {
-      auto top = Cards().Add(all_trumps.Top());
-      auto second = Cards().Add(all_trumps.Different(top).Top());
+      auto a = Cards().Add(all_trumps.Top());
+      auto k = Cards().Add(all_trumps.Different(a).Top());
       // Kx behind A
-      if ((pd_trumps.StrictlyInclude(second) && lho_trumps.Include(top)) ||
-          (my_trumps.StrictlyInclude(second) && rho_trumps.Include(top) &&
+      if ((pd_trumps.StrictlyInclude(k) && lho_trumps.Include(a)) ||
+          (my_trumps.StrictlyInclude(k) && rho_trumps.Include(a) &&
            (!leading || hands.num_tricks() >= 3)))
-        return {1, top.Union(second)};
+        return {1, a.Union(k)};
       // KQ against A
-      auto third = Cards().Add(all_trumps.Different(top).Different(second).Top());
-      if (lho_trumps.Union(rho_trumps).Have(top) &&
-          my_trumps.Union(pd_trumps).Have(second.Union(third)) &&
+      auto q = Cards().Add(all_trumps.Different(a.Union(k)).Top());
+      if (lho_trumps.Union(rho_trumps).Have(a) &&
+          my_trumps.Union(pd_trumps).Have(k.Union(q)) &&
           (my_trumps.Size() >= 1 || pd_trumps.Size() >= 1))
-        return {1, top.Union(second).Union(third)};
+        return {1, a.Union(k).Union(q)};
       // Qxx behind AK
       if (all_trumps.Size() >= 5)
-        if ((pd_trumps.Include(third) && pd_trumps.Size() >= 3 &&
-             lho_trumps.Include(top.Union(second))) ||
-            (my_trumps.Include(third) && my_trumps.Size() >= 3 &&
-             rho_trumps.Include(top.Union(second)) && (!leading || hands.num_tricks() >= 4)))
-          return {1, top.Union(second).Union(third)};
+        if ((pd_trumps.Include(q) && pd_trumps.Size() >= 3 &&
+             lho_trumps.Include(a.Union(k))) ||
+            (my_trumps.Include(q) && my_trumps.Size() >= 3 &&
+             rho_trumps.Include(a.Union(k)) && (!leading || hands.num_tricks() >= 4)))
+          return {1, a.Union(k).Union(q)};
     }
     return {0, {}};
   }
