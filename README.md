@@ -117,41 +117,69 @@ The directory can be `fixed_deals` (the default), `old_deals`, `new_deals`, `har
 ./parallel_run_tests.sh [DIRECTORY] [THREADS]
 ```
 
-**All numbers below are on a single thread/core.**
+Benchmarks below run on [AMD Ryzen 7 5800H](https://www.amd.com/en/products/apu/amd-ryzen-7-5800h)
+with 8 physical cores at 3.2GHz base clock and 4.4GHz boost clock.
 
-On ThinkPad X1 Carbon 8th gen with Intel(R) Core(TM) i7-10610U CPU @ 1.80 GHz and turbo,
-the solver fully analyzed 1000 random deals (under `1k_deals`) in just 190 seconds,
-averaging more than five deals per second. Below is a more detailed breakdown.
-The longest one took 1.99 seconds and consumed 46.9 MB of memory.
-| Time    | Count   |
-|---------|---------|
-| <= .25 s| 784     |
-| <= .5 s | 939     |
-| <= 1 s  | 985     |
-| <= 2 s  | 1000    |
+### Single-core
+
+The solver fully analyzed 1000 random deals (under `1k_deals`) in just 120 seconds,
+averaging more than eight deals per second. Below is a more detailed breakdown.
+The longest one (`deal.310`) took 1.24 seconds and consumed 48.2 MB of memory.
+
+| Time  | <= 0.1s | <= 0.2s | <= 0.5s |  <= 1s  |  <= 2s  |
+|-------|---------|---------|---------|---------|---------|
+| Count |    607  |    857  |    976  |    999  |   1000  |
 
 One of the most difficult deals is this symmetric one, with four void suits and
-nobody holding consecutive ranks in any suit. It took the solver less than seven seconds.
+nobody holding consecutive ranks in any suit. It took the solver less than five seconds.
 ```
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
-N  5  5  5  5  3.31 s 154.9 M
-S  4  4  8  7  3.96 s 154.9 M
-H  8  7  4  4  4.86 s 154.9 M
-D  4  4  7  8  5.74 s 154.9 M
-C  7  8  4  4  6.38 s 154.9 M
+N  5  5  5  5  2.47 s 154.6 M
+S  4  4  8  7  2.89 s 154.9 M
+H  8  7  4  4  3.53 s 154.9 M
+D  4  4  7  8  4.18 s 154.9 M
+C  7  8  4  4  4.65 s 154.9 M
 ```
 
 An even more freakish deal with each player holding only two suits made the solver
-work hard for 42 seconds!
+work hard for 30 seconds!
 ```
                           ♠ KJ9753 ♥ - ♦ AQT8642 ♣ -
   ♠ AQT8642 ♥ KJ9753 ♦ - ♣ -                       ♠ - ♥ - ♦ KJ9753 ♣ AQT8642
                           ♠ - ♥ AQT8642 ♦ - ♣ KJ9753
-N  7  7  7  7 30.51 s 158.3 M
-S  6  6  7  7 33.08 s 158.3 M
-H  7  7  6  6 36.18 s 158.3 M
-D  7  7  6  6 40.04 s 158.3 M
-C  6  6  7  7 42.16 s 158.3 M
+N  7  7  7  7 21.06 s 158.4 M
+S  6  6  7  7 22.77 s 158.4 M
+H  7  7  6  6 24.79 s 158.4 M
+D  7  7  6  6 28.80 s 158.4 M
+C  6  6  7  7 30.33 s 158.4 M
 ```
+
+### Multi-core
+
+The table below shows the time for solving 1000 random deals in `1k_deals` with multiple cores.
+The solver is single-threaded, so multiple instances of the solver are running in parallel.
+
+| # Cores   |    1 |    2 |    4 |    8 |   16 |
+|-----------|------|------|------|------|------|
+| Time (s)  |120.0 | 65.8 | 35.5 | 21.9 | 17.9 |
+| Speed-up  |  1.0 |  1.8 |  3.4 |  5.5 |  6.7 |
+
+The scaling is decent up to 8 cores. 16 cores give small additional speed-up as the cores
+are SMT threads rather than physical cores.
+
+### Comparison
+
+For single-threaded performance, the solver is 1.28x faster than
+[DDS](https://github.com/dds-bridge/dds) and 1.75x faster than
+[Bridge Calculator (bcalc)](http://bcalc.w8.pl/) on 5000 random deals.
+The detailed run log is `comparison/results.5k_deals.txt`.
+
+Since all the solvers are super fast on modern hardware, the difference is only noticeable
+after 80 percentile as shown in the plot below.
+![5k](https://github.com/macroxue/bridge-solver/blob/master/comparison/5k_deals.svg)
+
+A log-scale plot magnifies the difference. The gap between this solver and DDS is slightly
+wider than the gap between DDS and bcalc.
+![5k.log](https://github.com/macroxue/bridge-solver/blob/master/comparison/5k_deals.log.svg)
