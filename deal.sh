@@ -32,10 +32,13 @@
 nocard_line="^[ 	SHDC:♣♦♥♠]+$"
 card_line="^[AaKkQqJjTt1098765432 	SHDC:♣♦♥♠-]+$"
 
-./solver -H3 -i <((
-  echo "         - - - -          "
-  echo "- - - -            - - - -"
+./solver -m3 -f <((
+  echo "- - - -"
+  echo "- - - -"
+  echo "- - - -"
+  echo "- - - -"
   egrep -v "$nocard_line" | \
     egrep "$card_line" | \
     sed "N;N;N;s/\n/ /g" | \
-    sed "N;s/\n/\n- - - -            - - - -\n/") | tail -3)
+    sed "N;s/\n/\n- - - -\n- - - -\n/"
+      ) | tail -4)
