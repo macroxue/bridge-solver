@@ -178,8 +178,8 @@ The detailed run log is `comparison/results.5k_deals.txt`.
 
 Since all the solvers are super fast on modern hardware, the difference is only noticeable
 after 80 percentile as shown in the plot below.
-![5k](https://github.com/macroxue/bridge-solver/blob/master/comparison/5k_deals.svg)
+![5k](https://github.com/macroxue/bridge-solver/blob/master/comparison/5k_deals.png)
 
 A log-scale plot magnifies the difference. The gap between this solver and DDS is slightly
 wider than the gap between DDS and bcalc.
-![5k.log](https://github.com/macroxue/bridge-solver/blob/master/comparison/5k_deals.log.svg)
+![5k.log](https://github.com/macroxue/bridge-solver/blob/master/comparison/5k_deals.log.png)
