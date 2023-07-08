@@ -57,7 +57,7 @@ const char* SuitSign(int suit) {
 #else
   static const char* color_suit_signs[] = {"♠", "\e[31m♥\e[0m", "\e[31m♦\e[0m", "♣", "NT"};
   static struct stat stdout_stat;
-  static bool is_terminal = fstat(1, &stdout_stat) == 0 && !S_ISFIFO(stdout_stat.st_mode);
+  static bool is_terminal = fstat(1, &stdout_stat) == 0 && S_ISCHR(stdout_stat.st_mode);
   return is_terminal ? color_suit_signs[suit] : plain_suit_signs[suit];
 #endif
 }
