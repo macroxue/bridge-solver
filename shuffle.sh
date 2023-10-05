@@ -58,10 +58,10 @@ for seats in EW NS; do
     west_avg=$(echo "scale=1;$west_sum/$rounds" | bc)
     east_avg=$(echo "scale=1;$east_sum/$rounds" | bc)
     if [[ $show_err -eq 1 ]]; then
-      south_err=$(echo "scale=1;($south_sum2-$rounds*$south_avg*$south_avg)/($rounds-1)" | bc)
-      north_err=$(echo "scale=1;($north_sum2-$rounds*$north_avg*$north_avg)/($rounds-1)" | bc)
-      west_err=$(echo "scale=1;($west_sum2-$rounds*$west_avg*$west_avg)/($rounds-1)" | bc)
-      east_err=$(echo "scale=1;($east_sum2-$rounds*$east_avg*$east_avg)/($rounds-1)" | bc)
+      south_err=$(echo "scale=1;sqrt(($south_sum2-$rounds*$south_avg*$south_avg)/($rounds-1))" | bc)
+      north_err=$(echo "scale=1;sqrt(($north_sum2-$rounds*$north_avg*$north_avg)/($rounds-1))" | bc)
+      west_err=$(echo "scale=1;sqrt(($west_sum2-$rounds*$west_avg*$west_avg)/($rounds-1))" | bc)
+      east_err=$(echo "scale=1;sqrt(($east_sum2-$rounds*$east_avg*$east_avg)/($rounds-1))" | bc)
       if [[ $seats = EW ]]; then
         printf "$trump  %4.1f±%3.1f %4.1f±%3.1f (%4.1f±%3.1f %4.1f±%3.1f)\n" \
           $south_avg $south_err $north_avg $north_err $west_avg $west_err $east_avg $east_err
