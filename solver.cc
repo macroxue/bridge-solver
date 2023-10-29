@@ -1876,13 +1876,13 @@ class InteractivePlay {
       ns_contract = true;
       int level = (TOTAL_TRICKS - num_tricks) + target_ns_tricks - 6;
       auto declarer = starting_ns_tricks == 0 ? SeatName((lead_seat + 3) % 4) : "NS";
-      sprintf(contract, "%d%s by %s", level, SuitSign(trump), declarer);
+      snprintf(contract, "%d%s by %s", level, SuitSign(trump), declarer);
     } else {
       starting_ew_tricks = TOTAL_TRICKS - num_tricks;
       ns_contract = false;
       int level = TOTAL_TRICKS - target_ns_tricks - 6;
       auto declarer = starting_ew_tricks == 0 ? SeatName((lead_seat + 3) % 4) : "EW";
-      sprintf(contract, "%d%s by %s", level, SuitSign(trump), declarer);
+      snprintf(contract, "%d%s by %s", level, SuitSign(trump), declarer);
     }
   }
 
@@ -2054,7 +2054,7 @@ class InteractivePlay {
 
   char* ColoredNameOf(int card) {
     static char name[32];
-    sprintf(name, "%s %c", SuitSign(SuitOf(card)), NameOf(card)[1]);
+    snprintf(name, "%s %c", SuitSign(SuitOf(card)), NameOf(card)[1]);
     return name;
   }
 
