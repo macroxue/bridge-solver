@@ -3,12 +3,15 @@
 code=
 show_err=0
 rounds=20
-while getopts c:er: flag
+seats_list="EW NS"
+while getopts c:der:s flag
 do
   case $flag in
     c) code=$OPTARG;;
+    d) deal=($(./deal.sh));code=${deal[1]};;
     e) show_err=1;;
     r) rounds=$OPTARG;;
+    s) seats_list="NEW";;
   esac
 done
 
@@ -20,7 +23,7 @@ fi
 
 eraser="\b\b\b\b"
 
-for seats in EW NS; do
+for seats in $seats_list; do
   echo "Shuffling $seats ..."
   south_sum=(0, 0, 0, 0, 0)
   north_sum=(0, 0, 0, 0, 0)
@@ -70,16 +73,22 @@ for seats in EW NS; do
       if [[ $seats = EW ]]; then
         printf "$trump  %4.1f±%3.1f %4.1f±%3.1f (%4.1f±%3.1f %4.1f±%3.1f)\n" \
           $south_avg $south_err $north_avg $north_err $west_avg $west_err $east_avg $east_err
-      else
+      elif [[ $seats = NS ]]; then
         printf "$trump (%4.1f±%3.1f %4.1f±%3.1f) %4.1f±%3.1f %4.1f±%3.1f\n" \
+          $south_avg $south_err $north_avg $north_err $west_avg $west_err $east_avg $east_err
+      elif [[ $seats = NEW ]]; then
+        printf "$trump %4.1f±%3.1f (%4.1f±%3.1f %4.1f±%3.1f %4.1f±%3.1f)\n" \
           $south_avg $south_err $north_avg $north_err $west_avg $west_err $east_avg $east_err
       fi
     else
       if [[ $seats = EW ]]; then
         printf "$trump  %4.1f %4.1f (%4.1f %4.1f)\n" \
           $south_avg $north_avg $west_avg $east_avg
-      else
+      elif [[ $seats = NS ]]; then
         printf "$trump (%4.1f %4.1f) %4.1f %4.1f\n" \
+          $south_avg $north_avg $west_avg $east_avg
+      elif [[ $seats = NEW ]]; then
+        printf "$trump %4.1f (%4.1f %4.1f %4.1f)\n" \
           $south_avg $north_avg $west_avg $east_avg
       fi
     fi
