@@ -8,7 +8,11 @@ while getopts c:der:s flag
 do
   case $flag in
     c) code=$OPTARG;;
-    d) deal=($(./deal.sh));code=${deal[1]};;
+    d)
+      deal=($(./deal.sh))
+      if [[ $? -ne 0 ]]; then exit; fi
+      code=${deal[1]}
+      ;;
     e) show_err=1;;
     r) rounds=$OPTARG;;
     s) seats_list="NEW";;

@@ -70,7 +70,7 @@ const char RankName(int rank) {
 int CharToSuit(char c) {
   for (int suit = SPADE; suit <= NOTRUMP; ++suit)
     if (toupper(c) == SuitName(suit)[0]) return suit;
-  printf("Unknown suit: %c\n", c);
+  fprintf(stderr, "Unknown suit: %c\n", c);
   exit(-1);
 }
 
@@ -78,14 +78,14 @@ int CharToRank(char c) {
   if (c == '1') return TEN;
   for (int rank = TWO; rank <= ACE; ++rank)
     if (toupper(c) == RankName(rank)) return rank;
-  printf("Unknown rank: %c\n", c);
+  fprintf(stderr, "Unknown rank: %c\n", c);
   exit(-1);
 }
 
 int CharToSeat(char c) {
   for (int seat = WEST; seat <= SOUTH; ++seat)
     if (toupper(c) == SeatLetter(seat)) return seat;
-  printf("Unknown seat: %c\n", c);
+  fprintf(stderr, "Unknown seat: %c\n", c);
   exit(-1);
 }
 
@@ -1661,17 +1661,22 @@ Cards ParseHand(char* line, Cards all_cards) {
   // Filter out invalid characters.
   int pos = 0;
   for (char* c = line; *c; ++c)
-    if (strchr("AaKkQqJjTt1098765432- ", *c)) line[pos++] = *c;
+    if (strchr("AaKkQqJjTt1098765432Xx- ", *c)) line[pos++] = *c;
   line[pos] = '\0';
 
   Cards hand;
   for (int suit = 0; suit < NUM_SUITS; ++suit) {
     while (line[0] && isspace(line[0])) ++line;
     while (line[0] && !isspace(line[0]) && line[0] != '-') {
-      int rank = CharToRank(line[0]);
+      int rank;
+      if (tolower(line[0]) == 'x') {  // wildcard
+        rank = RankOf(all_cards.Complement().Suit(suit).Bottom());
+      } else {
+        rank = CharToRank(line[0]);
+      }
       int card = CardOf(suit, rank);
       if (all_cards.Have(card)) {
-        printf("%s showed up twice.\n", NameOf(card));
+        fprintf(stderr, "%s showed up twice.\n", NameOf(card));
         exit(-1);
       }
       all_cards.Add(card);
@@ -1679,7 +1684,7 @@ Cards ParseHand(char* line, Cards all_cards) {
 
       if (rank == TEN && line[0] == '1') {
         if (line[1] != '0') {
-          printf("Unknown rank: %c%c\n", line[0], line[1]);
+          fprintf(stderr, "Unknown rank: %c%c\n", line[0], line[1]);
           exit(-1);
         }
         ++line;
@@ -1721,15 +1726,15 @@ void ReadHands(Hands& hands, std::vector<int>& trumps, std::vector<int>& lead_se
     if (num_tricks == 0 && hands[seat])
       num_tricks = hands[seat].Size();
     else if (hands[seat] && hands[seat].Size() != num_tricks) {
-      printf("%s has %d cards, while %s has %d.\n", SeatName(seat), hands[seat].Size(),
-             SeatName(0), num_tricks);
+      fprintf(stderr, "%s has %d cards, while %s has %d.\n",
+              SeatName(seat), hands[seat].Size(), SeatName(0), num_tricks);
       exit(-1);
     } else if (!hands[seat])
       empty_seats.push_back(seat);
   }
   if (!empty_seats.empty()) {
     if (num_tricks != TOTAL_TRICKS && empty_seats.size() != NUM_SEATS) {
-      printf("%d trick(s) already played.\n", TOTAL_TRICKS - num_tricks);
+      fprintf(stderr, "%d trick(s) already played.\n", TOTAL_TRICKS - num_tricks);
       exit(-1);
     }
     hands.Deal(all_cards.Complement(), empty_seats);

@@ -30,7 +30,7 @@
 #   END
 
 nocard_line="^[ 	SHDC:♣♦♥♠]+$"
-card_line="^[AaKkQqJjTt1098765432 	SHDC:♣♦♥♠-]+$"
+card_line="^[AaKkQqJjTt1098765432Xx 	SHDC:♣♦♥♠-]+$"
 
 ./solver -m3 -f <((
   echo "- - - -"
