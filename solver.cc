@@ -719,7 +719,11 @@ struct Pattern {
     for (size_t i = 0; i < patterns.size(); ++i) {
       patterns[i].UpdateBounds(bounds);
       if (patterns[i].bounds != bounds) continue;
-      Append(patterns[i].patterns);
+      // Get the subpatterns out as resizing patterns in Append renders
+      // patterns[i].patterns invalid.
+      Vector<Pattern> subpatterns;
+      subpatterns.swap(patterns[i].patterns);
+      Append(subpatterns);
       Delete(i);
       --i;
     }

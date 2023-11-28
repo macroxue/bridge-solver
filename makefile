@@ -21,5 +21,8 @@ solver: solver.cc
 	./$@ -if hard_deals/deal.8 | tail
 solver.g: solver.cc
 	g++ $(OPTS) -D_DEBUG -Og -g -o $@ $^
+solver.m: solver.cc
+	clang++ -std=c++17 -O3 -fsanitize=memory -o $@ $^
+	./solver.m -if hard_deals/deal.1
 clean:
-	rm -f solver.p solver solver.g
+	rm -f solver.p solver solver.g solver.m
