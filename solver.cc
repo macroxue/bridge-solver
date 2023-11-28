@@ -1,6 +1,8 @@
 #include <assert.h>
 #include <ctype.h>
+#ifdef __BMI2__
 #include <immintrin.h>
+#endif
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
