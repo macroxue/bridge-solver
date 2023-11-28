@@ -1,4 +1,5 @@
 all: solver.p solver
+sanitizer: solver.m solver.a
 
 OPTS=-std=c++17 -Wall -Wno-missing-profile
 ifeq (sse4_2, $(shell grep -m1 -o sse4_2 /proc/cpuinfo))
@@ -23,6 +24,9 @@ solver.g: solver.cc
 	g++ $(OPTS) -D_DEBUG -Og -g -o $@ $^
 solver.m: solver.cc
 	clang++ -std=c++17 -O3 -fsanitize=memory -o $@ $^
-	./solver.m -if hard_deals/deal.1
+	./$@ -if hard_deals/deal.1
+solver.a: solver.cc
+	clang++ -std=c++17 -O3 -fsanitize=address -o $@ $^
+	./$@ -if hard_deals/deal.1
 clean:
-	rm -f solver.p solver solver.g solver.m
+	rm -f solver.p solver solver.g solver.m solver.a
