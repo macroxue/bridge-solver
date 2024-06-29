@@ -27,7 +27,11 @@ fi
 
 eraser="\b\b\b\b"
 for seats in $seats_list; do
-  echo "Shuffling $seats ..."
+  if [[ $show_err -eq 0 ]]; then
+    echo "   ----- #tricks ------   ----- %Game ----   ---- %Slam -----"
+  else
+    echo "   ----- #tricks ------   ------- Error ------   ----- %Game ----   ---- %Slam -----"
+  fi
   south_sum=(0 0 0 0 0)
   north_sum=(0 0 0 0 0)
   west_sum=(0 0 0 0 0)
@@ -100,26 +104,26 @@ for seats in $seats_list; do
     west_slam=$(echo "${west_slams[row]}*100/$rounds" | bc)
     east_slam=$(echo "${east_slams[row]}*100/$rounds" | bc)
     if [[ $seats = EW ]]; then
-      printf "$trump  %4.1f %4.1f (%4.1f %4.1f)" $south_avg $north_avg $west_avg $east_avg
+      printf "$trump  %4.1f %4.1f [%4.1f %4.1f]" $south_avg $north_avg $west_avg $east_avg
       if [[ $show_err -eq 1 ]]; then
-        printf "  ±%3.1f ±%3.1f (±%3.1f ±%3.1f)" $south_err $north_err $west_err $east_err
+        printf "  ±%3.1f ±%3.1f [±%3.1f ±%3.1f]" $south_err $north_err $west_err $east_err
       fi
-      printf "  %3d %3d (%3d %3d)" $south_game $north_game $west_game $east_game
-      printf "  %3d %3d (%3d %3d)" $south_slam $north_slam $west_slam $east_slam
+      printf "  %3d %3d [%3d %3d]" $south_game $north_game $west_game $east_game
+      printf "  %3d %3d [%3d %3d]" $south_slam $north_slam $west_slam $east_slam
     elif [[ $seats = NS ]]; then
-      printf "$trump (%4.1f %4.1f) %4.1f %4.1f" $south_avg $north_avg $west_avg $east_avg
+      printf "$trump [%4.1f %4.1f] %4.1f %4.1f" $south_avg $north_avg $west_avg $east_avg
       if [[ $show_err -eq 1 ]]; then
-        printf "  (±%3.1f ±%3.1f) ±%3.1f ±%3.1f" $south_err $north_err $west_err $east_err
+        printf "  [±%3.1f ±%3.1f] ±%3.1f ±%3.1f" $south_err $north_err $west_err $east_err
       fi
-      printf "  (%3d %3d) %3d %3d" $south_game $north_game $west_game $east_game
-      printf "  (%3d %3d) %3d %3d" $south_slam $north_slam $west_slam $east_slam
+      printf "  [%3d %3d] %3d %3d" $south_game $north_game $west_game $east_game
+      printf "  [%3d %3d] %3d %3d" $south_slam $north_slam $west_slam $east_slam
     elif [[ $seats = NEW ]]; then
-      printf "$trump %4.1f (%4.1f %4.1f %4.1f)" $south_avg $north_avg $west_avg $east_avg
+      printf "$trump %4.1f [%4.1f %4.1f %4.1f]" $south_avg $north_avg $west_avg $east_avg
       if [[ $show_err -eq 1 ]]; then
-        printf "  ±%3.1f (±%3.1f ±%3.1f ±%3.1f)" $south_err $north_err $west_err $east_err
+        printf "  ±%3.1f [±%3.1f ±%3.1f ±%3.1f]" $south_err $north_err $west_err $east_err
       fi
-      printf "  %3d (%3d %3d %3d)" $south_game $north_game $west_game $east_game
-      printf "  %3d (%3d %3d %3d)" $south_slam $north_slam $west_slam $east_slam
+      printf "  %3d [%3d %3d %3d]" $south_game $north_game $west_game $east_game
+      printf "  %3d [%3d %3d %3d]" $south_slam $north_slam $west_slam $east_slam
     fi
     printf "\n"
   done
