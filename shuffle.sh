@@ -1,10 +1,11 @@
 #!/bin/bash
 
 code=
+grand=0
 show_err=0
 rounds=20
 seats_list="EW NS"
-while getopts c:der:s flag
+while getopts c:degr:s flag
 do
   case $flag in
     c) code=$OPTARG;;
@@ -14,6 +15,7 @@ do
       code=${deal[1]}
       ;;
     e) show_err=1;;
+    g) grand=1;;
     r) rounds=$OPTARG;;
     s) seats_list="NEW";;
   esac
@@ -27,10 +29,14 @@ fi
 
 eraser="\b\b\b\b"
 for seats in $seats_list; do
+  slam_title=Slam
+  if [[ $grand -eq 1 ]]; then
+    slam_title=Grand
+  fi
   if [[ $show_err -eq 0 ]]; then
-    echo "   ----- #tricks ------   ----- %Game ----   ---- %Slam -----"
+    echo "   ----- #tricks ------   ----- %Game ----   ---- %$slam_title -----"
   else
-    echo "   ----- #tricks ------   ------- Error ------   ----- %Game ----   ---- %Slam -----"
+    echo "   ----- #tricks ------   ------- Error ------   ----- %Game ----   ---- %$slam_title -----"
   fi
   south_sum=(0 0 0 0 0)
   north_sum=(0 0 0 0 0)
@@ -68,14 +74,15 @@ for seats in $seats_list; do
         let east_sum2[row]+=result[i+4]*result[i+4]
       fi
       game_tricks=$((9+(row+1)/2))
+      slam_tricks=$((12+grand))
       if [[ ${result[i+1]} -ge $game_tricks ]]; then let south_games[$row]++; fi
       if [[ ${result[i+2]} -ge $game_tricks ]]; then let north_games[$row]++; fi
       if [[ ${result[i+3]} -ge $game_tricks ]]; then let west_games[$row]++; fi
       if [[ ${result[i+4]} -ge $game_tricks ]]; then let east_games[$row]++; fi
-      if [[ ${result[i+1]} -ge 12 ]]; then let south_slams[$row]++; fi
-      if [[ ${result[i+2]} -ge 12 ]]; then let north_slams[$row]++; fi
-      if [[ ${result[i+3]} -ge 12 ]]; then let west_slams[$row]++; fi
-      if [[ ${result[i+4]} -ge 12 ]]; then let east_slams[$row]++; fi
+      if [[ ${result[i+1]} -ge $slam_tricks ]]; then let south_slams[$row]++; fi
+      if [[ ${result[i+2]} -ge $slam_tricks ]]; then let north_slams[$row]++; fi
+      if [[ ${result[i+3]} -ge $slam_tricks ]]; then let west_slams[$row]++; fi
+      if [[ ${result[i+4]} -ge $slam_tricks ]]; then let east_slams[$row]++; fi
       if [[ -t 1 ]]; then
         printf "$eraser"
       fi
