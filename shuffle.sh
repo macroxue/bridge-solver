@@ -3,9 +3,10 @@
 code=
 grand=0
 show_err=0
-rounds=20
+rounds=50
 seats_list="EW NS"
-while getopts c:degr:s flag
+min_tricks=7
+while getopts c:degr:st: flag
 do
   case $flag in
     c) code=$OPTARG;;
@@ -18,6 +19,7 @@ do
     g) grand=1;;
     r) rounds=$OPTARG;;
     s) seats_list="NEW";;
+    t) min_tricks=$OPTARG;;
   esac
 done
 
@@ -29,14 +31,36 @@ fi
 
 eraser="\b\b\b\b"
 for seats in $seats_list; do
-  slam_title=Slam
-  if [[ $grand -eq 1 ]]; then
-    slam_title=Grand
-  fi
-  if [[ $show_err -eq 0 ]]; then
-    echo "   ----- #tricks ------   ----- %Game ----   ---- %$slam_title -----"
-  else
-    echo "   ----- #tricks ------   ------- Error ------   ----- %Game ----   ---- %$slam_title -----"
+  if [[ $seats = EW ]]; then
+    if [[ $show_err -eq 0 ]]; then
+      printf "      S    N  "
+    else
+      printf "      S        N      "
+    fi
+    for tricks in $(seq $min_tricks 13); do
+      printf "%2dS %2dN  " $tricks $tricks
+    done
+    echo
+  elif [[ $seats = NS ]]; then
+    if [[ $show_err -eq 0 ]]; then
+      printf "      W    E  "
+    else
+      printf "      W        E      "
+    fi
+    for tricks in $(seq $min_tricks 13); do
+      printf "%2dW %2dE  " $tricks $tricks
+    done
+    echo
+  elif [[ $seats = NEW ]]; then
+    if [[ $show_err -eq 0 ]]; then
+      printf "      S  "
+    else
+      printf "      S      "
+    fi
+    for tricks in $(seq $min_tricks 13); do
+      printf "%2dS  " $tricks
+    done
+    echo
   fi
   south_sum=(0 0 0 0 0)
   north_sum=(0 0 0 0 0)
@@ -48,14 +72,18 @@ for seats in $seats_list; do
     west_sum2=(0 0 0 0 0)
     east_sum2=(0 0 0 0 0)
   fi
-  south_games=(0 0 0 0 0)
-  north_games=(0 0 0 0 0)
-  west_games=(0 0 0 0 0)
-  east_games=(0 0 0 0 0)
-  south_slams=(0 0 0 0 0)
-  north_slams=(0 0 0 0 0)
-  west_slams=(0 0 0 0 0)
-  east_slams=(0 0 0 0 0)
+  declare -A south_histo
+  declare -A north_histo
+  declare -A west_histo
+  declare -A east_histo
+  for row in {0..4}; do
+    for tricks in $(seq $min_tricks 13); do
+      south_histo[$row,$tricks]=0
+      north_histo[$row,$tricks]=0
+      west_histo[$row,$tricks]=0
+      east_histo[$row,$tricks]=0
+    done
+  done
   for round in $(seq 1 $rounds); do
     if [[ -t 1 ]]; then
       printf "$round"
@@ -73,16 +101,12 @@ for seats in $seats_list; do
         let west_sum2[row]+=result[i+3]*result[i+3]
         let east_sum2[row]+=result[i+4]*result[i+4]
       fi
-      game_tricks=$((9+(row+1)/2))
-      slam_tricks=$((12+grand))
-      if [[ ${result[i+1]} -ge $game_tricks ]]; then let south_games[$row]++; fi
-      if [[ ${result[i+2]} -ge $game_tricks ]]; then let north_games[$row]++; fi
-      if [[ ${result[i+3]} -ge $game_tricks ]]; then let west_games[$row]++; fi
-      if [[ ${result[i+4]} -ge $game_tricks ]]; then let east_games[$row]++; fi
-      if [[ ${result[i+1]} -ge $slam_tricks ]]; then let south_slams[$row]++; fi
-      if [[ ${result[i+2]} -ge $slam_tricks ]]; then let north_slams[$row]++; fi
-      if [[ ${result[i+3]} -ge $slam_tricks ]]; then let west_slams[$row]++; fi
-      if [[ ${result[i+4]} -ge $slam_tricks ]]; then let east_slams[$row]++; fi
+      for tricks in $(seq $min_tricks 13); do
+        if [[ ${result[i+1]} -ge $tricks ]]; then let south_histo[$row,$tricks]++; fi
+        if [[ ${result[i+2]} -ge $tricks ]]; then let north_histo[$row,$tricks]++; fi
+        if [[ ${result[i+3]} -ge $tricks ]]; then let west_histo[$row,$tricks]++; fi
+        if [[ ${result[i+4]} -ge $tricks ]]; then let east_histo[$row,$tricks]++; fi
+      done
       if [[ -t 1 ]]; then
         printf "$eraser"
       fi
@@ -102,35 +126,38 @@ for seats in $seats_list; do
       west_err=$(echo "scale=1;sqrt((${west_sum2[row]}-$rounds*$west_avg*$west_avg)/($rounds-1))" | bc)
       east_err=$(echo "scale=1;sqrt((${east_sum2[row]}-$rounds*$east_avg*$east_avg)/($rounds-1))" | bc)
     fi
-    south_game=$(echo "${south_games[row]}*100/$rounds" | bc)
-    north_game=$(echo "${north_games[row]}*100/$rounds" | bc)
-    west_game=$(echo "${west_games[row]}*100/$rounds" | bc)
-    east_game=$(echo "${east_games[row]}*100/$rounds" | bc)
-    south_slam=$(echo "${south_slams[row]}*100/$rounds" | bc)
-    north_slam=$(echo "${north_slams[row]}*100/$rounds" | bc)
-    west_slam=$(echo "${west_slams[row]}*100/$rounds" | bc)
-    east_slam=$(echo "${east_slams[row]}*100/$rounds" | bc)
     if [[ $seats = EW ]]; then
-      printf "$trump  %4.1f %4.1f [%4.1f %4.1f]" $south_avg $north_avg $west_avg $east_avg
       if [[ $show_err -eq 1 ]]; then
-        printf "  ±%3.1f ±%3.1f [±%3.1f ±%3.1f]" $south_err $north_err $west_err $east_err
+        printf "$trump  %4.1f±%3.1f %4.1f±%3.1f" $south_avg $south_err $north_avg $north_err
+      else
+        printf "$trump  %4.1f %4.1f" $south_avg $north_avg
       fi
-      printf "  %3d %3d [%3d %3d]" $south_game $north_game $west_game $east_game
-      printf "  %3d %3d [%3d %3d]" $south_slam $north_slam $west_slam $east_slam
+      for tricks in $(seq $min_tricks 13); do
+        south_rate=$(echo "${south_histo[$row,$tricks]}*100/$rounds" | bc)
+        north_rate=$(echo "${north_histo[$row,$tricks]}*100/$rounds" | bc)
+        printf "  %3d %3d" $south_rate $north_rate
+      done
     elif [[ $seats = NS ]]; then
-      printf "$trump [%4.1f %4.1f] %4.1f %4.1f" $south_avg $north_avg $west_avg $east_avg
       if [[ $show_err -eq 1 ]]; then
-        printf "  [±%3.1f ±%3.1f] ±%3.1f ±%3.1f" $south_err $north_err $west_err $east_err
+        printf "$trump  %4.1f±%3.1f %4.1f±%3.1f" $west_avg $west_err $east_avg $east_err
+      else
+        printf "$trump  %4.1f %4.1f" $west_avg $east_avg
       fi
-      printf "  [%3d %3d] %3d %3d" $south_game $north_game $west_game $east_game
-      printf "  [%3d %3d] %3d %3d" $south_slam $north_slam $west_slam $east_slam
+      for tricks in $(seq $min_tricks 13); do
+        west_rate=$(echo "${west_histo[$row,$tricks]}*100/$rounds" | bc)
+        east_rate=$(echo "${east_histo[$row,$tricks]}*100/$rounds" | bc)
+        printf "  %3d %3d" $west_rate $east_rate
+      done
     elif [[ $seats = NEW ]]; then
-      printf "$trump %4.1f [%4.1f %4.1f %4.1f]" $south_avg $north_avg $west_avg $east_avg
       if [[ $show_err -eq 1 ]]; then
-        printf "  ±%3.1f [±%3.1f ±%3.1f ±%3.1f]" $south_err $north_err $west_err $east_err
+        printf "$trump  %4.1f±%3.1f" $south_avg $south_err
+      else
+        printf "$trump  %4.1f" $south_avg
       fi
-      printf "  %3d [%3d %3d %3d]" $south_game $north_game $west_game $east_game
-      printf "  %3d [%3d %3d %3d]" $south_slam $north_slam $west_slam $east_slam
+      for tricks in $(seq $min_tricks 13); do
+        south_rate=$(echo "${south_histo[$row,$tricks]}*100/$rounds" | bc)
+        printf "  %3d" $south_rate
+      done
     fi
     printf "\n"
   done
