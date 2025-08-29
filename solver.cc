@@ -2103,6 +2103,35 @@ class InteractivePlay {
   std::vector<PlayRecord> play_history;
 };
 
+extern "C" {
+  char *solve(char* west, char* north, char* east, char* south) {
+    Cards all_cards;
+    Hands hands;
+    hands[WEST]  = ParseHand(west,  all_cards); all_cards.Add(hands[WEST]);
+    hands[NORTH] = ParseHand(north, all_cards); all_cards.Add(hands[NORTH]);
+    hands[EAST]  = ParseHand(east,  all_cards); all_cards.Add(hands[EAST]);
+    hands[SOUTH] = ParseHand(south, all_cards); all_cards.Add(hands[SOUTH]);
+
+    static char buffer[256];
+    buffer[0] = '\0';
+    auto start_time = Now();
+    auto trump_start = [&](int trump) {
+      sprintf(buffer + strlen(buffer), "%c", SuitName(trump)[0]);
+    };
+    auto seat_done = [&](int trump, int lead_seat, int ns_tricks) {
+      sprintf(buffer + strlen(buffer), " %2d",
+              IsNs(lead_seat) ? hands.num_tricks() - ns_tricks : ns_tricks);
+    };
+    auto trump_done = [start_time](int trump) {
+      sprintf(buffer + strlen(buffer), " %5.2f s\n", Now() - start_time);
+    };
+    std::vector<int> trumps = {NOTRUMP, SPADE, HEART, DIAMOND, CLUB};
+    std::vector<int> lead_seats = {WEST, EAST, NORTH, SOUTH};
+    Solve(hands, trumps, lead_seats, trump_start, seat_done, trump_done);
+    return buffer;
+  }
+}
+
 int main(int argc, char* argv[]) {
   options.Read(argc, argv);
 
