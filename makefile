@@ -1,5 +1,6 @@
 all: solver.p solver
 sanitizer: solver.m solver.a
+web: solver.js solver.wasm
 
 OPTS=-std=c++17 -Wall -Wno-missing-profile
 ifeq (sse4_2, $(shell grep -m1 -o sse4_2 /proc/cpuinfo))
@@ -28,5 +29,10 @@ solver.m: solver.cc
 solver.a: solver.cc
 	clang++ -std=c++17 -O3 -fsanitize=address -o $@ $^
 	./$@ -if hard_deals/deal.1
+solver.js: solver.cc
+	emcc -std=c++17 -msimd128 -msse4.2 -O3 -o $@ $^ \
+		-s ALLOW_MEMORY_GROWTH \
+		-s EXPORTED_FUNCTIONS=_solve \
+		-s EXPORTED_RUNTIME_METHODS=ccall
 clean:
-	rm -f solver.p solver solver.g solver.m solver.a
+	rm -f solver.p solver solver.g solver.m solver.a solver.js solver.wasm
