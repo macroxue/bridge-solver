@@ -1636,6 +1636,9 @@ class Play {
   OrderedCards ordered_cards;
 
   friend class InteractivePlay;
+#ifdef _WEB
+  friend class WebPlay;
+#endif  // _WEB
 };
 
 class MinMax {
@@ -2103,14 +2106,59 @@ class InteractivePlay {
   std::vector<PlayRecord> play_history;
 };
 
+#ifdef _WEB
+class WebPlay {
+ public:
+  WebPlay(const Hands& hands, int trump, int lead_seat, int target_ns_tricks)
+      : min_max(hands, trump, lead_seat),
+        target_ns_tricks(target_ns_tricks),
+        num_tricks(hands.num_tricks()),
+        trump(trump) {}
+
+  typedef std::map<int, int> CardTricks;
+
+  CardTricks EvaluateLeads(int ns_tricks, bool ns_contract) {
+    auto& play = min_max.play(0);
+    play.trick->all_cards = play.hands.all_cards();
+    play.ComputeShape();
+    play.trick->ComputeRelativeHands(play.depth, play.hands);
+
+    CardTricks card_tricks;
+    for (int card : play.trick->FilterEquivalent(play.GetPlayableCards())) {
+      auto search = [&play, card](int beta) {
+        play.PlayCard(card);
+        auto [ns_tricks, _] = play.NextPlay().SearchWithCache(beta);
+        play.UnplayCard();
+        return ns_tricks;
+      };
+      int new_ns_tricks = MemoryEnhancedTestDriver(search, num_tricks, ns_tricks);
+      int trick_diff = ns_contract ? new_ns_tricks - target_ns_tricks
+        : target_ns_tricks - new_ns_tricks;
+      card_tricks[card] = trick_diff;
+    }
+    return card_tricks;
+  }
+
+ private:
+  MinMax min_max;
+  const int target_ns_tricks;
+  const int num_tricks;
+  const int trump;
+};
+
+Hands CollectHands(char* west, char* north, char* east, char* south) {
+  Cards all_cards;
+  Hands hands;
+  hands[WEST]  = ParseHand(west,  all_cards); all_cards.Add(hands[WEST]);
+  hands[NORTH] = ParseHand(north, all_cards); all_cards.Add(hands[NORTH]);
+  hands[EAST]  = ParseHand(east,  all_cards); all_cards.Add(hands[EAST]);
+  hands[SOUTH] = ParseHand(south, all_cards); all_cards.Add(hands[SOUTH]);
+  return hands;
+}
+
 extern "C" {
   char *solve(char* west, char* north, char* east, char* south) {
-    Cards all_cards;
-    Hands hands;
-    hands[WEST]  = ParseHand(west,  all_cards); all_cards.Add(hands[WEST]);
-    hands[NORTH] = ParseHand(north, all_cards); all_cards.Add(hands[NORTH]);
-    hands[EAST]  = ParseHand(east,  all_cards); all_cards.Add(hands[EAST]);
-    hands[SOUTH] = ParseHand(south, all_cards); all_cards.Add(hands[SOUTH]);
+    auto hands = CollectHands(west, north, east, south);
 
     static char buffer[256];
     buffer[0] = '\0';
@@ -2130,8 +2178,31 @@ extern "C" {
     Solve(hands, trumps, lead_seats, trump_start, seat_done, trump_done);
     return buffer;
   }
-}
 
+  char *solve_leads(char* west, char* north, char* east, char* south,
+                    int level, int trump, int lead_seat) {
+    auto hands = CollectHands(west, north, east, south);
+    bool ns_contract = !IsNs(lead_seat);
+    int target_ns_tricks = ns_contract ? level + 6 : 7 - level;
+
+    static char buffer[256];
+    buffer[0] = '\0';
+    auto do_nothing = [](int trump) {};
+    auto seat_done = [&](int trump, int lead_seat, int ns_tricks) {
+      auto web_play = WebPlay(hands, trump, lead_seat, target_ns_tricks);
+      auto card_tricks = web_play.EvaluateLeads(ns_tricks, ns_contract);
+      for (const auto& card_trick : card_tricks) {
+        sprintf(buffer + strlen(buffer), "%s:%+d ", NameOf(card_trick.first),
+                card_trick.second);
+      }
+    };
+    std::vector<int> trumps = {trump};
+    std::vector<int> lead_seats = {lead_seat};
+    Solve(hands, trumps, lead_seats, do_nothing, seat_done, do_nothing);
+    return buffer;
+  }
+}
+#else  // _WEB
 int main(int argc, char* argv[]) {
   options.Read(argc, argv);
 
@@ -2187,3 +2258,4 @@ int main(int argc, char* argv[]) {
   }
   return 0;
 }
+#endif  // _WEB
