@@ -1,6 +1,6 @@
 all: solver.p solver
 sanitizer: solver.m solver.a
-web: solver.js solver.wasm
+web: solver.js solver.wasm solver-no-simd.js solver-no-simd.wasm
 
 OPTS=-std=c++17 -Wall -Wno-missing-profile
 ifeq (sse4_2, $(shell grep -m1 -o sse4_2 /proc/cpuinfo))
@@ -34,5 +34,13 @@ solver.js: solver.cc
 		-s ALLOW_MEMORY_GROWTH \
 		-s EXPORTED_FUNCTIONS=_solve,_solve_leads \
 		-s EXPORTED_RUNTIME_METHODS=ccall
+	sed -i 's/"solver.wasm"/simd?"solver.wasm":"solver-no-simd.wasm"/' $@
+solver-no-simd.js: solver.cc
+	emcc -D_WEB -std=c++17 -O3 -o $@ $^ \
+		-s ALLOW_MEMORY_GROWTH \
+		-s EXPORTED_FUNCTIONS=_solve,_solve_leads \
+		-s EXPORTED_RUNTIME_METHODS=ccall
+	rm $@
 clean:
-	rm -f solver.p solver solver.g solver.m solver.a solver.js solver.wasm
+	rm -f solver.p solver solver.g solver.m solver.a \
+		solver.js solver.wasm solver-no-simd.js solver-no-simd.wasm
