@@ -31,16 +31,16 @@ solver.a: solver.cc
 	./$@ -if hard_deals/deal.1
 solver.js: solver.cc
 	emcc -D_WEB -std=c++17 -O3 -msimd128 -msse4.2 -o $@ $^ \
-		-s ALLOW_MEMORY_GROWTH \
-		-s EXPORTED_FUNCTIONS=_solve,_solve_leads \
-		-s EXPORTED_RUNTIME_METHODS=ccall
+		--bind -s ALLOW_MEMORY_GROWTH
 	sed -i 's/"solver.wasm"/simd?"solver.wasm":"solver-no-simd.wasm"/' $@
 solver-no-simd.js: solver.cc
 	emcc -D_WEB -std=c++17 -O3 -o $@ $^ \
-		-s ALLOW_MEMORY_GROWTH \
-		-s EXPORTED_FUNCTIONS=_solve,_solve_leads \
-		-s EXPORTED_RUNTIME_METHODS=ccall
+		--bind -s ALLOW_MEMORY_GROWTH
 	rm $@
+web-test: web-test.cc solver.cc
+	g++ $(OPTS) -O3 -o $@ web-test.cc
+	./$@
 clean:
 	rm -f solver.p solver solver.g solver.m solver.a \
-		solver.js solver.wasm solver-no-simd.js solver-no-simd.wasm
+		solver.js solver.wasm solver-no-simd.js solver-no-simd.wasm \
+		web-test
