@@ -1,6 +1,6 @@
 #include <assert.h>
 #include <ctype.h>
-#ifdef __BMI2__
+#if defined(__BMI2__) || defined(__SSE4_1__)
 #include <immintrin.h>
 #endif
 #include <limits.h>
@@ -346,6 +346,38 @@ class Hands {
 
   const Cards& operator[](int seat) const { return hands[seat]; }
   Cards& operator[](int seat) { return hands[seat]; }
+
+  // Whether every seat's hand in `other` is a subset of the corresponding
+  // seat's hand here. WEST/NORTH and EAST/SOUTH are each stored as two
+  // contiguous uint64_t, so this can be done with two 128-bit PTESTs instead
+  // of four scalar subset checks chained together.
+  bool Include(const Hands& other) const {
+#ifdef __SSE4_1__
+    __m128i a0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&hands[WEST]));
+    __m128i b0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&other.hands[WEST]));
+    __m128i a1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&hands[EAST]));
+    __m128i b1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&other.hands[EAST]));
+    __m128i missing = _mm_or_si128(_mm_andnot_si128(a0, b0), _mm_andnot_si128(a1, b1));
+    return _mm_testz_si128(missing, missing);
+#else
+    return hands[WEST].Include(other.hands[WEST]) & hands[NORTH].Include(other.hands[NORTH]) &
+           hands[EAST].Include(other.hands[EAST]) & hands[SOUTH].Include(other.hands[SOUTH]);
+#endif
+  }
+
+  bool Equals(const Hands& other) const {
+#ifdef __SSE4_1__
+    __m128i a0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&hands[WEST]));
+    __m128i b0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&other.hands[WEST]));
+    __m128i a1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&hands[EAST]));
+    __m128i b1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&other.hands[EAST]));
+    __m128i diff = _mm_or_si128(_mm_xor_si128(a0, b0), _mm_xor_si128(a1, b1));
+    return _mm_testz_si128(diff, diff);
+#else
+    return (hands[WEST] == other.hands[WEST]) & (hands[NORTH] == other.hands[NORTH]) &
+           (hands[EAST] == other.hands[EAST]) & (hands[SOUTH] == other.hands[SOUTH]);
+#endif
+  }
 
   int num_tricks() const { return hands[WEST].Size(); }
 
@@ -749,15 +781,9 @@ struct Pattern {
   }
 
   // This pattern is more detailed than (a subset of) the other pattern.
-  bool operator<=(const Pattern& p) const {
-    return hands[WEST].Include(p.hands[WEST]) & hands[NORTH].Include(p.hands[NORTH]) &
-           hands[EAST].Include(p.hands[EAST]) & hands[SOUTH].Include(p.hands[SOUTH]);
-  }
+  bool operator<=(const Pattern& p) const { return hands.Include(p.hands); }
 
-  bool operator==(const Pattern& p) const {
-    return (p.hands[WEST] == hands[WEST]) & (p.hands[NORTH] == hands[NORTH]) &
-           (p.hands[EAST] == hands[EAST]) & (p.hands[SOUTH] == hands[SOUTH]);
-  }
+  bool operator==(const Pattern& p) const { return hands.Equals(p.hands); }
 
   Cards GetRankWinners(Cards all_cards) const {
     Cards relative_rank_winners = hands.all_cards();

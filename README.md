@@ -136,24 +136,24 @@ nobody holding consecutive ranks in any suit. It took the solver less than five 
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
-N  5  5  5  5  2.47 s 154.6 M
-S  4  4  8  7  2.89 s 154.9 M
-H  8  7  4  4  3.53 s 154.9 M
-D  4  4  7  8  4.18 s 154.9 M
-C  7  8  4  4  4.65 s 154.9 M
+N  5  5  5  5  2.46 s 154.7 M
+S  4  4  8  7  2.87 s 155.0 M
+H  8  7  4  4  3.47 s 155.0 M
+D  4  4  7  8  4.08 s 155.0 M
+C  7  8  4  4  4.52 s 155.0 M
 ```
 
 An even more freakish deal with each player holding only two suits made the solver
-work hard for 30 seconds!
+work hard for nearly half a minute!
 ```
                           ♠ KJ9753 ♥ - ♦ AQT8642 ♣ -
   ♠ AQT8642 ♥ KJ9753 ♦ - ♣ -                       ♠ - ♥ - ♦ KJ9753 ♣ AQT8642
                           ♠ - ♥ AQT8642 ♦ - ♣ KJ9753
-N  7  7  7  7 21.06 s 158.4 M
-S  6  6  7  7 22.77 s 158.4 M
-H  7  7  6  6 24.79 s 158.4 M
-D  7  7  6  6 28.80 s 158.4 M
-C  6  6  7  7 30.33 s 158.4 M
+N  7  7  7  7 19.26 s 158.3 M
+S  6  6  7  7 20.85 s 158.3 M
+H  7  7  6  6 22.70 s 158.3 M
+D  7  7  6  6 26.38 s 158.3 M
+C  6  6  7  7 27.80 s 158.3 M
 ```
 
 ### Multi-core
