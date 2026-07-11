@@ -171,7 +171,7 @@ are SMT threads rather than physical cores.
 
 ### Comparison
 
-For single-threaded performance, the solver is 1.28x faster than
+For single-threaded performance, the solver is 1.36x faster than
 [DDS](https://github.com/dds-bridge/dds) and 1.75x faster than
 [Bridge Calculator (bcalc)](http://bcalc.w8.pl/) on 5000 random deals.
 The detailed run log is `comparison/results.5k_deals.txt`.
