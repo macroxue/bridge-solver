@@ -467,6 +467,9 @@ Hands empty_hands;
 
 template <class Entry, int input_size>
 class Cache {
+  // The hash is stored in Entry and can vary in size.
+  using HashT = decltype(Entry::hash);
+
  public:
   Cache(const char* name, int bits)
       : cache_name(name), bits(bits), size(1 << bits), entries(new Entry[size]) {
@@ -499,7 +502,7 @@ class Cache {
 
   const Entry* Lookup(Cards cards[input_size]) const {
     STATS(++lookups);
-    uint64_t hash = Hash(cards);
+    HashT hash = Hash(cards);
     uint64_t index = hash >> (BitSize(hash) - bits);
 
     for (int d = 0; d < probe_distance; ++d) {
@@ -518,7 +521,7 @@ class Cache {
     if (load_count >= size * 3 / 4) Resize();
 
     STATS(++updates);
-    uint64_t hash = Hash(cards);
+    HashT hash = Hash(cards);
     uint64_t index = hash >> (BitSize(hash) - bits);
 
     // Linear probing benefits from hardware prefetch.
@@ -536,13 +539,14 @@ class Cache {
   }
 
  private:
-  uint64_t Hash(Cards cards[input_size]) const {
+  HashT Hash(Cards cards[input_size]) const {
     static constexpr uint64_t hash_rand[2] = {0x9b8b4567327b23c7ULL, 0x643c986966334873ULL};
     uint64_t sum = 0;
     for (int i = 0; i < (input_size + 1) / 2; ++i)
       sum += (cards[i * 2].Value() + hash_rand[i * 2]) *
              (cards[i * 2 + 1].Value() + hash_rand[i * 2 + 1]);
-    return sum;
+    // When HashT is narrower than 64 bits, keep the high-entropy top bits.
+    return HashT(sum >> (64 - BitSize(HashT(0))));
   }
 
   void Resize() {
@@ -883,7 +887,9 @@ struct ShapeEntry {
 };
 
 struct CutoffEntry {
-  uint64_t hash;
+  // Using 32-bit instead of 64-bit hash is safe because cut-off cards are
+  // move-ordering hints and collisions impact performance, not correctness.
+  uint32_t hash;
   // Cut-off card depending on the seat to play.
   char card[NUM_SEATS];
 
