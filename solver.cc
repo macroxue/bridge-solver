@@ -467,10 +467,10 @@ Hands empty_hands;
 
 template <class Entry, int input_size>
 class Cache {
+ public:
   // The hash is stored in Entry and can vary in size.
   using HashT = decltype(Entry::hash);
 
- public:
   Cache(const char* name, int bits)
       : cache_name(name), bits(bits), size(1 << bits), entries(new Entry[size]) {
     Reset();
@@ -500,9 +500,20 @@ class Cache {
     if (recursive_load > load_count) printf("recursive load: %8d\n", recursive_load);
   }
 
-  const Entry* Lookup(Cards cards[input_size]) const {
+  // Callers compute the hash once and pass it to both Lookup() and, on a miss,
+  // Update() so a single key is never hashed twice.
+  HashT Hash(Cards cards[input_size]) const {
+    static constexpr uint64_t hash_rand[2] = {0x9b8b4567327b23c7ULL, 0x643c986966334873ULL};
+    uint64_t sum = 0;
+    for (int i = 0; i < (input_size + 1) / 2; ++i)
+      sum += (cards[i * 2].Value() + hash_rand[i * 2]) *
+             (cards[i * 2 + 1].Value() + hash_rand[i * 2 + 1]);
+    // When HashT is narrower than 64 bits, keep the high-entropy top bits.
+    return HashT(sum >> (64 - BitSize(HashT(0))));
+  }
+
+  const Entry* Lookup(HashT hash) const {
     STATS(++lookups);
-    HashT hash = Hash(cards);
     uint64_t index = hash >> (BitSize(hash) - bits);
 
     for (int d = 0; d < probe_distance; ++d) {
@@ -517,11 +528,10 @@ class Cache {
     return nullptr;
   }
 
-  Entry* Update(Cards cards[input_size]) {
+  Entry* Update(HashT hash) {
     if (load_count >= size * 3 / 4) Resize();
 
     STATS(++updates);
-    HashT hash = Hash(cards);
     uint64_t index = hash >> (BitSize(hash) - bits);
 
     // Linear probing benefits from hardware prefetch.
@@ -539,16 +549,6 @@ class Cache {
   }
 
  private:
-  HashT Hash(Cards cards[input_size]) const {
-    static constexpr uint64_t hash_rand[2] = {0x9b8b4567327b23c7ULL, 0x643c986966334873ULL};
-    uint64_t sum = 0;
-    for (int i = 0; i < (input_size + 1) / 2; ++i)
-      sum += (cards[i * 2].Value() + hash_rand[i * 2]) *
-             (cards[i * 2 + 1].Value() + hash_rand[i * 2 + 1]);
-    // When HashT is narrower than 64 bits, keep the high-entropy top bits.
-    return HashT(sum >> (64 - BitSize(HashT(0))));
-  }
-
   void Resize() {
     auto old_entries = std::move(entries);
     int old_size = size;
@@ -1055,7 +1055,8 @@ class Play {
     trick->ComputeRelativeHands(depth, hands);
 
     Cards shape_index[2] = {trick->shape.Value(), seat_to_play};
-    auto* shape_entry = common_bounds_cache.Lookup(shape_index);
+    auto shape_hash = common_bounds_cache.Hash(shape_index);
+    auto* shape_entry = common_bounds_cache.Lookup(shape_hash);
     if (shape_entry) {
       auto [hands, bounds] =
           shape_entry->Lookup(trick->relative_hands, beta - ns_tricks_won);
@@ -1082,7 +1083,7 @@ class Play {
     auto [pattern_hands, extended_rank_winners] = trick->ComputePatternHands(rank_winners);
     Pattern new_pattern(pattern_hands, bounds);
     VERBOSE(ShowPattern("update", new_pattern, trick->shape));
-    auto* new_shape_entry = common_bounds_cache.Update(shape_index);
+    auto* new_shape_entry = common_bounds_cache.Update(shape_hash);
 #ifdef _DEBUG
     new_shape_entry->shape = trick->shape;
     new_shape_entry->seat_to_play = seat_to_play;
@@ -1133,7 +1134,8 @@ class Play {
     auto playable_cards = GetPlayableCards();
     Cards cutoff_index[2];
     BuildCutoffIndex(cutoff_index);
-    Cards cutoff_cards = playable_cards.Intersect(LookupCutoffCards(cutoff_index));
+    auto cutoff_hash = cutoff_cache.Hash(cutoff_index);
+    Cards cutoff_cards = playable_cards.Intersect(LookupCutoffCards(cutoff_hash));
     if (cutoff_cards) {
       ordered_cards.AddCard(cutoff_cards.Top());
       playable_cards.Remove(cutoff_cards);
@@ -1161,7 +1163,7 @@ class Play {
         ns_tricks = NsToPlay() ? std::max(ns_tricks, branch_ns_tricks)
                                : std::min(ns_tricks, branch_ns_tricks);
         if (NsToPlay() ? ns_tricks >= beta : ns_tricks < beta) {  // cut-off
-          if (!cutoff_cards.Have(card)) SaveCutoffCard(cutoff_index, card);
+          if (!cutoff_cards.Have(card)) SaveCutoffCard(cutoff_hash, card);
           VERBOSE(printf("%2d: search cut @%d\n", depth, i));
           return {ns_tricks, branch_rank_winners};
         }
@@ -1442,16 +1444,16 @@ class Play {
     cutoff_index[1].Add(TOTAL_CARDS + (depth & 3));
   }
 
-  Cards LookupCutoffCards(Cards cutoff_index[]) const {
+  Cards LookupCutoffCards(decltype(cutoff_cache)::HashT hash) const {
     Cards cutoff_cards;
-    if (const auto* entry = cutoff_cache.Lookup(cutoff_index))
+    if (const auto* entry = cutoff_cache.Lookup(hash))
       if (entry->card[seat_to_play] != TOTAL_CARDS)
         cutoff_cards.Add(entry->card[seat_to_play]);
     return cutoff_cards;
   }
 
-  void SaveCutoffCard(Cards cutoff_index[], int cutoff_card) const {
-    auto* entry = cutoff_cache.Update(cutoff_index);
+  void SaveCutoffCard(decltype(cutoff_cache)::HashT hash, int cutoff_card) const {
+    auto* entry = cutoff_cache.Update(hash);
     entry->card[seat_to_play] = cutoff_card;
   }
 
