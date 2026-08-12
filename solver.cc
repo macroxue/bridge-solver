@@ -1137,6 +1137,7 @@ class Play {
     auto cutoff_hash = cutoff_cache.Hash(cutoff_index);
     Cards cutoff_cards = playable_cards.Intersect(LookupCutoffCards(cutoff_hash));
     if (cutoff_cards) {
+      VERBOSE(printf("%2d: use cutoff %s\n", depth, NameOf(cutoff_cards.Top())));
       ordered_cards.AddCard(cutoff_cards.Top());
       playable_cards.Remove(cutoff_cards);
     } else {
@@ -1147,12 +1148,14 @@ class Play {
     int ns_tricks = NsToPlay() ? 0 : TOTAL_TRICKS;
     int min_relevant_ranks[NUM_SUITS] = {TWO, TWO, TWO, TWO};
     Cards rank_winners, tried_cards;
+    STATS(int num_branches = 0);
     for (int i = 0; i < ordered_cards.Size(); ++i) {
       int card = ordered_cards.Card(i), suit = SuitOf(card), rank = RankOf(card);
       // Try a card if its rank is still relevant and it isn't equivalent to a tried card.
       if (rank >= min_relevant_ranks[suit] &&
           !trick->IsEquivalent(card, tried_cards.Suit(suit), hands[seat_to_play])) {
         STATS(++stats[depth].num_branches);
+        STATS(++num_branches);
         PlayCard(card);
         VERBOSE(ShowTricks(beta, 0, true));
         auto [branch_ns_tricks, branch_rank_winners] = NextPlay().SearchWithCache(beta);
@@ -1164,7 +1167,7 @@ class Play {
                                : std::min(ns_tricks, branch_ns_tricks);
         if (NsToPlay() ? ns_tricks >= beta : ns_tricks < beta) {  // cut-off
           if (!cutoff_cards.Have(card)) SaveCutoffCard(cutoff_hash, card);
-          VERBOSE(printf("%2d: search cut @%d\n", depth, i));
+          VERBOSE(printf("%2d: search cut @%d %s\n", depth, num_branches, NameOf(card)));
           return {ns_tricks, branch_rank_winners};
         }
 
