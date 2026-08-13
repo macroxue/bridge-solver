@@ -633,6 +633,69 @@ class Shape {
   uint64_t value;
 };
 
+// Free-list pool for Vector<T>'s backing storage, one LIFO list per
+// power-of-two capacity (size_class == log2(capacity)). Recycles the many
+// short-lived new[]/delete[] calls from Vector<Pattern> churn as the pattern
+// tree is built and pruned; blocks are never freed back to the allocator,
+// only reused. Refill() slabs kSlabSize bytes per malloc call to amortize
+// the call cost -- kept small so a size class's reusable set stays close to
+// its actual working set rather than accumulating a large, cold backlog on
+// the biggest pattern trees.
+template <class T>
+class VectorPool {
+ public:
+  static char* Allocate(int size_class) {
+    STATS(++alloc_calls_[size_class]);
+    char*& head = free_lists_[size_class];
+    if (!head) {
+      STATS(++miss_calls_[size_class]);
+      Refill(size_class);
+    }
+    char* block = head;
+    head = *reinterpret_cast<char**>(block);
+    return block;
+  }
+
+  static void Deallocate(char* block, int size_class) {
+    char*& head = free_lists_[size_class];
+    *reinterpret_cast<char**>(block) = head;
+    head = block;
+  }
+
+  static void ShowStatistics() {
+    printf("--- VectorPool<T> Statistics (block = %zu bytes) ---\n", sizeof(T));
+    uint64_t total_allocs = 0;
+    for (int i = 0; i < 16; ++i) total_allocs += alloc_calls_[i];
+    for (int i = 0; i < 16; ++i) {
+      if (!alloc_calls_[i]) continue;
+      printf("class %2d (cap %6zu): allocs %10lu (%5.2f%%)   misses %8lu (%6.2f%% of allocs)\n",
+             i, size_t{1} << i, alloc_calls_[i], alloc_calls_[i] * 100.0 / total_allocs,
+             miss_calls_[i], miss_calls_[i] * 100.0 / alloc_calls_[i]);
+    }
+  }
+
+ private:
+  static constexpr size_t kSlabSize = 8192;
+
+  // One allocation for a full slab, amortizing the malloc call across all of them.
+  static void Refill(int size_class) {
+    size_t block_bytes = (size_t{1} << size_class) * sizeof(T);
+    size_t num_blocks = kSlabSize / block_bytes;
+    if (num_blocks == 0) num_blocks = 1;
+    char* slab = new char[num_blocks * block_bytes];
+    char*& head = free_lists_[size_class];
+    for (size_t i = 0; i < num_blocks; ++i) {
+      char* block = slab + i * block_bytes;
+      *reinterpret_cast<char**>(block) = head;
+      head = block;
+    }
+  }
+
+  static inline uint64_t alloc_calls_[16] = {};
+  static inline uint64_t miss_calls_[16] = {};
+  static inline char* free_lists_[16] = {};
+};
+
 template <class T>
 class Vector {
  public:
@@ -640,18 +703,19 @@ class Vector {
 
   void clear() {
     for (size_t i = 0; i < count; ++i) (*this)[i].~T();
+    if (items) VectorPool<T>::Deallocate(items, __builtin_ctz(capacity));
     count = capacity = 0;
-    delete[] items;
     items = nullptr;
   }
 
   void resize(size_t new_size) {
     if (capacity < new_size) {
-      capacity = std::max(capacity * 2, (int)new_size);
-      auto old_items = items;
-      items = new char[capacity * sizeof(T)];
-      memcpy(items, old_items, count * sizeof(T));
-      delete[] old_items;
+      int size_class = new_size <= 1 ? 0 : 32 - __builtin_clz((unsigned)new_size - 1);
+      char* new_items = VectorPool<T>::Allocate(size_class);
+      memcpy(new_items, items, count * sizeof(T));
+      if (items) VectorPool<T>::Deallocate(items, __builtin_ctz(capacity));
+      items = new_items;
+      capacity = 1 << size_class;
     }
     memset(items + count * sizeof(T), 0, (new_size - count) * sizeof(T));
     count = new_size;
@@ -1852,6 +1916,7 @@ void Solve(const Hands& hands, const std::vector<int>& trumps,
       if (options.stats_level) {
         common_bounds_cache.ShowStatistics();
         cutoff_cache.ShowStatistics();
+        VectorPool<Pattern>::ShowStatistics();
       }
       seat_done(trump, lead_seat, ns_tricks);
     }
