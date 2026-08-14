@@ -1196,6 +1196,8 @@ class Play {
     STATS(++stats[depth].num_visits);
     ordered_cards.Reset();
     auto playable_cards = GetPlayableCards();
+    VERBOSE(printf("%2d: all %lx playable %lx\n", depth, hands.all_cards().Value(),
+                   playable_cards.Value()));
     Cards cutoff_index[2];
     BuildCutoffIndex(cutoff_index);
     auto cutoff_hash = cutoff_cache.Hash(cutoff_index);
@@ -1261,13 +1263,15 @@ class Play {
       auto my_suit = playable_cards.Suit(suit);
       if (!my_suit) continue;
       if (SUIT_CONTRACT) {
+        // Trump suit - oddly bad.
         if (suit == trump) {
           trump_leads.Add(my_suit.Top());
           trump_leads.Add(my_suit.Bottom());
           continue;
         }
-        if (lho_hand.Suit(trump) && !lho_hand.Suit(suit)) continue;
-        if (rho_hand.Suit(trump) && !rho_hand.Suit(suit)) continue;
+        // Opponents can ruff - very bad.
+        if ((lho_hand.Suit(trump) && !lho_hand.Suit(suit)) ||
+            (rho_hand.Suit(trump) && !rho_hand.Suit(suit))) continue;
       }
       auto pd_suit = pd_hand.Suit(suit), our_suits = my_suit.Union(pd_suit);
       auto lho_suit = lho_hand.Suit(suit);
@@ -1277,6 +1281,7 @@ class Play {
       int q = all_suit_cards.Remove(k).Top();
       int j = all_suit_cards.Remove(q).Top();
       int t = all_suit_cards.Remove(j).Top();
+      // Finesse LHO - good.
       if (pd_suit.Size() >= 2 && lho_suit.Size() >= 2) {
         if ((pd_suit.Have(k) && lho_suit.Have(a)) ||
             (pd_suit.Have(a) && lho_suit.Have(k) &&
@@ -1290,28 +1295,31 @@ class Play {
       }
       auto rho_suit = rho_hand.Suit(suit);
       auto partnership_cards = hands.partnership_cards(seat_to_play);
+      // Give free finesse to RHO - bad.
       if (my_suit.Size() >= 2 && rho_suit.Size() >= 2) {
         if ((my_suit.Have(a) && rho_suit.Have(k)) ||
             (my_suit.Have(k) && rho_suit.Have(a) && !partnership_cards.Have(q))) {
           if (SUIT_CONTRACT) {
             bad_leads.Add(my_suit.Top());
-            bad_leads.Add(my_suit.Bottom());
+            continue;
           }
-          continue;
         }
       }
       Cards akq = Cards().Add(a).Add(k).Add(q);
+      // Lead from strong suit - ok.
       if (lho_suit && rho_suit && partnership_cards.Intersect(akq).Size() >= 2) {
         high_leads.Add(my_suit.Top());
         high_leads.Add(my_suit.Bottom());
         continue;
       }
+      // Give partner a ruff - good.
       if (SUIT_CONTRACT && !pd_suit && lho_suit && rho_suit && pd_hand.Suit(trump) &&
           pd_hand.Suit(trump).Size() <= playable_cards.Suit(trump).Size() &&
           my_suit.Bottom() != a) {
         ruff_leads.Add(my_suit.Bottom());
         continue;
       }
+      // Nothing special.
       leads.Add(my_suit.Top());
       leads.Add(my_suit.Bottom());
     }
