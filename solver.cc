@@ -337,9 +337,6 @@ class Hands {
   Cards all_cards() const {
     return hands[WEST].Union(hands[NORTH]).Union(hands[EAST]).Union(hands[SOUTH]);
   }
-  Cards partnership_cards(int seat) const {
-    return hands[seat].Union(hands[(seat + 2) % NUM_SEATS]);
-  }
   Cards opponent_cards(int seat) const {
     return hands[(seat + 1) % NUM_SEATS].Union(hands[(seat + 3) % NUM_SEATS]);
   }
@@ -380,6 +377,14 @@ class Hands {
   }
 
   int num_tricks() const { return hands[WEST].Size(); }
+
+  int num_voids() const {
+    int voids = 0;
+    for (int seat = 0; seat < NUM_SEATS; ++seat)
+      for (int suit = 0; suit < NUM_SUITS; ++suit)
+        if (hands[seat].Suit(suit).Size() == 0) ++voids;
+    return voids;
+  }
 
   void Show() const {
     for (int seat = 0; seat < NUM_SEATS; ++seat) {
@@ -1294,11 +1299,10 @@ class Play {
         }
       }
       auto rho_suit = rho_hand.Suit(suit);
-      auto partnership_cards = hands.partnership_cards(seat_to_play);
       // Give free finesse to RHO - bad.
       if (my_suit.Size() >= 2 && rho_suit.Size() >= 2) {
         if ((my_suit.Have(a) && rho_suit.Have(k)) ||
-            (my_suit.Have(k) && rho_suit.Have(a) && !partnership_cards.Have(q))) {
+            (my_suit.Have(k) && rho_suit.Have(a) && !our_suits.Have(q))) {
           if (SUIT_CONTRACT) {
             bad_leads.Add(my_suit.Top());
             continue;
@@ -1307,7 +1311,7 @@ class Play {
       }
       Cards akq = Cards().Add(a).Add(k).Add(q);
       // Lead from strong suit - ok.
-      if (lho_suit && rho_suit && partnership_cards.Intersect(akq).Size() >= 2) {
+      if (lho_suit && rho_suit && our_suits.Intersect(akq).Size() >= 2) {
         high_leads.Add(my_suit.Top());
         high_leads.Add(my_suit.Bottom());
         continue;
@@ -1927,6 +1931,10 @@ void Solve(const Hands& hands, const std::vector<int>& trumps,
         VectorPool<Pattern>::ShowStatistics();
       }
       seat_done(trump, lead_seat, ns_tricks);
+      if (hands.num_voids() >= 4) {
+        common_bounds_cache.Reset();
+        cutoff_cache.Reset();
+      }
     }
     common_bounds_cache.Reset();
     cutoff_cache.Reset();

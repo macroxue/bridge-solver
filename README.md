@@ -122,13 +122,13 @@ with 8 physical cores at 3.2GHz base clock and 4.4GHz boost clock.
 
 ### Single-core
 
-The solver fully analyzed 1000 random deals (under `1k_deals`) in just 120 seconds,
-averaging more than eight deals per second. Below is a more detailed breakdown.
-The longest one (`deal.310`) took 1.24 seconds and consumed 48.2 MB of memory.
+The solver fully analyzed 1000 random deals (under `1k_deals`) in just 112.8 seconds,
+averaging nearly nine deals per second. Below is a more detailed breakdown.
+The longest one (`deal.310`) took 1.18 seconds and consumed 45.0 MB of memory.
 
 | Time  | <= 0.1s | <= 0.2s | <= 0.5s |  <= 1s  |  <= 2s  |
 |-------|---------|---------|---------|---------|---------|
-| Count |    607  |    857  |    976  |    999  |   1000  |
+| Count |    637  |    872  |    982  |    999  |   1000  |
 
 One of the most difficult deals is this symmetric one, with four void suits and
 nobody holding consecutive ranks in any suit. It took the solver less than five seconds.
@@ -136,24 +136,24 @@ nobody holding consecutive ranks in any suit. It took the solver less than five 
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
-N  5  5  5  5  2.46 s 154.7 M
-S  4  4  8  7  2.87 s 155.0 M
-H  8  7  4  4  3.47 s 155.0 M
-D  4  4  7  8  4.08 s 155.0 M
-C  7  8  4  4  4.52 s 155.0 M
+N  5  5  5  5  2.18 s  51.7 M
+S  4  4  8  7  2.61 s  53.1 M
+H  8  7  4  4  3.19 s  53.3 M
+D  4  4  7  8  3.80 s  53.6 M
+C  7  8  4  4  4.24 s  53.6 M
 ```
 
 An even more freakish deal with each player holding only two suits made the solver
-work hard for nearly half a minute!
+work hard for nearly 20 seconds!
 ```
                           ♠ KJ9753 ♥ - ♦ AQT8642 ♣ -
   ♠ AQT8642 ♥ KJ9753 ♦ - ♣ -                       ♠ - ♥ - ♦ KJ9753 ♣ AQT8642
                           ♠ - ♥ AQT8642 ♦ - ♣ KJ9753
-N  7  7  7  7 19.26 s 158.3 M
-S  6  6  7  7 20.85 s 158.3 M
-H  7  7  6  6 22.70 s 158.3 M
-D  7  7  6  6 26.38 s 158.3 M
-C  6  6  7  7 27.80 s 158.3 M
+N  7  7  7  7 11.68 s  65.1 M
+S  6  6  7  7 13.32 s  65.4 M
+H  7  7  6  6 15.14 s  65.7 M
+D  7  7  6  6 17.12 s  65.7 M
+C  6  6  7  7 18.93 s  65.7 M
 ```
 
 ### Multi-core
@@ -163,8 +163,8 @@ The solver is single-threaded, so multiple instances of the solver are running i
 
 | # Cores   |    1 |    2 |    4 |    8 |   16 |
 |-----------|------|------|------|------|------|
-| Time (s)  |120.0 | 65.8 | 35.5 | 21.9 | 17.9 |
-| Speed-up  |  1.0 |  1.8 |  3.4 |  5.5 |  6.7 |
+| Time (s)  |112.8 | 63.6 | 35.0 | 21.6 | 17.5 |
+| Speed-up  |  1.0 |  1.8 |  3.2 |  5.2 |  6.4 |
 
 The scaling is decent up to 8 cores. 16 cores give small additional speed-up as the cores
 are SMT threads rather than physical cores.
