@@ -708,7 +708,10 @@ class Vector {
 
   void clear() {
     for (size_t i = 0; i < count; ++i) (*this)[i].~T();
-    if (items) VectorPool<T>::Deallocate(items, __builtin_ctz(capacity));
+    // Guard on capacity, not items: __builtin_ctz(capacity) is UB when capacity
+    // is 0, and a compiler that proves items==nullptr iff capacity==0 is free to
+    // treat "items is null" as unreachable here and drop the guard entirely.
+    if (capacity) VectorPool<T>::Deallocate(items, __builtin_ctz(capacity));
     count = capacity = 0;
     items = nullptr;
   }
@@ -718,7 +721,7 @@ class Vector {
       int size_class = new_size <= 1 ? 0 : 32 - __builtin_clz((unsigned)new_size - 1);
       char* new_items = VectorPool<T>::Allocate(size_class);
       memcpy(new_items, items, count * sizeof(T));
-      if (items) VectorPool<T>::Deallocate(items, __builtin_ctz(capacity));
+      if (capacity) VectorPool<T>::Deallocate(items, __builtin_ctz(capacity));
       items = new_items;
       capacity = 1 << size_class;
     }
