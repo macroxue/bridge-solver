@@ -185,3 +185,8 @@ A log-scale plot magnifies the difference. The gap between this solver and DDS i
 wider than the gap between DDS and bcalc.
 
 ![5k.log](https://github.com/macroxue/bridge-solver/blob/master/comparison/5k_deals.log.png)
+
+## License
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
+[MIT license](LICENSE-MIT) at your option.
