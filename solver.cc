@@ -339,10 +339,6 @@ class Hands {
   Cards all_cards() const {
     return hands[WEST].Union(hands[NORTH]).Union(hands[EAST]).Union(hands[SOUTH]);
   }
-  Cards opponent_cards(int seat) const {
-    return hands[(seat + 1) % NUM_SEATS].Union(hands[(seat + 3) % NUM_SEATS]);
-  }
-
   const Cards& operator[](int seat) const { return hands[seat]; }
   Cards& operator[](int seat) { return hands[seat]; }
 
@@ -2239,7 +2235,6 @@ class WebPlay {
       : min_max(hands, trump, lead_seat),
         target_ns_tricks(target_ns_tricks),
         num_tricks(hands.num_tricks()),
-        trump(trump),
         played_cards(played_cards){}
 
   typedef std::map<int, int> CardTricks;
@@ -2295,7 +2290,6 @@ class WebPlay {
   MinMax min_max;
   const int target_ns_tricks;
   const int num_tricks;
-  const int trump;
   const std::vector<int> played_cards;
 };
 
