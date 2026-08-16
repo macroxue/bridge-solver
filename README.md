@@ -131,29 +131,29 @@ The longest one (`deal.310`) took 1.18 seconds and consumed 45.0 MB of memory.
 | Count |    637  |    872  |    982  |    999  |   1000  |
 
 One of the most difficult deals is this symmetric one, with four void suits and
-nobody holding consecutive ranks in any suit. It took the solver less than five seconds.
+nobody holding consecutive ranks in any suit. It took the solver less than four seconds.
 ```
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
-N  5  5  5  5  2.18 s  51.7 M
-S  4  4  8  7  2.61 s  53.1 M
-H  8  7  4  4  3.19 s  53.3 M
-D  4  4  7  8  3.80 s  53.6 M
-C  7  8  4  4  4.24 s  53.6 M
+N  5  5  5  5  1.91 s 128.6 M
+S  4  4  8  7  2.30 s 129.4 M
+H  8  7  4  4  2.81 s 130.0 M
+D  4  4  7  8  3.39 s 130.7 M
+C  7  8  4  4  3.79 s 130.7 M
 ```
 
 An even more freakish deal with each player holding only two suits made the solver
-work hard for nearly 20 seconds!
+work hard for over 18 seconds!
 ```
                           ♠ KJ9753 ♥ - ♦ AQT8642 ♣ -
   ♠ AQT8642 ♥ KJ9753 ♦ - ♣ -                       ♠ - ♥ - ♦ KJ9753 ♣ AQT8642
                           ♠ - ♥ AQT8642 ♦ - ♣ KJ9753
-N  7  7  7  7 11.68 s  65.1 M
-S  6  6  7  7 13.32 s  65.4 M
-H  7  7  6  6 15.14 s  65.7 M
-D  7  7  6  6 17.12 s  65.7 M
-C  6  6  7  7 18.93 s  65.7 M
+N  7  7  7  7 11.25 s  65.2 M
+S  6  6  7  7 12.84 s  65.5 M
+H  7  7  6  6 14.61 s  65.5 M
+D  7  7  6  6 16.52 s  65.7 M
+C  6  6  7  7 18.28 s  65.7 M
 ```
 
 ### Multi-core
