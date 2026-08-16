@@ -3,6 +3,7 @@
 #if defined(__BMI2__) || defined(__SSE4_1__)
 #include <immintrin.h>
 #endif
+#include <inttypes.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -322,7 +323,8 @@ class Hands {
 
   void Decode(char* code) {
     uint64_t values[3];
-    int num_values = sscanf(code, "%lX,%lX,%lX", values, values + 1, values + 2);
+    int num_values = sscanf(code, "%" SCNx64 ",%" SCNx64 ",%" SCNx64, values,
+                             values + 1, values + 2);
     assert(num_values == 3);
     auto mask = (1ULL << TOTAL_CARDS) - 1;
     for (int seat = 0; seat < NUM_SEATS - 1; ++seat) {
@@ -401,7 +403,8 @@ class Hands {
       values[seat] = PackBits(hands[seat].Value(), mask);
       mask &= ~hands[seat].Value();
     }
-    printf("# %lX,%lX,%lX\n", values[0], values[1], values[2]);
+    printf("# %" PRIX64 ",%" PRIX64 ",%" PRIX64 "\n", values[0], values[1],
+           values[2]);
   }
 
   void ShowCompact(int rotation = 0) const {
@@ -668,7 +671,8 @@ class VectorPool {
     for (int i = 0; i < 16; ++i) total_allocs += alloc_calls_[i];
     for (int i = 0; i < 16; ++i) {
       if (!alloc_calls_[i]) continue;
-      printf("class %2d (cap %6zu): allocs %10lu (%5.2f%%)   misses %8lu (%6.2f%% of allocs)\n",
+      printf("class %2d (cap %6zu): allocs %10" PRIu64
+             " (%5.2f%%)   misses %8" PRIu64 " (%6.2f%% of allocs)\n",
              i, size_t{1} << i, alloc_calls_[i], alloc_calls_[i] * 100.0 / total_allocs,
              miss_calls_[i], miss_calls_[i] * 100.0 / alloc_calls_[i]);
     }
