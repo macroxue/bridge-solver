@@ -898,55 +898,60 @@ struct Pattern {
 
 struct ShapeEntry {
   uint64_t hash;
-  Pattern pattern;
+  Pattern pattern[NUM_SEATS];
 #ifdef _DEBUG
   Shape shape;
-  short seat_to_play;
-  mutable uint16_t hits, cuts;
+  mutable uint16_t hits[NUM_SEATS], cuts[NUM_SEATS];
 
   void Show() const {
+    for (int s = 0; s < NUM_SEATS; ++s) {
+      if (pattern[s].patterns.size() == 0) continue;
       printf("hash %016lx shape %016lx seat %c size %ld total size %d hits %d cuts %d\n",
-           hash, shape.Value(), SeatLetter(seat_to_play), pattern.patterns.size(), Size(),
-           hits, cuts);
-    pattern.Show(shape, 0);
+             hash, shape.Value(), SeatLetter(s), pattern[s].patterns.size(),
+             pattern[s].Size() - 1, hits[s], cuts[s]);
+      pattern[s].Show(shape, 0);
+    }
   }
 #endif
 
-  int Size() const { return pattern.Size() - 1; }
+  int Size() const {
+    int total = 0;
+    for (int s = 0; s < NUM_SEATS; ++s) total += pattern[s].Size() - 1;
+    return total;
+  }
 
   void Reset(uint64_t hash_in) {
     hash = hash_in;
-    pattern.Reset();
+    for (int s = 0; s < NUM_SEATS; ++s) pattern[s].Reset();
 #ifdef _DEBUG
     shape = Shape();
-    seat_to_play = -1;
-    hits = cuts = 0;
+    memset(hits, 0, sizeof(hits));
+    memset(cuts, 0, sizeof(cuts));
 #endif
   }
 
   void MoveTo(ShapeEntry& to) {
     to.hash = hash;
-    to.pattern.MoveFrom(pattern);
+    for (int s = 0; s < NUM_SEATS; ++s) to.pattern[s].MoveFrom(pattern[s]);
 #ifdef _DEBUG
     to.shape = shape;
-    to.seat_to_play = seat_to_play;
-    to.hits = hits;
-    to.cuts = cuts;
+    memcpy(to.hits, hits, sizeof(hits));
+    memcpy(to.cuts, cuts, sizeof(cuts));
 #endif
   }
 
-  std::pair<const Hands*, Bounds> Lookup(const Pattern& new_pattern, int beta) const {
-    STATS(++hits);
-    if (pattern.bounds.Cutoff(beta) && new_pattern <= pattern) {
-      STATS(++cuts);
-      CHECK(pattern.Lookup(new_pattern, beta));
-      return {&pattern.hands, pattern.bounds};
+  std::pair<const Hands*, Bounds> Lookup(const Pattern& new_pattern, int beta, int seat) const {
+    STATS(++hits[seat]);
+    if (pattern[seat].bounds.Cutoff(beta) && new_pattern <= pattern[seat]) {
+      STATS(++cuts[seat]);
+      CHECK(pattern[seat].Lookup(new_pattern, beta));
+      return {&pattern[seat].hands, pattern[seat].bounds};
     }
-    auto cached_pattern = pattern.Lookup(new_pattern, beta);
+    auto cached_pattern = pattern[seat].Lookup(new_pattern, beta);
     if (cached_pattern) {
-      STATS(++cuts);
-      const_cast<Pattern*>(&pattern)->hands = cached_pattern->hands;
-      const_cast<Pattern*>(&pattern)->bounds = cached_pattern->bounds;
+      STATS(++cuts[seat]);
+      const_cast<Pattern*>(&pattern[seat])->hands = cached_pattern->hands;
+      const_cast<Pattern*>(&pattern[seat])->bounds = cached_pattern->bounds;
       return {&cached_pattern->hands, cached_pattern->bounds};
     }
     return {nullptr, Bounds{}};
@@ -973,7 +978,7 @@ struct CutoffEntry {
 };
 #pragma pack(pop)
 
-Cache<ShapeEntry> common_bounds_cache("Common Bounds Cache", 15);
+Cache<ShapeEntry> common_bounds_cache("Common Bounds Cache", 13);
 Cache<CutoffEntry> cutoff_cache("Cut-off Cache", 16);
 
 struct Trick {
@@ -1121,12 +1126,11 @@ class Play {
     ComputeShape();
     trick->ComputeRelativeHands(depth, hands);
 
-    // The last suit length in the shape can always be inferred, so it's OK to overwrite.
-    auto shape_hash = common_bounds_cache.Hash((trick->shape.Value() & ~0xfULL) + seat_to_play);
+    auto shape_hash = common_bounds_cache.Hash(trick->shape.Value());
     auto* shape_entry = common_bounds_cache.Lookup(shape_hash);
     if (shape_entry) {
       auto [hands, bounds] =
-          shape_entry->Lookup(trick->relative_hands, beta - ns_tricks_won);
+          shape_entry->Lookup(trick->relative_hands, beta - ns_tricks_won, seat_to_play);
       if (hands) {
         Pattern matched_pattern(*hands, bounds);
         auto rank_winners = matched_pattern.GetRankWinners(trick->all_cards);
@@ -1153,9 +1157,8 @@ class Play {
     auto* new_shape_entry = common_bounds_cache.Update(shape_hash);
 #ifdef _DEBUG
     new_shape_entry->shape = trick->shape;
-    new_shape_entry->seat_to_play = seat_to_play;
 #endif
-    new_shape_entry->pattern.Update(new_pattern);
+    new_shape_entry->pattern[seat_to_play].Update(new_pattern);
     return {ns_tricks, extended_rank_winners};
   }
 
