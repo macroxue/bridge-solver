@@ -1084,10 +1084,12 @@ struct Trick {
 struct Stat {
   int num_visits = 0;
   int num_branches = 0;
+  int num_cutoff_collisions = 0;
 
   void Show(int depth) {
     if (num_visits)
-      printf("%2d: %7d * %.2f\n", depth, num_visits, double(num_branches) / num_visits);
+      printf("%2d: %7d * %.2f  cutoff-collisions: %d\n",
+             depth, num_visits, double(num_branches) / num_visits, num_cutoff_collisions);
   }
 } stats[TOTAL_CARDS];
 
@@ -1205,12 +1207,13 @@ class Play {
     VERBOSE(printf("%2d: all %lx playable %lx\n", depth, hands.all_cards().Value(),
                    playable_cards.Value()));
     auto cutoff_hash = cutoff_cache.Hash(BuildCutoffIndex());
-    Cards cutoff_cards = playable_cards.Intersect(LookupCutoffCards(cutoff_hash));
-    if (cutoff_cards) {
-      VERBOSE(printf("%2d: use cutoff %s\n", depth, NameOf(cutoff_cards.Top())));
-      ordered_cards.AddCard(cutoff_cards.Top());
-      playable_cards.Remove(cutoff_cards);
+    int cutoff_card = LookupCutoffCard(cutoff_hash);
+    if (playable_cards.Have(cutoff_card)) {
+      VERBOSE(printf("%2d: use cutoff %s\n", depth, NameOf(cutoff_card)));
+      ordered_cards.AddCard(cutoff_card);
+      playable_cards.Remove(cutoff_card);
     } else {
+      STATS(if (cutoff_card != TOTAL_CARDS) ++stats[depth].num_cutoff_collisions);
       OrderCards(playable_cards);
       playable_cards = Cards();
     }
@@ -1236,7 +1239,7 @@ class Play {
         ns_tricks = NsToPlay() ? std::max(ns_tricks, branch_ns_tricks)
                                : std::min(ns_tricks, branch_ns_tricks);
         if (NsToPlay() ? ns_tricks >= beta : ns_tricks < beta) {  // cut-off
-          if (!cutoff_cards.Have(card)) SaveCutoffCard(cutoff_hash, card);
+          if (card != cutoff_card) SaveCutoffCard(cutoff_hash, card);
           VERBOSE(printf("%2d: search cut @%d %s\n", depth, num_branches, NameOf(card)));
           return {ns_tricks, branch_rank_winners};
         }
@@ -1527,12 +1530,9 @@ class Play {
     return cutoff_index;
   }
 
-  Cards LookupCutoffCards(decltype(cutoff_cache)::HashT hash) const {
-    Cards cutoff_cards;
-    if (const auto* entry = cutoff_cache.Lookup(hash))
-      if (entry->card[seat_to_play] != TOTAL_CARDS)
-        cutoff_cards.Add(entry->card[seat_to_play]);
-    return cutoff_cards;
+  int LookupCutoffCard(decltype(cutoff_cache)::HashT hash) const {
+    const auto* entry = cutoff_cache.Lookup(hash);
+    return entry ? entry->card[seat_to_play] : TOTAL_CARDS;
   }
 
   void SaveCutoffCard(decltype(cutoff_cache)::HashT hash, int cutoff_card) const {
