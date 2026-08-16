@@ -470,7 +470,7 @@ class Hands {
 
 Hands empty_hands;
 
-template <class Entry, int input_size>
+template <class Entry>
 class Cache {
  public:
   // The hash is stored in Entry and can vary in size.
@@ -507,14 +507,9 @@ class Cache {
 
   // Callers compute the hash once and pass it to both Lookup() and, on a miss,
   // Update() so a single key is never hashed twice.
-  HashT Hash(Cards cards[input_size]) const {
-    static constexpr uint64_t hash_rand[2] = {0x9b8b4567327b23c7ULL, 0x643c986966334873ULL};
-    uint64_t sum = 0;
-    for (int i = 0; i < (input_size + 1) / 2; ++i)
-      sum += (cards[i * 2].Value() + hash_rand[i * 2]) *
-             (cards[i * 2 + 1].Value() + hash_rand[i * 2 + 1]);
+  HashT Hash(uint64_t value) const {
     // When HashT is narrower than 64 bits, keep the high-entropy top bits.
-    return HashT(sum >> (64 - BitSize(HashT(0))));
+    return HashT((value * 0x9b8b4567327b23c7ULL) >> (64 - BitSize(HashT(0))));
   }
 
   const Entry* Lookup(HashT hash) const {
@@ -910,7 +905,7 @@ struct ShapeEntry {
   mutable uint16_t hits, cuts;
 
   void Show() const {
-    printf("hash %016lx shape %016lx seat %c size %ld total size %d hits %d cuts %d\n",
+      printf("hash %016lx shape %016lx seat %c size %ld total size %d hits %d cuts %d\n",
            hash, shape.Value(), SeatLetter(seat_to_play), pattern.patterns.size(), Size(),
            hits, cuts);
     pattern.Show(shape, 0);
@@ -978,8 +973,8 @@ struct CutoffEntry {
 };
 #pragma pack(pop)
 
-Cache<ShapeEntry, 2> common_bounds_cache("Common Bounds Cache", 15);
-Cache<CutoffEntry, 2> cutoff_cache("Cut-off Cache", 16);
+Cache<ShapeEntry> common_bounds_cache("Common Bounds Cache", 15);
+Cache<CutoffEntry> cutoff_cache("Cut-off Cache", 16);
 
 struct Trick {
   Shape shape;
@@ -1126,8 +1121,8 @@ class Play {
     ComputeShape();
     trick->ComputeRelativeHands(depth, hands);
 
-    Cards shape_index[2] = {trick->shape.Value(), seat_to_play};
-    auto shape_hash = common_bounds_cache.Hash(shape_index);
+    // The last suit length in the shape can always be inferred, so it's OK to overwrite.
+    auto shape_hash = common_bounds_cache.Hash((trick->shape.Value() & ~0xfULL) + seat_to_play);
     auto* shape_entry = common_bounds_cache.Lookup(shape_hash);
     if (shape_entry) {
       auto [hands, bounds] =
@@ -1206,9 +1201,7 @@ class Play {
     auto playable_cards = GetPlayableCards();
     VERBOSE(printf("%2d: all %lx playable %lx\n", depth, hands.all_cards().Value(),
                    playable_cards.Value()));
-    Cards cutoff_index[2];
-    BuildCutoffIndex(cutoff_index);
-    auto cutoff_hash = cutoff_cache.Hash(cutoff_index);
+    auto cutoff_hash = cutoff_cache.Hash(BuildCutoffIndex());
     Cards cutoff_cards = playable_cards.Intersect(LookupCutoffCards(cutoff_hash));
     if (cutoff_cards) {
       VERBOSE(printf("%2d: use cutoff %s\n", depth, NameOf(cutoff_cards.Top())));
@@ -1512,18 +1505,23 @@ class Play {
     hands[seat_to_play].Add(card_played);
   }
 
-  void BuildCutoffIndex(Cards cutoff_index[2]) const {
+  uint64_t BuildCutoffIndex() const {
+    // Format of the index:
+    //  * 2 bits for seating order in the trick
+    //  * 52 bits for card holding
+    //  * 6 bits for winner in the trick
+    uint64_t cutoff_index = depth & 3;
     if (TrickStarting()) {
-      cutoff_index[0] = hands[seat_to_play];
+      cutoff_index += hands[seat_to_play].Value() << 2;
     } else if (hands[seat_to_play].Suit(LeadSuit())) {
-      cutoff_index[0] = trick->all_cards.Suit(LeadSuit());
-      cutoff_index[1].Add(PreviousPlay().WinningCard());
+      cutoff_index += trick->all_cards.Suit(LeadSuit()).Value() << 2;
+      cutoff_index += uint64_t(PreviousPlay().WinningCard()) << (TOTAL_CARDS + 2);
     } else {
-      cutoff_index[0] = hands[seat_to_play];
-      if (trump == NOTRUMP) cutoff_index[1].Add(PreviousPlay().WinningSeat());
-      else cutoff_index[1].Add(PreviousPlay().WinningCard());
+      auto winner = trump == NOTRUMP ? PreviousPlay().WinningSeat() : PreviousPlay().WinningCard();
+      cutoff_index += hands[seat_to_play].Value() << 2;
+      cutoff_index += uint64_t(winner) << (TOTAL_CARDS + 2);
     }
-    cutoff_index[1].Add(TOTAL_CARDS + (depth & 3));
+    return cutoff_index;
   }
 
   Cards LookupCutoffCards(decltype(cutoff_cache)::HashT hash) const {
