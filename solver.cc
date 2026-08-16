@@ -157,7 +157,7 @@ struct Options {
     }
   }
 
-  void ShowUsage(char* name) {
+  void ShowUsage(const char* name) {
     printf("%s  A fast double-dummy solver for the card game of Bridge.\n", name);
     printf("\t-r           Solve a random deal.\n"
            "\t-f <file>    Solve a deal in the input file. See files in *_deals/ for examples.\n"
@@ -307,7 +307,7 @@ class Hands {
     Deal(cards, seats);
   }
 
-  void Deal(Cards cards, std::vector<int> seats) {
+  void Deal(Cards cards, const std::vector<int>& seats) {
     std::mt19937 random(static_cast<uint64_t>(Now() * 1000));
     std::vector<int> deck;
     for (int card : cards) deck.push_back(card);
@@ -321,7 +321,7 @@ class Hands {
     }
   }
 
-  void Decode(char* code) {
+  void Decode(const char* code) {
     uint64_t values[3];
     int num_values = sscanf(code, "%" SCNx64 ",%" SCNx64 ",%" SCNx64, values,
                              values + 1, values + 2);
@@ -898,7 +898,7 @@ struct Pattern {
 
 struct ShapeEntry {
   uint64_t hash;
-  Pattern pattern[NUM_SEATS];
+  mutable Pattern pattern[NUM_SEATS];
 #ifdef _DEBUG
   Shape shape;
   mutable uint16_t hits[NUM_SEATS], cuts[NUM_SEATS];
@@ -950,8 +950,8 @@ struct ShapeEntry {
     auto cached_pattern = pattern[seat].Lookup(new_pattern, beta);
     if (cached_pattern) {
       STATS(++cuts[seat]);
-      const_cast<Pattern*>(&pattern[seat])->hands = cached_pattern->hands;
-      const_cast<Pattern*>(&pattern[seat])->bounds = cached_pattern->bounds;
+      pattern[seat].hands = cached_pattern->hands;
+      pattern[seat].bounds = cached_pattern->bounds;
       return {&cached_pattern->hands, cached_pattern->bounds};
     }
     return {nullptr, Bounds{}};
@@ -1086,7 +1086,7 @@ struct Stat {
   int num_branches = 0;
   int num_cutoff_collisions = 0;
 
-  void Show(int depth) {
+  void Show(int depth) const {
     if (num_visits)
       printf("%2d: %7d * %.2f  cutoff-collisions: %d\n",
              depth, num_visits, double(num_branches) / num_visits, num_cutoff_collisions);
@@ -1119,7 +1119,7 @@ class Play {
     }
 
     if (ns_tricks_won >= beta) return {ns_tricks_won, {}};
-    int remaining_tricks = hands.num_tricks();
+    const int remaining_tricks = hands.num_tricks();
     if (ns_tricks_won + remaining_tricks < beta) return {ns_tricks_won + remaining_tricks, {}};
 
     if (remaining_tricks == 1) return CollectLastTrick();
@@ -1128,7 +1128,7 @@ class Play {
     ComputeShape();
     trick->ComputeRelativeHands(depth, hands);
 
-    auto shape_hash = common_bounds_cache.Hash(trick->shape.Value());
+    const auto shape_hash = common_bounds_cache.Hash(trick->shape.Value());
     auto* shape_entry = common_bounds_cache.Lookup(shape_hash);
     if (shape_entry) {
       auto [hands, bounds] =
@@ -1206,7 +1206,7 @@ class Play {
     auto playable_cards = GetPlayableCards();
     VERBOSE(printf("%2d: all %lx playable %lx\n", depth, hands.all_cards().Value(),
                    playable_cards.Value()));
-    auto cutoff_hash = cutoff_cache.Hash(BuildCutoffIndex());
+    const auto cutoff_hash = cutoff_cache.Hash(BuildCutoffIndex());
     int cutoff_card = LookupCutoffCard(cutoff_hash);
     if (playable_cards.Have(cutoff_card)) {
       VERBOSE(printf("%2d: use cutoff %s\n", depth, NameOf(cutoff_card)));
@@ -1824,7 +1824,7 @@ Cards ParseHand(const char* input_line, Cards all_cards) {
 }
 
 void ReadHands(Hands& hands, std::vector<int>& trumps, std::vector<int>& lead_seats) {
-  auto input_file = fopen(options.input_file, "rt");
+  auto* const input_file = fopen(options.input_file, "rt");
   if (!input_file) {
     fprintf(stderr, "Input file not found: '%s'.\n", options.input_file);
     exit(-1);
@@ -1876,7 +1876,7 @@ void ReadHands(Hands& hands, std::vector<int>& trumps, std::vector<int>& lead_se
   fclose(input_file);
 }
 
-int MemoryEnhancedTestDriver(std::function<int(int)> search, int num_tricks,
+int MemoryEnhancedTestDriver(const std::function<int(int)>& search, int num_tricks,
                              int guess_tricks) {
   int upperbound = num_tricks;
   int lowerbound = 0;
@@ -1917,9 +1917,10 @@ int GuessTricks(const Hands& hands, int trump) {
 }
 
 void Solve(const Hands& hands, const std::vector<int>& trumps,
-           const std::vector<int>& lead_seats, std::function<void(int trump)> trump_start,
-           std::function<void(int trump, int lead_seat, int ns_tricks)> seat_done,
-           std::function<void(int trump)> trump_done) {
+           const std::vector<int>& lead_seats,
+           const std::function<void(int trump)>& trump_start,
+           const std::function<void(int trump, int lead_seat, int ns_tricks)>& seat_done,
+           const std::function<void(int trump)>& trump_done) {
   int num_tricks = hands[WEST].Size();
   for (int trump : trumps) {
     trump_start(trump);
@@ -1992,7 +1993,7 @@ class InteractivePlay {
   }
 
  private:
-  void ShowUsage() {
+  void ShowUsage() const {
     static bool first_time = true;
     if (first_time) {
       first_time = false;
@@ -2021,7 +2022,7 @@ class InteractivePlay {
     }
   }
 
-  bool SetupTrick(Play& play) {
+  bool SetupTrick(Play& play) const {
     // TODO: Clean up! SearchWithCache() recomputes the same info.
     if (play.depth > 0) {
       play.ns_tricks_won =
@@ -2050,7 +2051,7 @@ class InteractivePlay {
 
   typedef std::map<int, int> CardTricks;
 
-  CardTricks EvaluateCards(Play& play, int ns_tricks, bool ns_contract) {
+  CardTricks EvaluateCards(Play& play, int ns_tricks, bool ns_contract) const {
     int last_suit = NOTRUMP;
     CardTricks card_tricks;
     printf("From");
@@ -2085,7 +2086,7 @@ class InteractivePlay {
 
   enum Action { PLAY, UNDO, ROTATE, NEXT };
 
-  Action SelectCard(const CardTricks& card_tricks, const Play& play, int* card_to_play) {
+  Action SelectCard(const CardTricks& card_tricks, const Play& play, int* card_to_play) const {
     // Auto-play when there is only one choice.
     if (card_tricks.size() == 1) {
       *card_to_play = card_tricks.begin()->first;
@@ -2187,13 +2188,13 @@ class InteractivePlay {
     }
   }
 
-  char* ColoredNameOf(int card) {
+  char* ColoredNameOf(int card) const {
     static char name[32];
     snprintf(name, sizeof(name), "%s %c", SuitSign(SuitOf(card)), NameOf(card)[1]);
     return name;
   }
 
-  char GetRawChar() {
+  char GetRawChar() const {
     char buf = 0;
     struct termios old = {0};
     if (tcgetattr(0, &old) < 0) perror("tcsetattr()");
