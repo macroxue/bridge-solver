@@ -156,6 +156,21 @@ D  7  7  6  6 16.52 s  65.7 M
 C  6  6  7  7 18.28 s  65.7 M
 ```
 
+A new champion has emerged when North and South switch hands in the symmetric
+three-suited deal above. This simple change surprisingly increases the solving
+time by more than 20x and the memory usage by nearly 14x, overwhelmingly just
+for NT contracts.
+```
+                          ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
+  ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
+                          ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
+N  7  7  7  7 82.91 s 1811.4 M
+S  4  4  7  7 83.33 s 1811.7 M
+H  7  7  4  4 83.71 s 1811.7 M
+D  4  4  7  7 84.06 s 1811.9 M
+C  7  7  4  4 84.46 s 1811.9 M
+```
+
 ### Multi-core
 
 The table below shows the time for solving 1000 random deals in `1k_deals` with multiple cores.
