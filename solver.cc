@@ -336,6 +336,9 @@ class Hands {
            hands[2].Size() == hands[3].Size());
   }
 
+  size_t Size() const {
+    return hands[WEST].Size() + hands[NORTH].Size() + hands[EAST].Size() + hands[SOUTH].Size();
+  }
   Cards all_cards() const {
     return hands[WEST].Union(hands[NORTH]).Union(hands[EAST]).Union(hands[SOUTH]);
   }
@@ -752,21 +755,30 @@ class Vector {
 struct Pattern {
   Hands hands;
   Bounds bounds;
-  uint16_t padding;
+  uint16_t order;
   Vector<Pattern> patterns;
 
   Pattern(const Hands& hands = Hands(), Bounds bounds = Bounds())
-      : hands(hands), bounds(bounds) {}
+      : hands(hands), bounds(bounds), order(hands.Size()) {}
 
   void Reset() {
     hands = Hands();
     bounds = {0, TOTAL_TRICKS};
+    order = 0;
     patterns.clear();
   }
 
   void MoveFrom(Pattern& p) {
     hands = p.hands;
     bounds = p.bounds;
+    order = p.order;
+    patterns.swap(p.patterns);
+  }
+
+  void swap(Pattern &p) {
+    std::swap(hands, p.hands);
+    std::swap(bounds, p.bounds);
+    std::swap(order, p.order);
     patterns.swap(p.patterns);
   }
 
@@ -797,21 +809,31 @@ struct Pattern {
         pattern.UpdateBounds(new_pattern.bounds);
         if (pattern.bounds != new_pattern.bounds) new_pattern.Append(pattern);
         else new_pattern.patterns.swap(pattern.patterns);
-        for (++i; i < patterns.size(); ++i) {
-          auto& old_pattern = patterns[i];
+        for (size_t j = i + 1; j < patterns.size(); ++j) {
+          auto& old_pattern = patterns[j];
           if (!(old_pattern <= new_pattern)) continue;
           old_pattern.UpdateBounds(new_pattern.bounds);
           if (old_pattern.bounds != new_pattern.bounds) new_pattern.Append(old_pattern);
           else if (!new_pattern.patterns.size()) new_pattern.patterns.swap(old_pattern.patterns);
           else new_pattern.Append(old_pattern.patterns);
-          Delete(i);
-          --i;
+          Delete(j);
+          --j;
         }
         pattern.MoveFrom(new_pattern);
+        BubbleUp(i);
         return;
       }
     }
     Append(new_pattern);
+    BubbleUp(patterns.size() - 1);
+  }
+
+  void BubbleUp(size_t pos) {
+    if (pos <= 8) return;
+    while (patterns[pos].order < patterns[pos / 2].order) {
+      patterns[pos].swap(patterns[pos / 2]);
+      pos /= 2;
+    }
   }
 
   void UpdateBounds(Bounds new_bounds) {
@@ -890,6 +912,7 @@ struct Pattern {
         }
         if (seat < NUM_SEATS - 1) printf(", ");
       }
+      printf(" %d", order);
       puts(level > 1 && bounds == parent_bounds ? " dup" : "");
     }
     for (size_t i = 0; i < patterns.size(); ++i) patterns[i].Show(shape, level + 1, bounds);

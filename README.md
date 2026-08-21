@@ -136,39 +136,39 @@ nobody holding consecutive ranks in any suit. It took the solver less than four 
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
-N  5  5  5  5  1.91 s 128.6 M
-S  4  4  8  7  2.30 s 129.4 M
-H  8  7  4  4  2.81 s 130.0 M
-D  4  4  7  8  3.39 s 130.7 M
-C  7  8  4  4  3.79 s 130.7 M
+N  5  5  5  5  1.89 s 128.6 M
+S  4  4  8  7  2.27 s 129.4 M
+H  8  7  4  4  2.76 s 129.9 M
+D  4  4  7  8  3.30 s 130.7 M
+C  7  8  4  4  3.68 s 130.7 M
 ```
 
 An even more freakish deal with each player holding only two suits made the solver
-work hard for over 18 seconds!
+work hard for almost 16 seconds!
 ```
                           ♠ KJ9753 ♥ - ♦ AQT8642 ♣ -
   ♠ AQT8642 ♥ KJ9753 ♦ - ♣ -                       ♠ - ♥ - ♦ KJ9753 ♣ AQT8642
                           ♠ - ♥ AQT8642 ♦ - ♣ KJ9753
-N  7  7  7  7 11.25 s  65.2 M
-S  6  6  7  7 12.84 s  65.5 M
-H  7  7  6  6 14.61 s  65.5 M
-D  7  7  6  6 16.52 s  65.7 M
-C  6  6  7  7 18.28 s  65.7 M
+N  7  7  7  7  9.16 s  64.5 M
+S  6  6  7  7 10.61 s  64.8 M
+H  7  7  6  6 12.21 s  65.0 M
+D  7  7  6  6 13.94 s  65.0 M
+C  6  6  7  7 15.52 s  65.0 M
 ```
 
 A new champion has emerged when North and South switch hands in the symmetric
 three-suited deal above. This simple change surprisingly increases the solving
-time by more than 20x and the memory usage by nearly 14x, overwhelmingly just
+time by more than 19x and the memory usage by nearly 13x, overwhelmingly just
 for NT contracts.
 ```
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
-N  7  7  7  7 82.91 s 1811.4 M
-S  4  4  7  7 83.33 s 1811.7 M
-H  7  7  4  4 83.71 s 1811.7 M
-D  4  4  7  7 84.06 s 1811.9 M
-C  7  7  4  4 84.46 s 1811.9 M
+N  7  7  7  7 69.00 s 1680.2 M
+S  4  4  7  7 69.42 s 1680.2 M
+H  7  7  4  4 69.77 s 1680.4 M
+D  4  4  7  7 70.12 s 1680.4 M
+C  7  7  4  4 70.50 s 1680.4 M
 ```
 
 ### Multi-core
