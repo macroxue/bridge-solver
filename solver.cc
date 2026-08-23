@@ -308,7 +308,16 @@ class Hands {
   }
 
   void Deal(Cards cards, const std::vector<int>& seats) {
-    std::mt19937 random(static_cast<uint64_t>(Now() * 1000));
+    // A single generator, seeded once from real entropy and advanced across
+    // calls. std::random_device{}() alone yields only 32 bits, and mt19937's
+    // single-int constructor just LCG-expands that one value, capping the
+    // reachable state space at 2^32. Feeding several draws through seed_seq
+    // instead properly initializes the full ~19937-bit state from all of them.
+    static std::mt19937 random = [] {
+      std::random_device rd;
+      std::seed_seq seed{rd(), rd(), rd(), rd()};
+      return std::mt19937(seed);
+    }();
     std::vector<int> deck;
     for (int card : cards) deck.push_back(card);
     std::shuffle(deck.begin(), deck.end(), random);
