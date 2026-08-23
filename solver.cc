@@ -2376,8 +2376,17 @@ std::string solve_plays(std::string west, std::string north,
     cards.push_back(CardOf(CharToSuit(played_cards[i * 2]),
                            CharToRank(played_cards[i * 2 + 1])));
 
-  // No need to call Solve() because patterns won't be saved or reused across
-  // calls to solve_leads().
+  // Caches are reused for the same (hands, trump) across calls, like in the
+  // standalone Solve(); reset only when the deal or trump actually changes.
+  static Hands last_hands;
+  static int last_trump = -1;
+  if (!hands.Equals(last_hands) || trump != last_trump) {
+    common_bounds_cache.Reset();
+    cutoff_cache.Reset();
+    last_hands = hands;
+    last_trump = trump;
+  }
+
   static char buffer[256];
   buffer[0] = '\0';
   auto web_play = WebPlay(hands, trump, lead_seat, target_ns_tricks, cards);
@@ -2386,11 +2395,6 @@ std::string solve_plays(std::string west, std::string north,
     sprintf(buffer + strlen(buffer), "%s:%+d ", NameOf(card_trick.first),
             card_trick.second);
   }
-
-  // Clean up caches because the next call can be for a different hand/contract.
-  common_bounds_cache.Reset();
-  cutoff_cache.Reset();
-
   return buffer;
 }
 

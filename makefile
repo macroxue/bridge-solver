@@ -1,6 +1,6 @@
 all: solver.p solver
 sanitizer: solver.m solver.a
-web: solver.js solver.wasm solver-no-simd.js solver-no-simd.wasm
+web: solver.js solver.wasm solver-no-simd.wasm
 
 OPTS=-std=c++17 -Wall -Wno-missing-profile
 ifeq (sse4_2, $(shell grep -m1 -o sse4_2 /proc/cpuinfo))
@@ -29,14 +29,18 @@ solver.m: solver.cc
 solver.a: solver.cc
 	clang++ -std=c++17 -O3 -fsanitize=address -o $@ $^
 	./$@ -if hard_deals/deal.1
-solver.js: solver.cc
-	emcc -D_WEB -std=c++17 -O3 -msimd128 -msse4.2 -o $@ $^ \
+solver.js: solver.cc solver-no-simd.wasm
+	emcc -D_WEB -std=c++17 -O3 -msimd128 -msse4.2 -o $@ $< \
 		--bind -s ALLOW_MEMORY_GROWTH
-	sed -i 's/"solver.wasm"/simd?"solver.wasm":"solver-no-simd.wasm"/' $@
-solver-no-simd.js: solver.cc
-	emcc -D_WEB -std=c++17 -O3 -o $@ $^ \
+	@# Cache-bust both wasm URLs with each binary's own content hash, to
+	@# avoid stale files being served after a new build.
+	simd_hash=$$(md5sum solver.wasm | cut -c1-8); \
+	nosimd_hash=$$(md5sum solver-no-simd.wasm | cut -c1-8); \
+	sed -i "s/\"solver.wasm\"/simd?\"solver.wasm?v=$$simd_hash\":\"solver-no-simd.wasm?v=$$nosimd_hash\"/" $@
+solver-no-simd.wasm: solver.cc
+	emcc -D_WEB -std=c++17 -O3 -o solver-no-simd.js $< \
 		--bind -s ALLOW_MEMORY_GROWTH
-	rm $@
+	rm solver-no-simd.js
 web-test: web-test.cc solver.cc
 	g++ $(OPTS) -O3 -o $@ web-test.cc
 	./$@
