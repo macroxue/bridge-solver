@@ -4,7 +4,7 @@
 #define _WEB
 #define _TEST
 
-#include "solver.cc"
+#include "../solver.cc"
 
 int main() {
   // hard_deals/deal.8, the same deal used to train the native PGO build.

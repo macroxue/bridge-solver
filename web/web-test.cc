@@ -1,7 +1,7 @@
 #define _WEB
 #define _TEST
 
-#include "solver.cc"
+#include "../solver.cc"
 #include <cassert>
 #include <regex>
 
