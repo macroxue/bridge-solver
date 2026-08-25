@@ -1,5 +1,5 @@
 .PHONY: all clean
-all: solver.js solver.wasm solver-no-simd.wasm
+all: solver.js solver.wasm solver-no-simd.wasm deals.js
 
 include ../opts.mk
 
@@ -36,6 +36,12 @@ solver-no-simd.wasm: ../solver.cc web.profdata
 web-test: web-test.cc ../solver.cc
 	g++ $(OPTS) -O3 -o $@ web-test.cc
 	./$@
+# Embeds hard_deals/ and freak_deals/ text directly into the app so it
+# doesn't depend on symlinks or runtime fetches (GitHub Pages deployments
+# reject symlinks outright).
+deals.js: gen_deals.py $(wildcard ../hard_deals/deal.* ../freak_deals/deal.*)
+	python3 gen_deals.py
 clean:
 	rm -f solver.js solver.wasm solver-no-simd.js solver-no-simd.wasm \
-		web-test web.profdata web-profile.js web-profile.wasm web-profile.profraw
+		web-test web.profdata web-profile.js web-profile.wasm web-profile.profraw \
+		deals.js
