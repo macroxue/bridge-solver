@@ -1,7 +1,10 @@
 # Bridge double dummy solver
 
 This is a fairly simple and yet effective double dummy solver for the card
-game of bridge. It's terminal based.
+game of bridge. It's written in C++ and terminal based.
+
+Try the [web demo](https://macroxue.github.io/bridge-solver/web/), which
+runs the same solver compiled to WebAssembly.
 
 ## Build the solver
 Requirement: a Linux machine with G++ compiler installed.
