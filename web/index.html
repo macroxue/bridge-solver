@@ -102,7 +102,9 @@
     border: 1px solid #ccc;
     border-radius: 3px;
   }
-  .suit-input:disabled { background: #f5f5f5; color: #999; }
+  /* Disabled only while a solve is pending (locked out during play mode
+     too, but hidden then) -- keep it looking normal, not greyed out. */
+  .suit-input:disabled { background: #fff; color: inherit; }
   .suit-input::-webkit-search-cancel-button { display: none; }
   /* Scroll long suits instead of wrapping; JS adds "scrollable" only when
      needed, to fade the trailing edge as a hint. */
@@ -169,6 +171,8 @@
     font-weight: 600;
     text-align: left;
     line-height: 1.4;
+    /* Not clickable, so North's cards behind it (at narrow widths) stay clickable. */
+    pointer-events: none;
   }
   td.pick { cursor: pointer; }
   td.pick:hover { background: #eef; }
@@ -185,6 +189,26 @@
     cursor: pointer;
   }
   button:disabled, select:disabled { cursor: default; opacity: 0.6; }
+  /* Also just locked out while a solve is pending, not truly unavailable --
+     stay full-opacity. Browsers alpha-blend color/background/border on
+     native controls' :disabled state regardless of opacity, so strip the
+     native theming (appearance: none) and draw it ourselves throughout. */
+  #deal, #freakDealNum, #hardDealNum {
+    appearance: none;
+    -webkit-appearance: none;
+    background: #efefef;
+    color: #000;
+    border: 1px solid #767676;
+    border-radius: 2px;
+  }
+  #freakDealNum, #hardDealNum {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23555'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.6rem center;
+    background-size: 0.6rem;
+    padding-right: 1.8rem;
+  }
+  #deal:disabled, #freakDealNum:disabled, #hardDealNum:disabled { opacity: 1; }
   #status { margin: 0.75rem 0; color: #555; }
   #table { overflow-x: auto; }
   table { border-collapse: collapse; margin-top: 0.5rem; }

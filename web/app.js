@@ -42,6 +42,7 @@ worker.onmessage = (event) => {
     case 'abort':
       statusEl.textContent = 'Solver crashed: ' + rest[0];
       solveBtn.disabled = false;
+      setEntryDisabled(false);
       break;
     case 'solve': {
       const [result, elapsedMs] = rest;
@@ -50,6 +51,7 @@ worker.onmessage = (event) => {
       tableHintEl.style.display = 'block';
       statusEl.textContent = `Solved in ${elapsedMs.toFixed(0)} ms.`;
       solveBtn.disabled = false;
+      setEntryDisabled(false);
       break;
     }
     case 'solve_plays': {
@@ -93,6 +95,16 @@ function setHandsDisabled(disabled) {
   for (const seat of SEATS) {
     for (const suit of SUIT_LETTERS) document.getElementById(seat + '-' + suit).disabled = disabled;
   }
+}
+
+// Locks out anything that could change the deal while a solve is pending,
+// so the DD table that eventually comes back always matches the hands
+// shown -- otherwise a slow solve plus a mid-solve deal change lets the
+// table and the hands (and any contract picked from it) mismatch.
+function setEntryDisabled(disabled) {
+  dealBtn.disabled = disabled;
+  for (const { id } of DEAL_DIRS) document.getElementById(id).disabled = disabled;
+  setHandsDisabled(disabled);
 }
 
 // Basic client-side validation so obviously bad input (typos, duplicate
@@ -279,6 +291,7 @@ solveBtn.addEventListener('click', () => {
   }
 
   solveBtn.disabled = true;
+  setEntryDisabled(true);
   statusEl.textContent = 'Solving…';
   tableEl.innerHTML = '';
   tableHintEl.style.display = 'none';
