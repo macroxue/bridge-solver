@@ -161,6 +161,7 @@
     justify-content: space-between;
     margin-bottom: 0.75rem;
   }
+  #playBar .undo-group { display: flex; gap: 0.5rem; }
   #playStatus {
     display: none;
     position: absolute;
@@ -301,7 +302,10 @@
   </div>
   <div id="playBar">
     <button id="editHands">Edit Hands</button>
-    <button id="undo">Undo</button>
+    <div class="undo-group">
+      <button id="undoTrick">Undo Trick</button>
+      <button id="undo">Undo</button>
+    </div>
   </div>
   <div id="status">Loading solver…</div>
   <p class="hint" id="tableHint">Click a cell in the double-dummy table to play out that contract.</p>

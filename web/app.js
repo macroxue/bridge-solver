@@ -315,6 +315,7 @@ const playHintEl = document.getElementById('playHint');
 const tableHintEl = document.getElementById('tableHint');
 const controlsEl = document.getElementById('controls');
 const undoBtn = document.getElementById('undo');
+const undoTrickBtn = document.getElementById('undoTrick');
 const editHandsBtn = document.getElementById('editHands');
 
 // Active play session, or null when not playing. `history` entries are
@@ -517,6 +518,7 @@ function renderPlay() {
     `<div>NS ${state.nsTricks} &ndash; EW ${state.ewTricks}</div>`;
 
   undoBtn.disabled = !playState.history.some(p => !p.auto);
+  undoTrickBtn.disabled = playState.history.length === 0;
 }
 
 function requestPlays() {
@@ -568,6 +570,18 @@ function undo() {
     playState.history.pop();
   }
   if (playState.history.length > 0) playState.history.pop();
+  playState.pendingPlays = null;
+  renderPlay();
+  requestPlays();
+}
+
+// Rewinds to the start of the trick currently in progress, or the last
+// completed trick if none is (undo() rewinds one card at a time; this is
+// the fast, trick-at-a-time version).
+function undoTrick() {
+  if (!playState || playState.history.length === 0) return;
+  const trickStart = Math.floor((playState.history.length - 1) / 4) * 4;
+  playState.history.length = trickStart;
   playState.pendingPlays = null;
   renderPlay();
   requestPlays();
@@ -631,4 +645,5 @@ function startPlay(strain, declarer, tricks) {
 }
 
 undoBtn.addEventListener('click', undo);
+undoTrickBtn.addEventListener('click', undoTrick);
 editHandsBtn.addEventListener('click', exitPlay);
