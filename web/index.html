@@ -4,7 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fast Double-Dummy Solver Web Demo</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text x='8' y='9' font-size='24' text-anchor='middle' dominant-baseline='central'>&#9824;</text></svg>">
 <style>
+  /* Avoids a left/right layout shift when the vertical scrollbar toggles
+     on/off (e.g. solving appends the DD table). */
+  html { scrollbar-gutter: stable; }
   body {
     font-family: system-ui, sans-serif;
     max-width: 640px;
@@ -14,13 +18,14 @@
   }
   h1 { font-size: 1.3rem; }
   .hands {
+    position: relative;
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     grid-template-areas:
       ".    north .   "
       "west center east"
       ".    south .   ";
-    gap: 0.75rem;
+    gap: 0.5rem;
     justify-items: center;
     margin-bottom: 1rem;
   }
@@ -28,25 +33,145 @@
   .hands .north { grid-area: north; }
   .hands .east  { grid-area: east; }
   .hands .south { grid-area: south; }
+  /* North/South's row has empty columns beside them, so give them the full
+     row width and center the hand block (content-sized) within it. */
+  .hands .seat.north, .hands .seat.south { grid-column: 1 / -1; align-items: center; }
+  /* Entry-form boxes size to content and center (matches North/South for
+     West/East too, so the label lines up with them there as well). */
+  .seat.north .hand-input, .seat.south .hand-input,
+  .seat.west .hand-input, .seat.east .hand-input { width: auto; align-self: center; }
+  .north .cards .suit-row, .south .cards .suit-row { flex-wrap: wrap; overflow-x: visible; }
+  /* West overflows into the empty center area instead of scrolling. */
+  .west .cards .suit-row { overflow-x: visible; }
+  .north .cards .suit-symbol, .south .cards .suit-symbol,
+  .west .cards .suit-symbol { position: static; }
+  /* Not scrolling here, so cancel the scroll-fade mask (below). */
+  .west .cards .suit-row.scrollable { mask-image: none; -webkit-mask-image: none; }
   .hands .center {
     grid-area: center;
     color: #bbb;
     font-size: 1.6rem;
+    align-self: center;
+    /* Not clickable, so West's overflowing cards behind it stay clickable. */
+    pointer-events: none;
   }
   .hands .seat {
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: stretch;
     gap: 0.25rem;
+    min-width: 0;
+    width: 100%;
   }
-  .hands label { font-weight: 600; }
-  .hands input {
+  /* .seat stretches children full-width (needed for West/East's overflow
+     scroll below); re-center just the label. */
+  .hands label { font-weight: 600; align-self: center; }
+  .seat .hand-input {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    align-items: flex-start;
+    width: 100%;
+  }
+  .hands.playing .seat .hand-input { display: none; }
+  .seat .cards { display: none; flex-direction: column; gap: 0.15rem; align-items: flex-start; }
+  .hands.playing .seat .cards { display: flex; }
+  .suit-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.15rem;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    width: 100%;
+    min-width: 0;
+  }
+  .suit-symbol { flex: none; width: 1rem; margin-top: -0.08rem; text-align: center; line-height: 1.2; }
+  .suit-input {
+    /* type="search" avoids mobile password/card-autofill prompts; strip
+       its native rounded/clear-button styling. */
+    -webkit-appearance: none;
+    appearance: none;
     font-family: monospace;
-    font-size: 1rem;
-    padding: 0.3rem 0.5rem;
-    width: 11rem;
-    text-align: center;
+    font-size: 0.95rem;
+    padding: 0.05rem 0.3rem;
+    flex: 1 1 0;
+    min-width: 3ch;
+    max-width: 13ch;
+    box-sizing: border-box;
+    text-align: left;
+    border: 1px solid #ccc;
+    border-radius: 3px;
   }
+  .suit-input:disabled { background: #f5f5f5; color: #999; }
+  .suit-input::-webkit-search-cancel-button { display: none; }
+  /* Scroll long suits instead of wrapping; JS adds "scrollable" only when
+     needed, to fade the trailing edge as a hint. */
+  .cards .suit-row { flex-wrap: nowrap; overflow-x: auto; }
+  .cards .suit-symbol { position: sticky; left: 0; align-self: stretch; background: #fff; z-index: 1; }
+  .cards .suit-row.scrollable {
+    mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
+  }
+  .cards .card {
+    flex: none;
+    font-family: monospace;
+    font-size: 0.95rem;
+    line-height: 1.2;
+    min-width: 1.4rem;
+    min-height: 2.05rem;
+    padding: 0.05rem 0.15rem;
+    box-sizing: border-box;
+    text-align: center;
+    border-radius: 3px;
+  }
+  .cards .card.playable {
+    cursor: pointer;
+    background: #eef6ff;
+    border: 1px solid #99c;
+  }
+  .cards .card.playable:hover { background: #d8ebff; }
+  .cards .card .diff {
+    display: block;
+    font-size: 0.6rem;
+    line-height: 1.1;
+  }
+  .diff.plus, .diff.zero { color: #080; }
+  .diff.minus { color: #c00; }
+  .hands .center.trick-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 2.2rem);
+    grid-template-rows: repeat(3, 1.7rem);
+    font-size: 1.3rem;
+    font-family: monospace;
+    color: #222;
+    justify-items: center;
+    align-items: center;
+    white-space: nowrap;
+  }
+  .center.trick-grid .n { grid-column: 2; grid-row: 1; }
+  .center.trick-grid .w { grid-column: 1; grid-row: 2; }
+  .center.trick-grid .e { grid-column: 3; grid-row: 2; }
+  .center.trick-grid .s { grid-column: 2; grid-row: 3; }
+  .center.trick-grid .gap { display: inline-block; width: 0.2em; }
+  #playBar {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+  }
+  #playStatus {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    max-width: 38%;
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-align: left;
+    line-height: 1.4;
+  }
+  td.pick { cursor: pointer; }
+  td.pick:hover { background: #eef; }
   .controls {
     display: flex;
     align-items: center;
@@ -61,6 +186,7 @@
   }
   button:disabled, select:disabled { cursor: default; opacity: 0.6; }
   #status { margin: 0.75rem 0; color: #555; }
+  #table { overflow-x: auto; }
   table { border-collapse: collapse; margin-top: 0.5rem; }
   th, td {
     border: 1px solid #ccc;
@@ -71,6 +197,8 @@
   .red { color: #c00; }
   .black { color: #000; }
   p.hint { color: #666; font-size: 0.9rem; }
+  #playHint { display: none; }
+  #tableHint { display: none; }
   p.source {
     margin-top: 0;
     color: #999;
@@ -84,34 +212,60 @@
   <p class="source">
     Source on <a href="https://github.com/macroxue/bridge-solver" target="_blank" rel="noopener">https://github.com/macroxue/bridge-solver</a>
   </p>
-  <p class="hint">
-    Enter each hand as Spades Hearts Diamonds Clubs, space-separated
-    (e.g. <code>AKQ T98765 2 QJ432</code>). Use <code>T</code> or
-    <code>10</code> for ten, <code>-</code> for a void suit, and
-    <code>X</code> for a small (don't-care) card.
+  <p class="hint" id="playHint">Each card shows how the result would change (=, +N, &ndash;N) if played and
+    followed by best defense/declarer play.</p>
+  <p class="hint" id="entryHint">
+    Enter each suit's ranks, leaving a suit blank if void.
+    Use <code>T</code> or <code>10</code> for ten, and <code>X</code>
+    for a small (don't-care) card.
   </p>
 
-  <div class="hands">
+  <div class="hands" id="hands">
+    <span id="playStatus"></span>
     <div class="seat north">
-      <label for="north">North</label>
-      <input id="north" value="42 AQT63 K52 T84">
+      <label for="north-S">North</label>
+      <div class="hand-input" id="north-input">
+        <div class="suit-row"><span class="suit-symbol black">&spades;</span><input class="suit-input" type="search" id="north-S" name="north-S" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="42"></div>
+        <div class="suit-row"><span class="suit-symbol red">&hearts;</span><input class="suit-input" type="search" id="north-H" name="north-H" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="AQT63"></div>
+        <div class="suit-row"><span class="suit-symbol red">&diams;</span><input class="suit-input" type="search" id="north-D" name="north-D" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="K52"></div>
+        <div class="suit-row"><span class="suit-symbol black">&clubs;</span><input class="suit-input" type="search" id="north-C" name="north-C" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="T84"></div>
+      </div>
+      <div class="cards" id="north-cards"></div>
     </div>
     <div class="seat west">
-      <label for="west">West</label>
-      <input id="west" value="KT8 KJ9875 Q8 75">
+      <label for="west-S">West</label>
+      <div class="hand-input" id="west-input">
+        <div class="suit-row"><span class="suit-symbol black">&spades;</span><input class="suit-input" type="search" id="west-S" name="west-S" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="KT8"></div>
+        <div class="suit-row"><span class="suit-symbol red">&hearts;</span><input class="suit-input" type="search" id="west-H" name="west-H" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="KJ9875"></div>
+        <div class="suit-row"><span class="suit-symbol red">&diams;</span><input class="suit-input" type="search" id="west-D" name="west-D" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="Q8"></div>
+        <div class="suit-row"><span class="suit-symbol black">&clubs;</span><input class="suit-input" type="search" id="west-C" name="west-C" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="75"></div>
+      </div>
+      <div class="cards" id="west-cards"></div>
     </div>
-    <div class="center">&spades;</div>
+    <div class="center" id="center">&spades;</div>
     <div class="seat east">
-      <label for="east">East</label>
-      <input id="east" value="AJ65 42 J963 KQJ">
+      <label for="east-S">East</label>
+      <div class="hand-input" id="east-input">
+        <div class="suit-row"><span class="suit-symbol black">&spades;</span><input class="suit-input" type="search" id="east-S" name="east-S" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="AJ65"></div>
+        <div class="suit-row"><span class="suit-symbol red">&hearts;</span><input class="suit-input" type="search" id="east-H" name="east-H" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="42"></div>
+        <div class="suit-row"><span class="suit-symbol red">&diams;</span><input class="suit-input" type="search" id="east-D" name="east-D" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="J963"></div>
+        <div class="suit-row"><span class="suit-symbol black">&clubs;</span><input class="suit-input" type="search" id="east-C" name="east-C" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="KQJ"></div>
+      </div>
+      <div class="cards" id="east-cards"></div>
     </div>
     <div class="seat south">
-      <label for="south">South</label>
-      <input id="south" value="Q973 - AT74 A9632">
+      <label for="south-S">South</label>
+      <div class="hand-input" id="south-input">
+        <div class="suit-row"><span class="suit-symbol black">&spades;</span><input class="suit-input" type="search" id="south-S" name="south-S" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="Q973"></div>
+        <div class="suit-row"><span class="suit-symbol red">&hearts;</span><input class="suit-input" type="search" id="south-H" name="south-H" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value=""></div>
+        <div class="suit-row"><span class="suit-symbol red">&diams;</span><input class="suit-input" type="search" id="south-D" name="south-D" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="AT74"></div>
+        <div class="suit-row"><span class="suit-symbol black">&clubs;</span><input class="suit-input" type="search" id="south-C" name="south-C" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" value="A9632"></div>
+      </div>
+      <div class="cards" id="south-cards"></div>
     </div>
   </div>
 
-  <div class="controls">
+  <div class="controls" id="controls">
     <select id="freakDealNum">
       <option value="" selected disabled>Load freak deal…</option>
     </select>
@@ -121,7 +275,12 @@
     <button id="deal">Random Deal</button>
     <button id="solve" disabled>Solve</button>
   </div>
+  <div id="playBar">
+    <button id="editHands">Edit Hands</button>
+    <button id="undo">Undo</button>
+  </div>
   <div id="status">Loading solver…</div>
+  <p class="hint" id="tableHint">Click a cell in the double-dummy table to play out that contract.</p>
   <div id="table"></div>
 
   <script src="deals.js"></script>

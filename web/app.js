@@ -45,9 +45,16 @@ worker.onmessage = (event) => {
       break;
     case 'solve': {
       const [result, elapsedMs] = rest;
+      exitPlay();
       renderTable(result);
+      tableHintEl.style.display = 'block';
       statusEl.textContent = `Solved in ${elapsedMs.toFixed(0)} ms.`;
       solveBtn.disabled = false;
+      break;
+    }
+    case 'solve_plays': {
+      const [result, , requestId] = rest;
+      onSolvePlays(result, requestId);
       break;
     }
   }
@@ -66,6 +73,26 @@ function parseRanks(token) {
     }
   }
   return ranks;
+}
+
+// Join/split each seat's four per-suit boxes ("<seat>-S" etc.) and the
+// single "SSSS HHHH DDDD CCCC" string the rest of the app uses.
+function getHandValue(seat) {
+  return SUIT_LETTERS.map(suit => document.getElementById(seat + '-' + suit).value.trim() || '-').join(' ');
+}
+
+function setHandValue(seat, value) {
+  const suits = value.trim().length ? value.trim().split(/\s+/) : [];
+  SUIT_LETTERS.forEach((suit, i) => {
+    const token = suits[i];
+    document.getElementById(seat + '-' + suit).value = !token || token === '-' ? '' : token;
+  });
+}
+
+function setHandsDisabled(disabled) {
+  for (const seat of SEATS) {
+    for (const suit of SUIT_LETTERS) document.getElementById(seat + '-' + suit).disabled = disabled;
+  }
 }
 
 // Basic client-side validation so obviously bad input (typos, duplicate
@@ -102,6 +129,10 @@ function validateHands(hands) {
   return null;
 }
 
+// Declarer for each DD-table column; matches solve()'s fixed column order
+// in solver.cc (derived from its lead_seats iteration), independent of trump.
+const DECLARER_COLUMNS = ['south', 'north', 'west', 'east'];
+
 function renderTable(result) {
   const lines = result.split('\n').filter(Boolean);
   let html = '<table><tr><th></th><th>South</th><th>North</th><th>West</th><th>East</th></tr>';
@@ -110,11 +141,19 @@ function renderTable(result) {
     const strain = parts[0];
     const tricks = parts.slice(1, 5);
     html += '<tr><td>' + (STRAIN_LABELS[strain] || strain) + '</td>' +
-      tricks.map(t => `<td>${t}</td>`).join('') + '</tr>';
+      tricks.map((t, i) => `<td class="pick" data-strain="${strain}" ` +
+        `data-declarer="${DECLARER_COLUMNS[i]}" data-tricks="${t}">${t}</td>`).join('') +
+      '</tr>';
   }
   html += '</table>';
   tableEl.innerHTML = html;
 }
+
+tableEl.addEventListener('click', (event) => {
+  const cell = event.target.closest('td.pick');
+  if (!cell) return;
+  startPlay(cell.dataset.strain, cell.dataset.declarer, Number(cell.dataset.tricks));
+});
 
 // Shuffles a fresh 52-card deck and deals 13 cards to each seat, formatted
 // as "SSSS HHHH DDDD CCCC" (ranks high to low, '-' for a void suit).
@@ -141,9 +180,12 @@ function randomDeal() {
 }
 
 dealBtn.addEventListener('click', () => {
+  exitPlay();
   const hands = randomDeal();
-  for (const seat of SEATS) document.getElementById(seat).value = hands[seat];
+  for (const seat of SEATS) setHandValue(seat, hands[seat]);
   tableEl.innerHTML = '';
+  tableHintEl.style.display = 'none';
+  statusEl.textContent = 'Dealt a random hand.';
 });
 
 // Parses the deal layouts used by hard_deals/, freak_deals/, etc. Hands
@@ -209,15 +251,17 @@ for (const { id, dir, label } of DEAL_DIRS) {
       statusEl.textContent = `Failed to load ${label.toLowerCase()} ${num}: unrecognized deal format`;
       return;
     }
-    for (const seat of SEATS) document.getElementById(seat).value = hands[seat];
+    exitPlay();
+    for (const seat of SEATS) setHandValue(seat, hands[seat]);
     tableEl.innerHTML = '';
+    tableHintEl.style.display = 'none';
     statusEl.textContent = `Loaded ${label.toLowerCase()} ${num}.`;
   });
 }
 
 solveBtn.addEventListener('click', () => {
   const hands = {};
-  for (const seat of SEATS) hands[seat] = document.getElementById(seat).value;
+  for (const seat of SEATS) hands[seat] = getHandValue(seat);
 
   const error = validateHands(hands);
   if (error) {
@@ -228,5 +272,341 @@ solveBtn.addEventListener('click', () => {
   solveBtn.disabled = true;
   statusEl.textContent = 'Solving…';
   tableEl.innerHTML = '';
+  tableHintEl.style.display = 'none';
   worker.postMessage(['solve', hands]);
 });
+
+// --- CARD PLAY ---
+// Trump encoding expected by solve_plays (see solver.cc:
+// enum { SPADE, HEART, DIAMOND, CLUB, NUM_SUITS, NOTRUMP = NUM_SUITS }).
+const TRUMP_NUMBERS = { S: 0, H: 1, D: 2, C: 3, N: 4 };
+// Rank value for comparing cards within a suit (A high).
+const RANK_VALUE = Object.fromEntries(RANKS.map((r, i) => [r, RANKS.length - i]));
+
+const handsEl = document.getElementById('hands');
+const centerEl = document.getElementById('center');
+const seatCardsEls = Object.fromEntries(SEATS.map(seat => [seat, document.getElementById(seat + '-cards')]));
+const playBarEl = document.getElementById('playBar');
+const playStatusEl = document.getElementById('playStatus');
+const entryHintEl = document.getElementById('entryHint');
+const playHintEl = document.getElementById('playHint');
+const tableHintEl = document.getElementById('tableHint');
+const controlsEl = document.getElementById('controls');
+const undoBtn = document.getElementById('undo');
+const editHandsBtn = document.getElementById('editHands');
+
+// Active play session, or null when not playing. `history` entries are
+// tagged `auto: true` when solve_plays left no real choice. `pendingPlays`
+// is the card->diff map for the seat on lead, once the worker answers.
+let playState = null;
+let playRequestId = 0;
+
+function nextSeat(seat) {
+  return SEATS[(SEATS.indexOf(seat) + 1) % 4];
+}
+
+function displayRank(rank) {
+  return rank === 'T' ? '10' : rank;
+}
+
+function cardStr(card) {
+  return card.suit + card.rank;
+}
+
+// Splits an already-validated hand string into its 13 {suit, rank} cards.
+function parseHandCards(value) {
+  const suits = value.trim().length ? value.trim().split(/\s+/) : [];
+  const cards = [];
+  for (let i = 0; i < 4 && i < suits.length; ++i) {
+    const token = suits[i];
+    if (token === '-') continue;
+    for (const rank of parseRanks(token)) cards.push({ suit: SUIT_LETTERS[i], rank });
+  }
+  return cards;
+}
+
+// Mirrors ParseHand() in solver.cc: each X becomes the lowest unclaimed
+// rank in its suit, walking seats West/North/East/South and suits
+// Spades/Hearts/Diamonds/Clubs, left to right.
+function resolveWildcards(hands) {
+  const used = new Set();
+  const resolved = {};
+  for (const seat of SEATS) {
+    const suits = hands[seat].trim().length ? hands[seat].trim().split(/\s+/) : [];
+    const outSuits = [];
+    for (let i = 0; i < 4; ++i) {
+      const token = suits[i];
+      if (!token || token === '-') {
+        outSuits.push('-');
+        continue;
+      }
+      const outRanks = parseRanks(token).map(rank => {
+        if (rank !== 'X') {
+          used.add(SUIT_LETTERS[i] + rank);
+          return rank;
+        }
+        for (let r = RANKS.length - 1; r >= 0; --r) {
+          const candidate = SUIT_LETTERS[i] + RANKS[r];
+          if (!used.has(candidate)) {
+            used.add(candidate);
+            return RANKS[r];
+          }
+        }
+        return rank;  // unreachable: suit already holds all 13 ranks
+      });
+      outSuits.push(outRanks.join(''));
+    }
+    resolved[seat] = outSuits.join(' ');
+  }
+  return resolved;
+}
+
+function winningCard(trick, trumpLetter) {
+  let best = trick[0];
+  for (const card of trick.slice(1)) {
+    const beats = card.suit === best.suit
+      ? RANK_VALUE[card.rank] > RANK_VALUE[best.rank]
+      : card.suit === trumpLetter;
+    if (beats) best = card;
+  }
+  return best;
+}
+
+// Replays history to derive whose turn it is, the score, and the current
+// trick. Recomputing keeps undo trivial (just shorten history and replay).
+function replayState() {
+  let seat = playState.leadSeat;
+  let nsTricks = 0, ewTricks = 0;
+  let trick = [];
+  let lastTrick = [];
+  for (const play of playState.history) {
+    trick.push(play);
+    if (trick.length === 4) {
+      const winner = winningCard(trick, playState.trumpLetter).seat;
+      if (winner === 'north' || winner === 'south') ++nsTricks; else ++ewTricks;
+      seat = winner;
+      lastTrick = trick;
+      trick = [];
+    } else {
+      seat = nextSeat(seat);
+    }
+  }
+  // Keep showing the just-finished trick until the next one's first card.
+  return { seat, nsTricks, ewTricks, trick: trick.length ? trick : lastTrick };
+}
+
+function remainingCards(seat) {
+  const played = new Set(playState.history.filter(p => p.seat === seat).map(cardStr));
+  return playState.hands[seat].filter(c => !played.has(cardStr(c)));
+}
+
+// level is clamped to >= 1 in startPlay (tricks-6 can be <1, but there's
+// no such bid); shortfall shows how far below that clamped level tricks falls.
+function contractLabel(level, tricks, strainHtml) {
+  const shortfall = (6 + level) - tricks;
+  if (shortfall <= 0) return `${level}${strainHtml}`;
+  return `${level}${strainHtml}-${shortfall}`;
+}
+
+function renderDiffLabel(diff) {
+  const n = Number(diff);
+  if (n === 0) return '<span class="diff zero">=</span>';
+  if (n > 0) return `<span class="diff plus">+${n}</span>`;
+  return `<span class="diff minus">–${-n}</span>`;
+}
+
+// `plays` is this seat's card->diff map if it's their turn and answered,
+// else null/undefined -> cards render plain and unclickable.
+function renderSeatCards(seat, plays) {
+  const container = seatCardsEls[seat];
+  container.innerHTML = '';
+  const bySuit = { S: [], H: [], D: [], C: [] };
+  for (const card of remainingCards(seat)) bySuit[card.suit].push(card);
+  for (const suit of SUIT_LETTERS) bySuit[suit].sort((a, b) => RANK_VALUE[b.rank] - RANK_VALUE[a.rank]);
+
+  for (const suit of SUIT_LETTERS) {
+    const cards = bySuit[suit];
+    const row = document.createElement('div');
+    row.className = 'suit-row';
+    const label = document.createElement('span');
+    label.className = 'suit-symbol';
+    label.innerHTML = STRAIN_LABELS[suit];
+    row.appendChild(label);
+
+    if (cards.length === 0) {
+      const span = document.createElement('span');
+      span.className = 'card';
+      span.textContent = '-';
+      row.appendChild(span);
+    } else if (plays && cardStr(cards[0]) in plays) {
+      // This suit is the one the seat may legally play from. Every card is
+      // clickable; cards within an equivalent run share the same diff as
+      // the run's top card (the only one solve_plays reports directly).
+      let prevDiff;
+      for (const card of cards) {
+        const key = cardStr(card);
+        const diff = key in plays ? plays[key] : prevDiff;
+        const span = document.createElement('span');
+        span.className = 'card playable';
+        span.innerHTML = displayRank(card.rank) + renderDiffLabel(diff);
+        span.onclick = () => playCard(seat, card);
+        row.appendChild(span);
+        prevDiff = diff;
+      }
+    } else {
+      for (const card of cards) {
+        const span = document.createElement('span');
+        span.className = 'card';
+        span.textContent = displayRank(card.rank);
+        row.appendChild(span);
+      }
+    }
+    container.appendChild(row);
+    // Only fade the edge when the row actually overflows.
+    if (row.scrollWidth > row.clientWidth) row.classList.add('scrollable');
+  }
+}
+
+function renderTrickCenter(trick) {
+  centerEl.classList.add('trick-grid');
+  centerEl.innerHTML = '';
+  for (const seat of SEATS) {
+    const div = document.createElement('div');
+    div.className = seat[0];
+    const play = trick.find(p => p.seat === seat);
+    div.innerHTML = play
+      ? STRAIN_LABELS[play.suit] + '<span class="gap"></span>' + displayRank(play.rank)
+      : '';
+    centerEl.appendChild(div);
+  }
+}
+
+function renderPlay() {
+  const state = replayState();
+  for (const seat of SEATS) {
+    renderSeatCards(seat, seat === state.seat ? playState.pendingPlays : null);
+  }
+  renderTrickCenter(state.trick);
+
+  const declarerLabel = playState.declarer[0].toUpperCase() + playState.declarer.slice(1);
+  const done = playState.history.length === 52;
+  playStatusEl.innerHTML =
+    `<div>${contractLabel(playState.level, playState.tricks, STRAIN_LABELS[playState.strain])} by ${declarerLabel}${done ? ' (final)' : ''}</div>` +
+    `<div>NS ${state.nsTricks} &ndash; EW ${state.ewTricks}</div>`;
+
+  undoBtn.disabled = !playState.history.some(p => !p.auto);
+}
+
+function requestPlays() {
+  ++playRequestId;
+  playState.requestId = playRequestId;
+  const playedStr = playState.history.map(cardStr).join('');
+  worker.postMessage(['solve_plays', playState.handStrings, playState.level,
+    TRUMP_NUMBERS[playState.strain], SEATS.indexOf(playState.leadSeat), playedStr,
+    playState.requestId]);
+}
+
+function playCardInternal(seat, card, auto) {
+  playState.history.push({ seat, suit: card.suit, rank: card.rank, auto });
+  playState.pendingPlays = null;
+  renderPlay();
+  if (playState.history.length < 52) requestPlays();
+}
+
+function playCard(seat, card) {
+  if (!playState) return;
+  playCardInternal(seat, card, false);
+}
+
+function onSolvePlays(result, requestId) {
+  if (!playState || requestId !== playState.requestId) return;  // stale response
+  const plays = {};
+  for (const token of result.trim().split(/\s+/)) {
+    if (!token) continue;
+    const [card, diff] = token.split(':');
+    plays[card] = diff;
+  }
+  const cardStrs = Object.keys(plays);
+  if (cardStrs.length === 0) return;
+  const state = replayState();
+  if (cardStrs.length === 1) {
+    // Only one meaningful choice -- play it automatically.
+    const c = cardStrs[0];
+    playCardInternal(state.seat, { suit: c[0], rank: c[1] }, true);
+  } else {
+    playState.pendingPlays = plays;
+    renderPlay();
+  }
+}
+
+function undo() {
+  if (!playState) return;
+  // Undo trailing auto-plays too, so one click lands back at a real choice.
+  while (playState.history.length > 0 && playState.history[playState.history.length - 1].auto) {
+    playState.history.pop();
+  }
+  if (playState.history.length > 0) playState.history.pop();
+  playState.pendingPlays = null;
+  renderPlay();
+  requestPlays();
+}
+
+function setPlayModeUI(active) {
+  playBarEl.style.display = active ? 'flex' : 'none';
+  playStatusEl.style.display = active ? 'block' : 'none';
+  entryHintEl.style.display = active ? 'none' : '';
+  playHintEl.style.display = active ? 'block' : 'none';
+  controlsEl.style.display = active ? 'none' : 'flex';
+  setHandsDisabled(active);
+  dealBtn.disabled = active;
+  solveBtn.disabled = active;
+  for (const { id } of DEAL_DIRS) document.getElementById(id).disabled = active;
+}
+
+function exitPlay() {
+  if (!playState) return;
+  playState = null;
+  handsEl.classList.remove('playing');
+  centerEl.classList.remove('trick-grid');
+  centerEl.innerHTML = '&spades;';
+  setPlayModeUI(false);
+}
+
+function startPlay(strain, declarer, tricks) {
+  const hands = {};
+  for (const seat of SEATS) hands[seat] = getHandValue(seat);
+
+  const error = validateHands(hands);
+  if (error) {
+    statusEl.textContent = error;
+    return;
+  }
+  // Card play needs concrete cards, so resolve any X wildcards first.
+  const resolvedHands = SEATS.some(seat => /x/i.test(hands[seat])) ? resolveWildcards(hands) : hands;
+
+  const parsedHands = {};
+  for (const seat of SEATS) parsedHands[seat] = parseHandCards(resolvedHands[seat]);
+
+  playState = {
+    handStrings: resolvedHands,
+    hands: parsedHands,
+    strain,
+    trumpLetter: strain === 'N' ? null : strain,
+    level: Math.max(1, tricks - 6),
+    tricks,
+    declarer,
+    leadSeat: nextSeat(declarer),
+    history: [],
+    pendingPlays: null,
+    requestId: 0,
+  };
+
+  handsEl.classList.add('playing');
+  setPlayModeUI(true);
+
+  renderPlay();
+  requestPlays();
+}
+
+undoBtn.addEventListener('click', undo);
+editHandsBtn.addEventListener('click', exitPlay);

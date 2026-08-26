@@ -10,12 +10,20 @@ Module = {
 };
 
 onmessage = function(event) {
-  const [type, hands] = event.data;
+  const [type, ...args] = event.data;
   if (type === 'solve') {
+    const [hands] = args;
     const start = performance.now();
     const result = Module.solve(hands.west, hands.north, hands.east, hands.south);
     const elapsedMs = performance.now() - start;
     postMessage(['solve', result.trim(), elapsedMs]);
+  } else if (type === 'solve_plays') {
+    const [hands, level, trump, leadSeat, played, requestId] = args;
+    const start = performance.now();
+    const result = Module.solve_plays(hands.west, hands.north, hands.east, hands.south,
+      level, trump, leadSeat, played);
+    const elapsedMs = performance.now() - start;
+    postMessage(['solve_plays', result.trim(), elapsedMs, requestId]);
   }
 };
 
