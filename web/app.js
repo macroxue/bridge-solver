@@ -179,8 +179,16 @@ function randomDeal() {
   return hands;
 }
 
+// Resets every deal-picker select to its placeholder, except `exceptId`.
+function resetDealSelects(exceptId) {
+  for (const { id } of DEAL_DIRS) {
+    if (id !== exceptId) document.getElementById(id).value = '';
+  }
+}
+
 dealBtn.addEventListener('click', () => {
   exitPlay();
+  resetDealSelects();
   const hands = randomDeal();
   for (const seat of SEATS) setHandValue(seat, hands[seat]);
   tableEl.innerHTML = '';
@@ -252,6 +260,7 @@ for (const { id, dir, label } of DEAL_DIRS) {
       return;
     }
     exitPlay();
+    resetDealSelects(id);
     for (const seat of SEATS) setHandValue(seat, hands[seat]);
     tableEl.innerHTML = '';
     tableHintEl.style.display = 'none';
