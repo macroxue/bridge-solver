@@ -41,12 +41,15 @@
   .seat.north .hand-input, .seat.south .hand-input,
   .seat.west .hand-input, .seat.east .hand-input { width: auto; align-self: center; }
   .north .cards .suit-row, .south .cards .suit-row { flex-wrap: wrap; overflow-x: visible; }
-  /* West overflows into the empty center area instead of scrolling. */
+  /* West/East overflow into the empty center area instead of scrolling.
+     East is right-anchored so it grows toward center on its left; JS pads
+     every row in a hand to the same slot count so the anchored suit
+     symbols still line up vertically despite the ragged suit lengths. */
   .west .cards .suit-row { overflow-x: visible; }
-  .north .cards .suit-symbol, .south .cards .suit-symbol,
-  .west .cards .suit-symbol { position: static; }
+  .east .cards .suit-row { overflow-x: visible; justify-content: flex-end; }
   /* Not scrolling here, so cancel the scroll-fade mask (below). */
-  .west .cards .suit-row.scrollable { mask-image: none; -webkit-mask-image: none; }
+  .west .cards .suit-row.scrollable, .east .cards .suit-row.scrollable { mask-image: none; -webkit-mask-image: none; }
+  .cards .card.pad { visibility: hidden; }
   .hands .center {
     grid-area: center;
     color: #bbb;
@@ -109,7 +112,7 @@
   /* Scroll long suits instead of wrapping; JS adds "scrollable" only when
      needed, to fade the trailing edge as a hint. */
   .cards .suit-row { flex-wrap: nowrap; overflow-x: auto; }
-  .cards .suit-symbol { position: sticky; left: 0; align-self: stretch; background: #fff; z-index: 1; }
+  .cards .suit-symbol { position: static; align-self: stretch; }
   .cards .suit-row.scrollable {
     mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
     -webkit-mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
@@ -119,13 +122,18 @@
     font-family: monospace;
     font-size: 0.95rem;
     line-height: 1.2;
-    min-width: 1.4rem;
+    /* Fixed (not min-) width so every card box is the same size (see .ten
+       below for how "10" fits without widening it). */
+    width: 1.4rem;
     min-height: 2.05rem;
     padding: 0.05rem 0.15rem;
     box-sizing: border-box;
     text-align: center;
     border-radius: 3px;
   }
+  /* "10" is two characters where every other rank is one; tighten it
+     rather than widening every card/played-box to fit it. */
+  .ten { letter-spacing: -0.1em; }
   .cards .card.playable {
     cursor: pointer;
     background: #eef6ff;
@@ -155,6 +163,12 @@
   .center.trick-grid .e { grid-column: 3; grid-row: 2; }
   .center.trick-grid .s { grid-column: 2; grid-row: 3; }
   .center.trick-grid .gap { display: inline-block; width: 0.2em; }
+  .center.trick-grid .played {
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    padding: 0.1rem 0.3rem;
+    background: #fff;
+  }
   #playBar {
     display: none;
     align-items: center;

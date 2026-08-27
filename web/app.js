@@ -332,6 +332,12 @@ function displayRank(rank) {
   return rank === 'T' ? '10' : rank;
 }
 
+// "10" is two characters where every other rank is one; tighten it (.ten,
+// see CSS) rather than widening every card box to fit it.
+function rankHtml(rank) {
+  return rank === 'T' ? '<span class="ten">10</span>' : rank;
+}
+
 function cardStr(card) {
   return card.suit + card.rank;
 }
@@ -447,6 +453,11 @@ function renderSeatCards(seat, plays) {
   for (const card of remainingCards(seat)) bySuit[card.suit].push(card);
   for (const suit of SUIT_LETTERS) bySuit[suit].sort((a, b) => RANK_VALUE[b.rank] - RANK_VALUE[a.rank]);
 
+  // Pad every row to the same slot count (a void suit's "-" counts as one,
+  // and 4 is the floor even if every suit is shorter) so East's
+  // right-anchored rows still line up their suit symbols.
+  const maxSlots = Math.max(4, ...SUIT_LETTERS.map(suit => bySuit[suit].length || 1));
+
   for (const suit of SUIT_LETTERS) {
     const cards = bySuit[suit];
     const row = document.createElement('div');
@@ -471,7 +482,7 @@ function renderSeatCards(seat, plays) {
         const diff = key in plays ? plays[key] : prevDiff;
         const span = document.createElement('span');
         span.className = 'card playable';
-        span.innerHTML = displayRank(card.rank) + renderDiffLabel(diff);
+        span.innerHTML = rankHtml(card.rank) + renderDiffLabel(diff);
         span.onclick = () => playCard(seat, card);
         row.appendChild(span);
         prevDiff = diff;
@@ -480,9 +491,14 @@ function renderSeatCards(seat, plays) {
       for (const card of cards) {
         const span = document.createElement('span');
         span.className = 'card';
-        span.textContent = displayRank(card.rank);
+        span.innerHTML = rankHtml(card.rank);
         row.appendChild(span);
       }
+    }
+    for (let i = (cards.length || 1); i < maxSlots; i++) {
+      const span = document.createElement('span');
+      span.className = 'card pad';
+      row.appendChild(span);
     }
     container.appendChild(row);
     // Only fade the edge when the row actually overflows.
@@ -495,10 +511,10 @@ function renderTrickCenter(trick) {
   centerEl.innerHTML = '';
   for (const seat of SEATS) {
     const div = document.createElement('div');
-    div.className = seat[0];
     const play = trick.find(p => p.seat === seat);
+    div.className = seat[0] + (play ? ' played' : '');
     div.innerHTML = play
-      ? STRAIN_LABELS[play.suit] + '<span class="gap"></span>' + displayRank(play.rank)
+      ? STRAIN_LABELS[play.suit] + '<span class="gap"></span>' + rankHtml(play.rank)
       : '';
     centerEl.appendChild(div);
   }
