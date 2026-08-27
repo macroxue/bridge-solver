@@ -308,6 +308,7 @@ const RANK_VALUE = Object.fromEntries(RANKS.map((r, i) => [r, RANKS.length - i])
 const handsEl = document.getElementById('hands');
 const centerEl = document.getElementById('center');
 const seatCardsEls = Object.fromEntries(SEATS.map(seat => [seat, document.getElementById(seat + '-cards')]));
+const seatLabelEls = Object.fromEntries(SEATS.map(seat => [seat, document.querySelector(`.seat.${seat} label`)]));
 const playBarEl = document.getElementById('playBar');
 const playStatusEl = document.getElementById('playStatus');
 const entryHintEl = document.getElementById('entryHint');
@@ -520,11 +521,30 @@ function renderTrickCenter(trick) {
   }
 }
 
+// West/East's cards are anchored to their column's left/right edge, at a
+// position that shifts with the longest suit in the hand (see maxSlots in
+// renderSeatCards); nudge the label to sit (plus 1em) past the 2nd card of
+// the top suit row so it tracks that shift instead of the label's own
+// centering.
+function positionSideLabel(seat) {
+  const label = seatLabelEls[seat];
+  label.style.transform = '';
+  const slots = seatCardsEls[seat].querySelector('.suit-row').querySelectorAll('.card');
+  if (slots.length < 2) return;
+  const labelRect = label.getBoundingClientRect();
+  const targetRect = slots[1].getBoundingClientRect();
+  const em = parseFloat(getComputedStyle(label).fontSize);
+  const shift = (targetRect.left + targetRect.width / 2) - (labelRect.left + labelRect.width / 2) + em;
+  label.style.transform = `translateX(${shift}px)`;
+}
+
 function renderPlay() {
   const state = replayState();
   for (const seat of SEATS) {
     renderSeatCards(seat, seat === state.seat ? playState.pendingPlays : null);
   }
+  positionSideLabel('west');
+  positionSideLabel('east');
   renderTrickCenter(state.trick);
 
   const declarerLabel = playState.declarer[0].toUpperCase() + playState.declarer.slice(1);
@@ -621,6 +641,8 @@ function exitPlay() {
   handsEl.classList.remove('playing');
   centerEl.classList.remove('trick-grid');
   centerEl.innerHTML = '&spades;';
+  seatLabelEls.west.style.transform = '';
+  seatLabelEls.east.style.transform = '';
   setPlayModeUI(false);
 }
 

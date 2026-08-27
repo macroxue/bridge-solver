@@ -76,6 +76,12 @@
     align-items: flex-start;
     width: 100%;
   }
+  /* During play, West/East's cards always sit flush against their
+     column's left/right edge (that's where the fixed anchor puts them,
+     regardless of suit length); align the label to the same edge instead
+     of centering it on the whole column, so they stay lined up. */
+  .hands.playing .seat.west label { align-self: flex-start; }
+  .hands.playing .seat.east label { align-self: flex-end; }
   .hands.playing .seat .hand-input { display: none; }
   .seat .cards { display: none; flex-direction: column; gap: 0.15rem; align-items: flex-start; }
   .hands.playing .seat .cards { display: flex; }
