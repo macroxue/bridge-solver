@@ -509,7 +509,7 @@ function renderSeatCards(seat, plays) {
 
 function renderTrickCenter(trick) {
   centerEl.classList.add('trick-grid');
-  centerEl.innerHTML = '';
+  centerEl.innerHTML = '<div class="logo"><img class="center-logo" src="favicon.svg" alt=""></div>';
   for (const seat of SEATS) {
     const div = document.createElement('div');
     const playIndex = trick.findIndex(p => p.seat === seat);
@@ -644,7 +644,7 @@ function exitPlay() {
   playState = null;
   handsEl.classList.remove('playing');
   centerEl.classList.remove('trick-grid');
-  centerEl.innerHTML = '&spades;';
+  centerEl.innerHTML = '<img class="center-logo" src="favicon.svg" alt="">';
   seatLabelEls.west.style.transform = '';
   seatLabelEls.east.style.transform = '';
   setPlayModeUI(false);

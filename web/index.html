@@ -58,6 +58,7 @@
     /* Not clickable, so West's overflowing cards behind it stay clickable. */
     pointer-events: none;
   }
+  .center-logo { width: 1.6rem; height: 1.6rem; opacity: 0.6; transform: translateY(3px); }
   .hands .seat {
     display: flex;
     flex-direction: column;
@@ -157,6 +158,7 @@
     display: grid;
     grid-template-columns: repeat(3, 2.2rem);
     grid-template-rows: repeat(3, 1.7rem);
+    gap: 0.5rem;
     font-size: 1.3rem;
     font-family: monospace;
     color: #222;
@@ -168,6 +170,7 @@
   .center.trick-grid .w { grid-column: 1; grid-row: 2; }
   .center.trick-grid .e { grid-column: 3; grid-row: 2; }
   .center.trick-grid .s { grid-column: 2; grid-row: 3; }
+  .center.trick-grid .logo { grid-column: 2; grid-row: 2; pointer-events: none; }
   .center.trick-grid .gap { display: inline-block; width: 0.2em; }
   .center.trick-grid .played {
     border: 1px solid #ccc;
@@ -287,7 +290,7 @@
       </div>
       <div class="cards" id="west-cards"></div>
     </div>
-    <div class="center" id="center">&spades;</div>
+    <div class="center" id="center"><img class="center-logo" src="favicon.svg" alt=""></div>
     <div class="seat east">
       <label for="east-S">East</label>
       <div class="hand-input" id="east-input">
