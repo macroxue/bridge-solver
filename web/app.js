@@ -512,11 +512,15 @@ function renderTrickCenter(trick) {
   centerEl.innerHTML = '';
   for (const seat of SEATS) {
     const div = document.createElement('div');
-    const play = trick.find(p => p.seat === seat);
+    const playIndex = trick.findIndex(p => p.seat === seat);
+    const play = playIndex >= 0 ? trick[playIndex] : null;
     div.className = seat[0] + (play ? ' played' : '');
     div.innerHTML = play
       ? STRAIN_LABELS[play.suit] + '<span class="gap"></span>' + rankHtml(play.rank)
       : '';
+    // Grid position is fixed by seat (n/w/e/s), not play order, so when
+    // adjacent cards overlap at narrow widths, stack later plays on top.
+    if (play) div.style.zIndex = playIndex + 1;
     centerEl.appendChild(div);
   }
 }
