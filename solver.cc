@@ -644,22 +644,16 @@ class Shape {
   uint64_t value;
 };
 
-// Free-list pool for Vector<T>'s backing storage, one LIFO list per
-// power-of-two capacity (size_class == log2(capacity)). Recycles the many
-// short-lived new[]/delete[] calls from Vector<Pattern> churn as the pattern
-// tree is built and pruned; blocks are never freed back to the allocator,
-// only reused. Refill() slabs kSlabSize bytes per malloc call to amortize
-// the call cost -- kept small so a size class's reusable set stays close to
-// its actual working set rather than accumulating a large, cold backlog on
-// the biggest pattern trees.
+// Free-list pool for Vector<T>'s backing storage: one LIFO list per
+// power-of-two capacity, refilled in SLAB_SIZE slabs and never freed.
 template <class T>
 class VectorPool {
  public:
   static char* Allocate(int size_class) {
-    STATS(++alloc_calls_[size_class]);
-    char*& head = free_lists_[size_class];
+    STATS(++alloc_calls[size_class]);
+    char*& head = free_lists[size_class];
     if (!head) {
-      STATS(++miss_calls_[size_class]);
+      STATS(++miss_calls[size_class]);
       Refill(size_class);
     }
     char* block = head;
@@ -668,7 +662,7 @@ class VectorPool {
   }
 
   static void Deallocate(char* block, int size_class) {
-    char*& head = free_lists_[size_class];
+    char*& head = free_lists[size_class];
     *reinterpret_cast<char**>(block) = head;
     head = block;
   }
@@ -676,26 +670,26 @@ class VectorPool {
   static void ShowStatistics() {
     printf("--- VectorPool<T> Statistics (block = %zu bytes) ---\n", sizeof(T));
     uint64_t total_allocs = 0;
-    for (int i = 0; i < 16; ++i) total_allocs += alloc_calls_[i];
+    for (int i = 0; i < 16; ++i) total_allocs += alloc_calls[i];
     for (int i = 0; i < 16; ++i) {
-      if (!alloc_calls_[i]) continue;
+      if (!alloc_calls[i]) continue;
       printf("class %2d (cap %6zu): allocs %10" PRIu64
              " (%5.2f%%)   misses %8" PRIu64 " (%6.2f%% of allocs)\n",
-             i, size_t{1} << i, alloc_calls_[i], alloc_calls_[i] * 100.0 / total_allocs,
-             miss_calls_[i], miss_calls_[i] * 100.0 / alloc_calls_[i]);
+             i, size_t{1} << i, alloc_calls[i], alloc_calls[i] * 100.0 / total_allocs,
+             miss_calls[i], miss_calls[i] * 100.0 / alloc_calls[i]);
     }
   }
 
  private:
-  static constexpr size_t kSlabSize = 8192;
+  static constexpr size_t SLAB_SIZE = 8192;
 
   // One allocation for a full slab, amortizing the malloc call across all of them.
   static void Refill(int size_class) {
     size_t block_bytes = (size_t{1} << size_class) * sizeof(T);
-    size_t num_blocks = kSlabSize / block_bytes;
+    size_t num_blocks = SLAB_SIZE / block_bytes;
     if (num_blocks == 0) num_blocks = 1;
     char* slab = new char[num_blocks * block_bytes];
-    char*& head = free_lists_[size_class];
+    char*& head = free_lists[size_class];
     for (size_t i = 0; i < num_blocks; ++i) {
       char* block = slab + i * block_bytes;
       *reinterpret_cast<char**>(block) = head;
@@ -703,9 +697,9 @@ class VectorPool {
     }
   }
 
-  static inline uint64_t alloc_calls_[16] = {};
-  static inline uint64_t miss_calls_[16] = {};
-  static inline char* free_lists_[16] = {};
+  static inline uint64_t alloc_calls[16] = {};
+  static inline uint64_t miss_calls[16] = {};
+  static inline char* free_lists[16] = {};
 };
 
 template <class T>
