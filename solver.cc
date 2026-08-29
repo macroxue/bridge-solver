@@ -2342,6 +2342,11 @@ std::string solve(std::string west, std::string north,
   auto hands = CollectHands(west.c_str(), north.c_str(),
                             east.c_str(), south.c_str());
 
+  // solve_plays() below leaves these populated for a different trump/deal;
+  // clear them so Solve() doesn't get stale hits.
+  common_bounds_cache.Reset();
+  cutoff_cache.Reset();
+
   static char buffer[256];
   buffer[0] = '\0';
   auto start_time = Now();
