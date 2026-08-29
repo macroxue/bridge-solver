@@ -7,7 +7,7 @@
 #include "../solver.cc"
 
 int main() {
-  // hard_deals/deal.8, the same deal used to train the native PGO build.
+  // deals/hard/deal.8, the same deal used to train the native PGO build.
   std::string west("♠ KT8 ♥ KJ9875 ♦ Q8 ♣ 75");
   std::string north("♠ 42 ♥ AQT63 ♦ K52 ♣ T84");
   std::string east("♠ AJ65 ♥ 42 ♦ J963 ♣ KQJ");

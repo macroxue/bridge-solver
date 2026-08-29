@@ -9,19 +9,19 @@ include opts.mk
 solver.p: solver.cc
 	rm -f solver.gcda
 	g++ $(OPTS) -O3 -fprofile-generate -o $@ $^
-	./$@ -if hard_deals/deal.8 | tail
+	./$@ -if deals/hard/deal.8 | tail
 	mv solver.p-solver.gcda solver.gcda
 solver: solver.cc
 	g++ $(OPTS) -O3 -fprofile-use -o $@ $^
-	./$@ -if hard_deals/deal.8 | tail
+	./$@ -if deals/hard/deal.8 | tail
 solver.g: solver.cc
 	g++ $(OPTS) -D_DEBUG -Og -g -o $@ $^
 solver.m: solver.cc
 	clang++ -std=c++17 -O3 -fsanitize=memory -o $@ $^
-	./$@ -if hard_deals/deal.1
+	./$@ -if deals/hard/deal.1
 solver.a: solver.cc
 	clang++ -std=c++17 -O3 -fsanitize=address -o $@ $^
-	./$@ -if hard_deals/deal.1
+	./$@ -if deals/hard/deal.1
 clean:
 	rm -f solver.p solver solver.g solver.m solver.a
 	$(MAKE) -C web clean

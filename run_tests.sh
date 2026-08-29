@@ -1,8 +1,8 @@
 #!/bin/bash
 
-test_dir=${1:-fixed_deals}
-test_dir=${test_dir%%/*}  # remove trailing slashes
-results=results.$test_dir
+test_dir=${1:-deals/fixed}
+test_dir=${test_dir%/}  # remove trailing slash
+results=results.$(basename $test_dir)
 if [[ -n $2 ]]; then
   results=$results.$2
 fi

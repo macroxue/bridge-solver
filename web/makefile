@@ -36,10 +36,10 @@ solver-no-simd.wasm: ../solver.cc web.profdata
 web-test: web-test.cc ../solver.cc
 	g++ $(OPTS) -O3 -o $@ web-test.cc
 	./$@
-# Embeds hard_deals/ and freak_deals/ text directly into the app so it
+# Embeds deals/hard/ and deals/freak/ text directly into the app so it
 # doesn't depend on symlinks or runtime fetches (GitHub Pages deployments
 # reject symlinks outright).
-deals.js: gen_deals.py $(wildcard ../hard_deals/deal.* ../freak_deals/deal.*)
+deals.js: gen_deals.py $(wildcard ../deals/hard/deal.* ../deals/freak/deal.*)
 	python3 gen_deals.py
 clean:
 	rm -f solver.js solver.wasm solver-no-simd.js solver-no-simd.wasm \

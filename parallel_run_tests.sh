@@ -5,10 +5,10 @@ if [[ $1 == '-r' ]]; then
   exit
 fi
 
-test_dir=${1:-fixed_deals}
-test_dir=${test_dir%%/*}  # remove trailing slashes
+test_dir=${1:-deals/fixed}
+test_dir=${test_dir%/}  # remove trailing slash
 parallelism=${2:-2}
-results=results.$test_dir.$parallelism
+results=results.$(basename $test_dir).$parallelism
 echo Results are in $results
 cat $test_dir/* > /dev/null  # bring files into cache
 

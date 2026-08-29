@@ -113,8 +113,8 @@ From ♠ A-8(-2)3(-2) ♥ K(-2) ♦ A-6(-2) ♣ K= North plays ♣ K?
 ## Performance
 
 Run one of the following commands to measure performance and check correctness.
-The directory can be `fixed_deals` (the default), `old_deals`, `new_deals`, `hard_deals`,
-`long_deals` or `1k_deals`. For parallel runs, the number of threads is 2 by default.
+The directory can be `deals/fixed` (the default), `deals/old`, `deals/new`, `deals/hard`,
+`deals/long` or `deals/1k`. For parallel runs, the number of threads is 2 by default.
 ```
 ./run_tests.sh [DIRECTORY]
 ./parallel_run_tests.sh [DIRECTORY] [THREADS]
@@ -125,7 +125,7 @@ with 8 physical cores at 3.2GHz base clock and 4.4GHz boost clock.
 
 ### Single-core
 
-The solver fully analyzed 1000 random deals (under `1k_deals`) in just 112.8 seconds,
+The solver fully analyzed 1000 random deals (under `deals/1k`) in just 112.8 seconds,
 averaging nearly nine deals per second. Below is a more detailed breakdown.
 The longest one (`deal.310`) took 1.18 seconds and consumed 45.0 MB of memory.
 
@@ -176,7 +176,7 @@ C  7  7  4  4 70.50 s 1680.4 M
 
 ### Multi-core
 
-The table below shows the time for solving 1000 random deals in `1k_deals` with multiple cores.
+The table below shows the time for solving 1000 random deals in `deals/1k` with multiple cores.
 The solver is single-threaded, so multiple instances of the solver are running in parallel.
 
 | # Cores   |    1 |    2 |    4 |    8 |   16 |
