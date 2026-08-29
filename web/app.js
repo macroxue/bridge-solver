@@ -44,6 +44,15 @@ worker.onmessage = (event) => {
       solveBtn.disabled = false;
       setEntryDisabled(false);
       break;
+    case 'error': {
+      const [errType, message] = rest;
+      statusEl.textContent = 'Solver error: ' + message;
+      if (errType === 'solve') {
+        solveBtn.disabled = false;
+        setEntryDisabled(false);
+      }
+      break;
+    }
     case 'solve': {
       const [result, elapsedMs] = rest;
       exitPlay();
