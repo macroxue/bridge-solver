@@ -1435,16 +1435,31 @@ class Play {
     }
     // discard
     int num_discards = 0;
+    struct { int card; int weight; } discards[NUM_SUITS];
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       if (suit == trump) continue;
+
       auto my_suit = playable_cards.Suit(suit);
-      if (my_suit) {
-        ordered_cards.AddCard(my_suit.Bottom());
-        playable_cards.Remove(my_suit.Bottom());
-        ++num_discards;
+      if (!my_suit) continue;
+
+      discards[num_discards++] = { my_suit.Bottom(), my_suit.Size() };
+    }
+    if (num_discards >= 2) {
+      // Sort discards with up to 3 comparisons.
+      auto compare_swap = [&discards](int a, int b) {
+        if (discards[a].weight < discards[b].weight)
+          std::swap(discards[a], discards[b]);
+      };
+      compare_swap(0, 1);
+      if (num_discards >= 3) {
+        compare_swap(1, 2);
+        compare_swap(0, 1);
       }
     }
-    ordered_cards.SortDiscards(num_discards, playable_cards);
+    for (int i = 0; i < num_discards; ++i) {
+      ordered_cards.AddCard(discards[i].card);
+      playable_cards.Remove(discards[i].card);
+    }
     ordered_cards.AddCards(playable_cards);
   }
 
@@ -1463,15 +1478,6 @@ class Play {
         AddCard(cards.Bottom());
         cards.Remove(cards.Bottom());
       }
-    }
-
-    void SortDiscards(int num_discards, const Cards& playable_cards) {
-      auto compare = [playable_cards](int c1, int c2) {
-        return playable_cards.Suit(SuitOf(c1)).Size() >
-               playable_cards.Suit(SuitOf(c2)).Size();
-      };
-      std::sort(ordered_cards + num_ordered_cards - num_discards,
-                ordered_cards + num_ordered_cards, compare);
     }
 
     int Size() const { return num_ordered_cards; }
