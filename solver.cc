@@ -1545,31 +1545,27 @@ class Play {
 
   uint64_t BuildCutoffIndex() const {
     // Format of the index:
-    //  * 2 bits for seating order in the trick
     //  * 52 bits for card holding
     //  * 6 bits for winner in the trick
-    uint64_t cutoff_index = depth & 3;
     if (TrickStarting()) {
-      cutoff_index += hands[seat_to_play].Value() << 2;
+      return hands[seat_to_play].Value();
     } else if (hands[seat_to_play].Suit(LeadSuit())) {
-      cutoff_index += trick->all_cards.Suit(LeadSuit()).Value() << 2;
-      cutoff_index += uint64_t(PreviousPlay().WinningCard()) << (TOTAL_CARDS + 2);
+      auto winner = PreviousPlay().WinningCard();
+      return trick->all_cards.Suit(LeadSuit()).Value() + (uint64_t(winner) << TOTAL_CARDS);
     } else {
       auto winner = trump == NOTRUMP ? PreviousPlay().WinningSeat() : PreviousPlay().WinningCard();
-      cutoff_index += hands[seat_to_play].Value() << 2;
-      cutoff_index += uint64_t(winner) << (TOTAL_CARDS + 2);
+      return hands[seat_to_play].Value() + (uint64_t(winner) << TOTAL_CARDS);
     }
-    return cutoff_index;
   }
 
   int LookupCutoffCard(decltype(cutoff_cache)::HashT hash) const {
     const auto* entry = cutoff_cache.Lookup(hash);
-    return entry ? entry->card[seat_to_play] : TOTAL_CARDS;
+    return entry ? entry->card[depth & 3] : TOTAL_CARDS;
   }
 
   void SaveCutoffCard(decltype(cutoff_cache)::HashT hash, int cutoff_card) const {
     auto* entry = cutoff_cache.Update(hash);
-    entry->card[seat_to_play] = cutoff_card;
+    entry->card[depth & 3] = cutoff_card;
   }
 
   Result TopTrumpTricks(Cards my_trumps, Cards pd_trumps) const {
