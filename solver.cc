@@ -309,11 +309,7 @@ class Hands {
   }
 
   void Deal(Cards cards, const std::vector<int>& seats) {
-    // A single generator, seeded once from real entropy and advanced across
-    // calls. std::random_device{}() alone yields only 32 bits, and mt19937's
-    // single-int constructor just LCG-expands that one value, capping the
-    // reachable state space at 2^32. Feeding several draws through seed_seq
-    // instead properly initializes the full ~19937-bit state from all of them.
+    // Seed with multiple random_device draws as each one is only 32-bit.
     static std::mt19937 random = [] {
       std::random_device rd;
       std::seed_seq seed{rd(), rd(), rd(), rd()};
@@ -355,10 +351,8 @@ class Hands {
   const Cards& operator[](int seat) const { return hands[seat]; }
   Cards& operator[](int seat) { return hands[seat]; }
 
-  // Whether every seat's hand in `other` is a subset of the corresponding
-  // seat's hand here. WEST/NORTH and EAST/SOUTH are each stored as two
-  // contiguous uint64_t, so this can be done with two 128-bit PTESTs instead
-  // of four scalar subset checks chained together.
+  // Whether every seat's hand in `other` is a subset of the hand here.
+  // Pack two adjacent hands into one 128-bit PTESTs.
   bool Include(const Hands& other) const {
 #ifdef __SSE4_1__
     __m128i a0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&hands[WEST]));
@@ -706,9 +700,8 @@ class Vector {
 
   void clear() {
     for (size_t i = 0; i < count; ++i) (*this)[i].~T();
-    // Guard on capacity, not items: __builtin_ctz(capacity) is UB when capacity
-    // is 0, and a compiler that proves items==nullptr iff capacity==0 is free to
-    // treat "items is null" as unreachable here and drop the guard entirely.
+    // Guard on capacity, not items: __builtin_ctz(0) is UB, and a null-items
+    // guard could get optimized away since items==nullptr iff capacity==0.
     if (capacity) VectorPool<T>::Deallocate(items, __builtin_ctz(capacity));
     count = capacity = 0;
     items = nullptr;
@@ -877,7 +870,7 @@ struct Pattern {
     patterns.pop_back();
   }
 
-  // This pattern is more detailed than (a subset of) the other pattern.
+  // Whether this pattern is more detailed than (or a subset of) the other one.
   bool operator<=(const Pattern& p) const { return hands.Include(p.hands); }
 
   bool operator==(const Pattern& p) const { return hands.Equals(p.hands); }
@@ -1545,9 +1538,7 @@ class Play {
   }
 
   uint64_t BuildCutoffIndex() const {
-    // Format of the index:
-    //  * 52 bits for card holding
-    //  * 6 bits for winner in the trick
+    // Index format: 52 bits card holding + 6 bits winner in the trick.
     if (TrickStarting()) {
       return hands[seat_to_play].Value();
 

@@ -210,8 +210,8 @@ wider than the gap between DDS and bcalc.
 ![5k.log](https://github.com/macroxue/bridge-solver/blob/master/comparison/5k_deals.log.png)
 
 **Aug 2026 update**: this solver has improved by 15% since the above
-comparison, so it's 1.5x faster than DDS 2.9 and 2x faster than bcalc now. Both
-DDS and bcalc seems to be stagnant in performance improvements.
+comparison, so it's 1.5x faster than DDS 2.9 and 2x faster than bcalc now.
+Performance improvements seem to have stagnated with both DDS and bcalc.
 
 ## License
 
