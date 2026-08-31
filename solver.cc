@@ -1196,7 +1196,7 @@ class Play {
     if (fast_tricks == 0 && trump != NOTRUMP)
       std::tie(fast_tricks, fast_rank_winners) =
         SlowTrumpTricks(hands[seat_to_play].Suit(trump), hands[Partner()].Suit(trump),
-                        hands[LeftHandOpp()].Suit(trump), hands[RightHandOpp()].Suit(trump), true);
+          hands[LeftHandOpp()].Suit(trump), hands[RightHandOpp()].Suit(trump), true);
     if (NsToPlay() && ns_tricks_won + fast_tricks >= beta) {
       VERBOSE(printf("%2d: beta fast cut %d+%d\n", depth, ns_tricks_won, fast_tricks));
       return {ns_tricks_won + fast_tricks, fast_rank_winners};
@@ -1207,13 +1207,13 @@ class Play {
                      remaining_tricks - fast_tricks));
       return {ns_tricks_won + (remaining_tricks - fast_tricks), fast_rank_winners};
     }
-    auto [slow_tricks, slow_rank_winners] = trick->all_cards.Suit(trump)
-        ? TopTrumpTricks(hands[LeftHandOpp()].Suit(trump), hands[RightHandOpp()].Suit(trump))
-        : SlowNoTrumpTricks(hands[seat_to_play], hands[Partner()]);
-    if (slow_tricks == 0 && trick->all_cards.Suit(trump))
+    auto [slow_tricks, slow_rank_winners] = trump != NOTRUMP && trick->all_cards.Suit(trump)
+            ? TopTrumpTricks(hands[LeftHandOpp()].Suit(trump), hands[RightHandOpp()].Suit(trump))
+            : SlowNoTrumpTricks(hands[seat_to_play], hands[Partner()]);
+    if (slow_tricks == 0 && trump != NOTRUMP && trick->all_cards.Suit(trump))
       std::tie(slow_tricks, slow_rank_winners) =
-        SlowTrumpTricks(hands[LeftHandOpp()].Suit(trump), hands[RightHandOpp()].Suit(trump),
-                        hands[Partner()].Suit(trump), hands[seat_to_play].Suit(trump), false);
+          SlowTrumpTricks(hands[LeftHandOpp()].Suit(trump), hands[RightHandOpp()].Suit(trump),
+                          hands[Partner()].Suit(trump), hands[seat_to_play].Suit(trump), false);
     if (NsToPlay() && ns_tricks_won + (remaining_tricks - slow_tricks) < beta) {
       VERBOSE(printf("%2d: alpha slow cut %d+%d\n", depth, ns_tricks_won,
                      remaining_tricks - slow_tricks));
