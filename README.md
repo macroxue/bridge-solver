@@ -12,6 +12,11 @@ Requirement: a Linux machine with G++ compiler installed.
 make
 ```
 
+To build the web demo, [Emscripten](https://emscripten.org) is required.
+```
+make web
+```
+
 ## Solve a random deal
 ```
 ./solver -r
@@ -21,11 +26,11 @@ The output looks like below.
                           ♠ KJT987 ♥ K5 ♦ 7 ♣ AQJ8
   ♠ 3 ♥ J9764 ♦ Q642 ♣ KT2                       ♠ Q64 ♥ QT8 ♦ KJ953 ♣ 94
                           ♠ A52 ♥ A32 ♦ AT8 ♣ 7653
-N 13 13  0  0  0.01 s  10.2 M
-S 13 13  0  0  0.02 s  10.2 M
-H  7  7  6  5  0.21 s  12.9 M
-D  6  6  6  6  0.34 s  13.2 M
-C 13 13  0  0  0.34 s  13.2 M
+N 13 13  0  0  0.00 s   5.3 M
+S 13 13  0  0  0.01 s   5.3 M
+H  7  7  6  5  0.07 s   7.9 M
+D  6  6  6  6  0.09 s   7.9 M
+C 13 13  0  0  0.09 s   7.9 M
 ```
 Each line after the deal shows the strain to play, the number of tricks when
 South/North/West/East declares respectively, the cumulative time and the peak
@@ -190,7 +195,7 @@ are SMT threads rather than physical cores.
 ### Comparison
 
 For single-threaded performance, the solver is 1.36x faster than
-[DDS](https://github.com/dds-bridge/dds) and 1.75x faster than
+[DDS 2.9](https://github.com/dds-bridge/dds) and 1.75x faster than
 [Bridge Calculator (bcalc)](http://bcalc.w8.pl/) on 5000 random deals.
 The detailed run log is `comparison/results.5k_deals.txt`.
 
@@ -203,6 +208,10 @@ A log-scale plot magnifies the difference. The gap between this solver and DDS i
 wider than the gap between DDS and bcalc.
 
 ![5k.log](https://github.com/macroxue/bridge-solver/blob/master/comparison/5k_deals.log.png)
+
+**Aug 2026 update**: this solver has improved by 15% since the above
+comparison, so it's 1.5x faster than DDS 2.9 and 2x faster than bcalc now. Both
+DDS and bcalc seems to be stagnant in performance improvements.
 
 ## License
 
