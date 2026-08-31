@@ -1549,9 +1549,12 @@ class Play {
     //  * 6 bits for winner in the trick
     if (TrickStarting()) {
       return hands[seat_to_play].Value();
-    } else if (hands[seat_to_play].Suit(LeadSuit())) {
+
+    } else if (auto my_suit = hands[seat_to_play].Suit(LeadSuit())) {
       auto winner = PreviousPlay().WinningCard();
-      return trick->all_cards.Suit(LeadSuit()).Value() + (uint64_t(winner) << TOTAL_CARDS);
+      return trick->all_cards.Suit(LeadSuit()).Value() +
+             (LeadSuit() ? (my_suit.Value() >> NUM_RANKS) : (my_suit.Value() << NUM_RANKS)) +
+             (uint64_t(winner) << TOTAL_CARDS);
     } else {
       auto winner = trump == NOTRUMP ? PreviousPlay().WinningSeat() : PreviousPlay().WinningCard();
       return hands[seat_to_play].Value() + (uint64_t(winner) << TOTAL_CARDS);
