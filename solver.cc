@@ -750,15 +750,21 @@ struct Pattern {
   Bounds bounds;
   uint16_t order;
   Vector<Pattern> patterns;
+#ifdef _DEBUG
+  mutable uint16_t hits, cuts;
+#endif
 
   Pattern(const Hands& hands = Hands(), Bounds bounds = Bounds())
-      : hands(hands), bounds(bounds), order(hands.Size()) {}
+      : hands(hands), bounds(bounds), order(hands.Size()) {
+    STATS(hits = cuts = 0);
+  }
 
   void Reset() {
     hands = Hands();
     bounds = {0, TOTAL_TRICKS};
     order = 0;
     patterns.clear();
+    STATS(hits = cuts = 0);
   }
 
   void MoveFrom(Pattern& p) {
@@ -766,6 +772,8 @@ struct Pattern {
     bounds = p.bounds;
     order = p.order;
     patterns.swap(p.patterns);
+    STATS(hits = p.hits);
+    STATS(cuts = p.cuts);
   }
 
   void swap(Pattern& p) {
@@ -773,13 +781,19 @@ struct Pattern {
     std::swap(bounds, p.bounds);
     std::swap(order, p.order);
     patterns.swap(p.patterns);
+    STATS(std::swap(hits, p.hits));
+    STATS(std::swap(cuts, p.cuts));
   }
 
   const Pattern* Lookup(const Pattern& new_pattern, int beta) const {
     for (size_t i = 0; i < patterns.size(); ++i) {
       auto& pattern = patterns[i];
       if (!(new_pattern <= pattern)) continue;
-      if (pattern.bounds.Cutoff(beta)) return &pattern;
+      STATS(++pattern.hits);
+      if (pattern.bounds.Cutoff(beta)) {
+        STATS(++pattern.cuts);
+        return &pattern;
+      }
       if (auto detail = pattern.Lookup(new_pattern, beta)) return detail;
     }
     return nullptr;
@@ -802,17 +816,22 @@ struct Pattern {
         pattern.UpdateBounds(new_pattern.bounds);
         if (pattern.bounds != new_pattern.bounds)
           new_pattern.Append(pattern);
-        else
+        else {
+          STATS(new_pattern.hits += pattern.hits);
+          STATS(new_pattern.cuts += pattern.cuts);
           new_pattern.patterns.swap(pattern.patterns);
+        }
         for (size_t j = i + 1; j < patterns.size(); ++j) {
           auto& old_pattern = patterns[j];
           if (!(old_pattern <= new_pattern)) continue;
           old_pattern.UpdateBounds(new_pattern.bounds);
           if (old_pattern.bounds != new_pattern.bounds)
             new_pattern.Append(old_pattern);
-          else if (!new_pattern.patterns.size())
+          else if (!new_pattern.patterns.size()) {
+            STATS(new_pattern.hits += old_pattern.hits);
+            STATS(new_pattern.cuts += old_pattern.cuts);
             new_pattern.patterns.swap(old_pattern.patterns);
-          else
+          } else
             new_pattern.Append(old_pattern.patterns);
           Delete(j);
           --j;
@@ -909,7 +928,8 @@ struct Pattern {
         }
         if (seat < NUM_SEATS - 1) printf(", ");
       }
-      printf(" %d", order);
+      printf(" %2d", order);
+      STATS(printf(" hits %d cuts %d", hits, cuts));
       puts(level > 1 && bounds == parent_bounds ? " dup" : "");
     }
     for (size_t i = 0; i < patterns.size(); ++i) patterns[i].Show(shape, level + 1, bounds);
@@ -921,14 +941,12 @@ struct ShapeEntry {
   mutable Pattern pattern[NUM_SEATS];
 #ifdef _DEBUG
   Shape shape;
-  mutable uint16_t hits[NUM_SEATS], cuts[NUM_SEATS];
 
   void Show() const {
     for (int s = 0; s < NUM_SEATS; ++s) {
       if (pattern[s].patterns.size() == 0) continue;
-      printf("hash %016lx shape %016lx seat %c size %ld total size %d hits %d cuts %d\n", hash,
-             shape.Value(), SeatLetter(s), pattern[s].patterns.size(), pattern[s].Size() - 1,
-             hits[s], cuts[s]);
+      printf("hash %016lx shape %016lx seat %c size %ld total size %d\n", hash, shape.Value(),
+             SeatLetter(s), pattern[s].patterns.size(), pattern[s].Size() - 1);
       pattern[s].Show(shape, 0);
     }
   }
@@ -945,8 +963,6 @@ struct ShapeEntry {
     for (int s = 0; s < NUM_SEATS; ++s) pattern[s].Reset();
 #ifdef _DEBUG
     shape = Shape();
-    memset(hits, 0, sizeof(hits));
-    memset(cuts, 0, sizeof(cuts));
 #endif
   }
 
@@ -955,26 +971,7 @@ struct ShapeEntry {
     for (int s = 0; s < NUM_SEATS; ++s) to.pattern[s].MoveFrom(pattern[s]);
 #ifdef _DEBUG
     to.shape = shape;
-    memcpy(to.hits, hits, sizeof(hits));
-    memcpy(to.cuts, cuts, sizeof(cuts));
 #endif
-  }
-
-  std::pair<const Hands*, Bounds> Lookup(const Pattern& new_pattern, int beta, int seat) const {
-    STATS(++hits[seat]);
-    if (pattern[seat].bounds.Cutoff(beta) && new_pattern <= pattern[seat]) {
-      STATS(++cuts[seat]);
-      CHECK(pattern[seat].Lookup(new_pattern, beta));
-      return {&pattern[seat].hands, pattern[seat].bounds};
-    }
-    auto cached_pattern = pattern[seat].Lookup(new_pattern, beta);
-    if (cached_pattern) {
-      STATS(++cuts[seat]);
-      pattern[seat].hands = cached_pattern->hands;
-      pattern[seat].bounds = cached_pattern->bounds;
-      return {&cached_pattern->hands, cached_pattern->bounds};
-    }
-    return {nullptr, Bounds{}};
   }
 };
 
@@ -1146,18 +1143,17 @@ class Play {
     const auto shape_hash = common_bounds_cache.Hash(trick->shape.Value());
     auto* shape_entry = common_bounds_cache.Lookup(shape_hash);
     if (shape_entry) {
-      auto [hands, bounds] =
-          shape_entry->Lookup(trick->relative_hands, beta - ns_tricks_won, seat_to_play);
-      if (hands) {
-        Pattern matched_pattern(*hands, bounds);
-        auto rank_winners = matched_pattern.GetRankWinners(trick->all_cards);
-        VERBOSE(ShowPattern("match", matched_pattern, trick->shape));
-        int lower = bounds.lower + ns_tricks_won;
+      auto pattern =
+          shape_entry->pattern[seat_to_play].Lookup(trick->relative_hands, beta - ns_tricks_won);
+      if (pattern) {
+        auto rank_winners = pattern->GetRankWinners(trick->all_cards);
+        VERBOSE(ShowPattern("match", *pattern, trick->shape));
+        int lower = pattern->bounds.lower + ns_tricks_won;
         if (lower >= beta) {
           VERBOSE(printf("%2d: beta cut %d\n", depth, lower));
           return {lower, rank_winners};
         }
-        int upper = bounds.upper + ns_tricks_won;
+        int upper = pattern->bounds.upper + ns_tricks_won;
         VERBOSE(printf("%2d: alpha cut %d\n", depth, upper));
         return {upper, rank_winners};
       }
@@ -1367,7 +1363,7 @@ class Play {
   }
 
   void OrderCards(Cards playable_cards) {
-    if (!playable_cards) return;
+    CHECK(playable_cards);
     if (playable_cards.Size() == 1) {
       ordered_cards.AddCard(playable_cards.Top());
       return;
