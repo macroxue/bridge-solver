@@ -846,7 +846,6 @@ struct Pattern {
   }
 
   void BubbleUp(size_t pos) {
-    if (pos <= 8) return;
     while (patterns[pos].order < patterns[pos / 2].order) {
       patterns[pos].swap(patterns[pos / 2]);
       pos /= 2;
