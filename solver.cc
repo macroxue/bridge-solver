@@ -247,6 +247,12 @@ class Cards {
   Cards Remove(const Cards& c) { return bits &= ~c.bits; }
   Cards ClearSuit(int suit) { return bits &= ~MaskOf(suit); }
 
+  uint64_t ShapeParity() const {
+    uint64_t parity = 0;
+    for (int suit = 0; suit < NUM_SUITS; ++suit) parity += (Suit(suit).Size() % 2) << suit;
+    return parity;
+  }
+
   int Points() const {
     int points = 0;
     for (int card : *this)
@@ -1533,16 +1539,17 @@ class Play {
   }
 
   uint64_t BuildCutoffIndex() const {
-    // Index format: 52 bits card holding + 6 bits winner in the trick.
     if (TrickStarting()) {
-      return hands[seat_to_play].Value();
-
+      // 52 bits for my hand + 4 bits for partner's shape parity.
+      return hands[seat_to_play].Value() + (hands[Partner()].ShapeParity() << TOTAL_CARDS);
     } else if (auto my_suit = hands[seat_to_play].Suit(LeadSuit())) {
+      // 26/52 bits for all cards in suit and my suit + 6 bits for winner in the trick.
       auto winner = PreviousPlay().WinningCard();
       return trick->all_cards.Suit(LeadSuit()).Value() +
              (LeadSuit() ? (my_suit.Value() >> NUM_RANKS) : (my_suit.Value() << NUM_RANKS)) +
              (uint64_t(winner) << TOTAL_CARDS);
     } else {
+      // 52 bits for my hand + 6 bits for winner in the trick.
       auto winner = trump == NOTRUMP ? PreviousPlay().WinningSeat() : PreviousPlay().WinningCard();
       return hands[seat_to_play].Value() + (uint64_t(winner) << TOTAL_CARDS);
     }
