@@ -1965,7 +1965,6 @@ void Solve(const Hands& hands, const std::vector<int>& trumps, const std::vector
       }
       seat_done(trump, lead_seat, ns_tricks);
       if (hands.num_voids() >= 4) cutoff_cache.Reset();
-      if (hands.num_voids() >= 8) common_bounds_cache.Reset();
     }
     common_bounds_cache.Reset();
     cutoff_cache.Reset();
