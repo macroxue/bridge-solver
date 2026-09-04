@@ -494,16 +494,16 @@ class Cache {
 
   void Reset() {
     probe_distance = 0;
-    load_count = lookups = lookup_probes = hits = updates = update_probes = 0;
+    load_count = lookups = lookup_probes = hits = updates = update_probes = overwrites = 0;
     for (int i = 0; i < size; ++i) entries[i].Reset(0);
   }
 
   void ShowStatistics() const {
     printf("--- %s Statistics ---\n", cache_name);
-    printf("lookups: %8d   probes: %8d (%.2f/lookup)   hits: %8d (%5.2f%%)\n", lookups,
+    printf("lookups: %8d   probes: %8d (%.2f/lookup)         hits: %8d (%5.2f%%)\n", lookups,
            lookup_probes, lookup_probes * 1.0 / lookups, hits, hits * 100.0 / lookups);
-    printf("updates: %8d   probes: %8d (%.2f/update)\n", updates, update_probes,
-           update_probes * 1.0 / updates);
+    printf("updates: %8d   probes: %8d (%.2f/update)   overwrites: %8d (%5.2f%%)\n", updates,
+           update_probes, update_probes * 1.0 / updates, overwrites, overwrites * 100.0 / updates);
     printf("entries: %8d   loaded: %8d (%5.2f%%)\n", size, load_count, load_count * 100.0 / size);
 
     int recursive_load = 0;
@@ -547,7 +547,10 @@ class Cache {
     // Linear probing benefits from hardware prefetch.
     for (int d = 0;; ++d) {
       Entry& entry = entries[(index + d) & (size - 1)];
-      if (entry.hash == hash) return &entry;
+      if (entry.hash == hash) {
+        STATS(++overwrites);
+        return &entry;
+      }
       if (entry.hash == 0) {
         probe_distance = std::max(probe_distance, d + 1);
         ++load_count;
@@ -596,7 +599,7 @@ class Cache {
 
   mutable int load_count;
   mutable int lookups, lookup_probes, hits;
-  mutable int updates, update_probes;
+  mutable int updates, update_probes, overwrites;
 };
 
 #pragma pack(push, 4)
@@ -1102,11 +1105,16 @@ struct Stat {
   int num_visits = 0;
   int num_branches = 0;
   int num_cutoff_collisions = 0;
+  int num_cuts = 0;
+  int num_cached_cuts = 0;
+  int num_new_cuts = 0;
+  int num_missed_cuts = 0;
 
   void Show(int depth) const {
     if (num_visits)
-      printf("%2d: %7d * %.2f  cutoff-collisions: %d\n", depth, num_visits,
-             double(num_branches) / num_visits, num_cutoff_collisions);
+      printf("%2d: %7d * %.2f  Cutoff collisions %d  cuts %7d  cached %7d  new %5d  missed %5d\n",
+             depth, num_visits, double(num_branches) / num_visits, num_cutoff_collisions, num_cuts,
+             num_cached_cuts, num_new_cuts, num_missed_cuts);
   }
 } stats[TOTAL_CARDS];
 
@@ -1256,7 +1264,14 @@ class Play {
         ns_tricks = NsToPlay() ? std::max(ns_tricks, branch_ns_tricks)
                                : std::min(ns_tricks, branch_ns_tricks);
         if (NsToPlay() ? ns_tricks >= beta : ns_tricks < beta) {  // cut-off
-          if (card != cutoff_card) SaveCutoffCard(cutoff_hash, card);
+          STATS(++stats[depth].num_cuts);
+          if (card != cutoff_card) {
+            SaveCutoffCard(cutoff_hash, card);
+            STATS(stats[depth].num_new_cuts += (cutoff_card == TOTAL_CARDS));
+            STATS(stats[depth].num_missed_cuts += (cutoff_card != TOTAL_CARDS));
+          } else {
+            STATS(++stats[depth].num_cached_cuts);
+          }
           VERBOSE(printf("%2d: search cut @%d %s\n", depth, num_branches, NameOf(card)));
           return {ns_tricks, branch_rank_winners};
         }
