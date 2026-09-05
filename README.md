@@ -130,13 +130,13 @@ with 8 physical cores at 3.2GHz base clock and 4.4GHz boost clock.
 
 ### Single-core
 
-The solver fully analyzed 1000 random deals (under `deals/1k`) in just 112.8 seconds,
-averaging nearly nine deals per second. Below is a more detailed breakdown.
-The longest one (`deal.310`) took 1.18 seconds and consumed 45.0 MB of memory.
+The solver fully analyzed 1000 random deals (under `deals/1k`) in just 107.2 seconds,
+averaging more than nine deals per second. Below is a more detailed breakdown.
+The longest one (`deal.310`) took 1.08 seconds and consumed 41.9 MB of memory.
 
 | Time  | <= 0.1s | <= 0.2s | <= 0.5s |  <= 1s  |  <= 2s  |
 |-------|---------|---------|---------|---------|---------|
-| Count |    637  |    872  |    982  |    999  |   1000  |
+| Count |    653  |    883  |    985  |    999  |   1000  |
 
 One of the most difficult deals is this symmetric one, with four void suits and
 nobody holding consecutive ranks in any suit. It took the solver less than four seconds.
@@ -144,39 +144,39 @@ nobody holding consecutive ranks in any suit. It took the solver less than four 
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
-N  5  5  5  5  1.89 s 128.6 M
-S  4  4  8  7  2.27 s 129.4 M
-H  8  7  4  4  2.76 s 129.9 M
-D  4  4  7  8  3.30 s 130.7 M
-C  7  8  4  4  3.68 s 130.7 M
+N  5  5  5  5  1.97 s 133.3 M
+S  4  4  8  7  2.32 s 134.3 M
+H  8  7  4  4  2.81 s 134.8 M
+D  4  4  7  8  3.23 s 135.1 M
+C  7  8  4  4  3.61 s 135.1 M
 ```
 
 An even more freakish deal with each player holding only two suits made the solver
-work hard for almost 16 seconds!
+work hard for more than 13 seconds!
 ```
                           ♠ KJ9753 ♥ - ♦ AQT8642 ♣ -
   ♠ AQT8642 ♥ KJ9753 ♦ - ♣ -                       ♠ - ♥ - ♦ KJ9753 ♣ AQT8642
                           ♠ - ♥ AQT8642 ♦ - ♣ KJ9753
-N  7  7  7  7  9.16 s  64.5 M
-S  6  6  7  7 10.61 s  64.8 M
-H  7  7  6  6 12.21 s  65.0 M
-D  7  7  6  6 13.94 s  65.0 M
-C  6  6  7  7 15.52 s  65.0 M
+N  7  7  7  7  7.99 s 110.0 M
+S  6  6  7  7  9.01 s 110.3 M
+H  7  7  6  6 10.41 s 110.8 M
+D  7  7  6  6 12.16 s 111.1 M
+C  6  6  7  7 13.48 s 111.3 M
 ```
 
 A new champion has emerged when North and South switch hands in the symmetric
 three-suited deal above. This simple change surprisingly increases the solving
-time by more than 19x and the memory usage by nearly 13x, overwhelmingly just
+time by more than 20x and the memory usage by nearly 13x, overwhelmingly just
 for NT contracts.
 ```
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
-N  7  7  7  7 69.00 s 1680.2 M
-S  4  4  7  7 69.42 s 1680.2 M
-H  7  7  4  4 69.77 s 1680.4 M
-D  4  4  7  7 70.12 s 1680.4 M
-C  7  7  4  4 70.50 s 1680.4 M
+N  7  7  7  7 74.27 s 1745.0 M
+S  4  4  7  7 74.69 s 1745.2 M
+H  7  7  4  4 75.02 s 1745.2 M
+D  4  4  7  7 75.33 s 1745.5 M
+C  7  7  4  4 75.72 s 1745.5 M
 ```
 
 ### Multi-core
@@ -186,7 +186,7 @@ The solver is single-threaded, so multiple instances of the solver are running i
 
 | # Cores   |    1 |    2 |    4 |    8 |   16 |
 |-----------|------|------|------|------|------|
-| Time (s)  |112.8 | 63.6 | 35.0 | 21.6 | 17.5 |
+| Time (s)  |107.2 | 60.3 | 33.1 | 20.6 | 16.7 |
 | Speed-up  |  1.0 |  1.8 |  3.2 |  5.2 |  6.4 |
 
 The scaling is decent up to 8 cores. 16 cores give small additional speed-up as the cores
