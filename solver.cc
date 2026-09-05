@@ -1609,8 +1609,20 @@ class Play {
           (my_trumps.StrictlyInclude(k) && rho_trumps.Include(a) &&
            (!leading || hands.num_tricks() >= 3)))
         return {1, a.Union(k)};
-      // KQ against A
+      // Kx against stiff A
+      if ((pd_trumps.StrictlyInclude(k) || my_trumps.StrictlyInclude(k)) &&
+          (rho_trumps == a || lho_trumps == a) && (!leading || hands.num_tricks() >= 3))
+        return {1, a.Union(k)};
+      // KQJ against A
       auto q = Cards().Add(all_trumps.Different(a.Union(k)).Top());
+      if (all_trumps.Size() >= 4) {
+        auto j = Cards().Add(all_trumps.Different(a.Union(k).Union(q)).Top());
+        if (lho_trumps.Union(rho_trumps).Include(a) &&
+            my_trumps.Union(pd_trumps).Include(k.Union(q).Union(j)) &&
+            (my_trumps.Size() >= 3 || pd_trumps.Size() >= 3))
+          return {2, a.Union(k).Union(q).Union(j)};
+      }
+      // KQ against A
       if (lho_trumps.Union(rho_trumps).Include(a) &&
           my_trumps.Union(pd_trumps).Include(k.Union(q)) &&
           (my_trumps.Size() >= 2 || pd_trumps.Size() >= 2))
@@ -1621,6 +1633,13 @@ class Play {
             (my_trumps.Include(q) && my_trumps.Size() >= 3 && rho_trumps.Include(a.Union(k)) &&
              (!leading || hands.num_tricks() >= 4)))
           return {1, a.Union(k).Union(q)};
+      // Qxx against AK tight
+      if (((pd_trumps.Include(q) && pd_trumps.Size() >= 3) ||
+           (my_trumps.Include(q) && my_trumps.Size() >= 3)) &&
+          (lho_trumps == a.Union(k) || rho_trumps == a.Union(k) ||
+           (lho_trumps.Size() == 1 && rho_trumps.Size() == 1)) &&
+          (!leading || hands.num_tricks() >= 4))
+        return {1, a.Union(k).Union(q)};
     }
     return {0, {}};
   }
