@@ -1611,8 +1611,9 @@ class Play {
         return {1, a.Union(k)};
       // KQ against A
       auto q = Cards().Add(all_trumps.Different(a.Union(k)).Top());
-      if (lho_trumps.Union(rho_trumps).Have(a) && my_trumps.Union(pd_trumps).Have(k.Union(q)) &&
-          (my_trumps.Size() >= 1 || pd_trumps.Size() >= 1))
+      if (lho_trumps.Union(rho_trumps).Include(a) &&
+          my_trumps.Union(pd_trumps).Include(k.Union(q)) &&
+          (my_trumps.Size() >= 2 || pd_trumps.Size() >= 2))
         return {1, a.Union(k).Union(q)};
       // Qxx behind AK
       if (all_trumps.Size() >= 5)
