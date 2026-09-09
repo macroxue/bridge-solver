@@ -1,10 +1,15 @@
-.PHONY: all sanitizer web clean
+.PHONY: all sanitizer web clean test
 all: solver.p solver
 sanitizer: solver.m solver.a
 web:
 	$(MAKE) -C web
+test: parallel_strains_test
+	./parallel_strains_test
 
 include opts.mk
+
+parallel_strains_test: parallel_strains_test.cc solver.cc
+	g++ $(OPTS) -O3 -D_TEST -o $@ parallel_strains_test.cc
 
 solver.p: solver.cc
 	rm -f solver.gcda
@@ -17,11 +22,11 @@ solver: solver.cc
 solver.g: solver.cc
 	g++ $(OPTS) -D_DEBUG -Og -g -o $@ $^
 solver.m: solver.cc
-	clang++ -std=c++17 -O3 -fsanitize=memory -o $@ $^
+	clang++ -std=c++17 -pthread -O3 -fsanitize=memory -o $@ $^
 	./$@ -if deals/hard/deal.1
 solver.a: solver.cc
-	clang++ -std=c++17 -O3 -fsanitize=address -o $@ $^
+	clang++ -std=c++17 -pthread -O3 -fsanitize=address -o $@ $^
 	./$@ -if deals/hard/deal.1
 clean:
-	rm -f solver.p solver solver.g solver.m solver.a
+	rm -f solver.p solver solver.g solver.m solver.a parallel_strains_test
 	$(MAKE) -C web clean
