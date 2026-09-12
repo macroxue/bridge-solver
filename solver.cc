@@ -493,7 +493,6 @@ class Cache {
   }
 
   void Reset() {
-    probe_distance = 0;
     load_count = lookups = lookup_probes = hits = updates = update_probes = overwrites = 0;
     for (int i = 0; i < size; ++i) entries[i].Reset(0);
   }
@@ -526,7 +525,8 @@ class Cache {
     STATS(++lookups);
     uint64_t index = hash >> (BitSize(hash) - bits);
 
-    for (int d = 0; d < probe_distance; ++d) {
+    // Linear probing benefits from hardware prefetch.
+    for (int d = 0;; ++d) {
       const Entry& entry = entries[(index + d) & (size - 1)];
       if (entry.hash == hash) {
         STATS(++hits);
@@ -544,7 +544,6 @@ class Cache {
     STATS(++updates);
     uint64_t index = hash >> (BitSize(hash) - bits);
 
-    // Linear probing benefits from hardware prefetch.
     for (int d = 0;; ++d) {
       Entry& entry = entries[(index + d) & (size - 1)];
       if (entry.hash == hash) {
@@ -552,7 +551,6 @@ class Cache {
         return &entry;
       }
       if (entry.hash == 0) {
-        probe_distance = std::max(probe_distance, d + 1);
         ++load_count;
         entry.Reset(hash);
         return &entry;
@@ -574,7 +572,6 @@ class Cache {
 
     // Move entries in the old cache to the new cache.
     load_count = 0;
-    probe_distance = 0;
     for (int i = 0; i < old_size; ++i) {
       auto hash = old_entries[i].hash;
       if (hash == 0) continue;
@@ -582,7 +579,6 @@ class Cache {
       for (int d = 0;; ++d) {
         Entry& entry = entries[(index + d) & (size - 1)];
         if (entry.hash == 0) {
-          probe_distance = std::max(probe_distance, d + 1);
           old_entries[i].MoveTo(entry);
           ++load_count;
           break;
@@ -594,7 +590,6 @@ class Cache {
   const char* cache_name;
   int bits;
   int size;
-  int probe_distance;
   std::unique_ptr<Entry[]> entries;
 
   mutable int load_count;
@@ -685,7 +680,7 @@ class VectorPool {
 
   // One allocation for a full slab, amortizing the malloc call across all of them.
   static void Refill(int size_class) {
-    size_t block_bytes = (size_t{1} << size_class) * sizeof(T);
+    size_t block_bytes = (1ULL << size_class) * sizeof(T);
     size_t num_blocks = SLAB_SIZE / block_bytes;
     if (num_blocks == 0) num_blocks = 1;
     char* slab = new char[num_blocks * block_bytes];
@@ -946,7 +941,7 @@ struct Pattern {
 
 struct ShapeEntry {
   uint64_t hash;
-  mutable Pattern pattern[NUM_SEATS];
+  Pattern pattern[NUM_SEATS];
 #ifdef _DEBUG
   Shape shape;
 
@@ -2288,7 +2283,7 @@ class WebPlay {
 
   typedef std::map<int, int> CardTricks;
 
-  CardTricks EvaluateLeads(int ns_tricks, bool ns_contract) {
+  CardTricks EvaluatePlays(int ns_tricks, bool ns_contract) {
     // Play all the cards from start.
     for (size_t p = 0; p <= played_cards.size(); ++p) {
       auto& play = min_max.play(p);
@@ -2404,7 +2399,7 @@ std::string solve_plays(std::string west, std::string north, std::string east, s
   static char buffer[256];
   buffer[0] = '\0';
   auto web_play = WebPlay(hands, trump, lead_seat, target_ns_tricks, cards);
-  auto card_tricks = web_play.EvaluateLeads(GuessTricks(hands, trump), ns_contract);
+  auto card_tricks = web_play.EvaluatePlays(GuessTricks(hands, trump), ns_contract);
   for (const auto& card_trick : card_tricks) {
     sprintf(buffer + strlen(buffer), "%s:%+d ", NameOf(card_trick.first), card_trick.second);
   }
