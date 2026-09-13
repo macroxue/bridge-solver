@@ -1205,7 +1205,7 @@ class Play {
     return EvaluatePlayableCards(beta);
   }
 
-  int SureTrickCutoff(int beta, int sure_tricks, bool for_ns, bool leading) {
+  int SureTrickCutoff(int beta, int sure_tricks, bool for_ns, bool leading) const {
     if (for_ns) {
       auto lower = ns_tricks_won + sure_tricks;
       if (lower >= beta) {
@@ -1295,7 +1295,7 @@ class Play {
 
   template <bool SUIT_CONTRACT>
   void Lead(Cards playable_cards) {
-    Cards good_leads, high_leads, leads, bad_leads, trump_leads, ruff_leads;
+    Cards good_leads, high_leads, leads, bad_leads, trump_leads, ruff_leads, void_leads;
     auto pd_hand = hands[Partner()];
     auto lho_hand = hands[LeftHandOpp()], rho_hand = hands[RightHandOpp()];
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
@@ -1358,6 +1358,12 @@ class Play {
         ruff_leads.Add(my_suit.Bottom());
         continue;
       }
+      // With voids in other players' hands.
+      if (!pd_suit || !lho_suit || !rho_suit) {
+        void_leads.Add(my_suit.Top());
+        void_leads.Add(my_suit.Bottom());
+        continue;
+      }
       // Nothing special.
       leads.Add(my_suit.Top());
       leads.Add(my_suit.Bottom());
@@ -1372,6 +1378,8 @@ class Play {
     playable_cards.Remove(high_leads);
     ordered_cards.AddCards(leads);
     playable_cards.Remove(leads);
+    ordered_cards.AddCards(void_leads);
+    playable_cards.Remove(void_leads);
     if (SUIT_CONTRACT) {
       ordered_cards.AddCards(bad_leads);
       playable_cards.Remove(bad_leads);
