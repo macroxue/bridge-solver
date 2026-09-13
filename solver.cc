@@ -21,6 +21,9 @@
 #include <random>
 #include <set>
 #include <vector>
+#ifndef _WEB
+#include <thread>
+#endif
 
 // clang-format off
 #ifdef _DEBUG
@@ -697,9 +700,9 @@ class VectorPool {
     }
   }
 
-  static inline uint64_t alloc_calls[16] = {};
-  static inline uint64_t miss_calls[16] = {};
-  static inline char* free_lists[16] = {};
+  static inline thread_local uint64_t alloc_calls[16] = {};
+  static inline thread_local uint64_t miss_calls[16] = {};
+  static inline thread_local char* free_lists[16] = {};
 };
 
 template <class T>
@@ -1003,8 +1006,8 @@ struct CutoffEntry {
 };
 #pragma pack(pop)
 
-Cache<ShapeEntry> common_bounds_cache("Common Bounds Cache", 13);
-Cache<CutoffEntry> cutoff_cache("Cut-off Cache", 16);
+thread_local Cache<ShapeEntry> common_bounds_cache("Common Bounds Cache", 13);
+thread_local Cache<CutoffEntry> cutoff_cache("Cut-off Cache", 16);
 
 struct Trick {
   Shape shape;
@@ -1971,30 +1974,67 @@ int GuessTricks(const Hands& hands, int trump) {
   return hands.num_tricks();
 }
 
+#ifdef _TEST
+// Invoked at the start of each strain's search work (test hook for parallelism).
+std::function<void(int trump)> on_trump_work_begin;
+#endif
+
+// Solve all lead seats for one trump. Returns NS tricks per lead seat.
+static std::vector<int> SolveTrump(const Hands& hands, int trump,
+                                   const std::vector<int>& lead_seats) {
+#ifdef _TEST
+  if (on_trump_work_begin) on_trump_work_begin(trump);
+#endif
+  int num_tricks = hands[WEST].Size();
+  int guess_tricks = GuessTricks(hands, trump);
+  std::vector<int> ns_tricks_by_seat;
+  ns_tricks_by_seat.reserve(lead_seats.size());
+  for (int lead_seat : lead_seats) {
+    MinMax min_max(hands, trump, lead_seat);
+    auto search = [&min_max](int beta) { return min_max.Search(beta); };
+    int ns_tricks = MemoryEnhancedTestDriver(search, num_tricks, guess_tricks);
+    guess_tricks = std::min(ns_tricks + 1, TOTAL_TRICKS);
+    if (options.stats_level) {
+      common_bounds_cache.ShowStatistics();
+      cutoff_cache.ShowStatistics();
+      VectorPool<Pattern>::ShowStatistics();
+    }
+    ns_tricks_by_seat.push_back(ns_tricks);
+    if (hands.num_voids() >= 4) cutoff_cache.Reset();
+  }
+  common_bounds_cache.Reset();
+  cutoff_cache.Reset();
+  return ns_tricks_by_seat;
+}
+
 void Solve(const Hands& hands, const std::vector<int>& trumps, const std::vector<int>& lead_seats,
            const std::function<void(int trump)>& trump_start,
            const std::function<void(int trump, int lead_seat, int ns_tricks)>& seat_done,
-           const std::function<void(int trump)>& trump_done) {
-  int num_tricks = hands[WEST].Size();
-  for (int trump : trumps) {
-    trump_start(trump);
-    int guess_tricks = GuessTricks(hands, trump);
-    for (int lead_seat : lead_seats) {
-      MinMax min_max(hands, trump, lead_seat);
-      auto search = [&min_max](int beta) { return min_max.Search(beta); };
-      int ns_tricks = MemoryEnhancedTestDriver(search, num_tricks, guess_tricks);
-      guess_tricks = std::min(ns_tricks + 1, TOTAL_TRICKS);
-      if (options.stats_level) {
-        common_bounds_cache.ShowStatistics();
-        cutoff_cache.ShowStatistics();
-        VectorPool<Pattern>::ShowStatistics();
-      }
-      seat_done(trump, lead_seat, ns_tricks);
-      if (hands.num_voids() >= 4) cutoff_cache.Reset();
+           const std::function<void(int trump)>& trump_done, bool parallel_trumps = true) {
+  std::vector<std::vector<int>> results(trumps.size());
+
+#ifndef _WEB
+  if (parallel_trumps && trumps.size() > 1) {
+    std::vector<std::thread> threads;
+    threads.reserve(trumps.size());
+    for (size_t i = 0; i < trumps.size(); ++i) {
+      threads.emplace_back([&hands, &trumps, &lead_seats, &results, i] {
+        results[i] = SolveTrump(hands, trumps[i], lead_seats);
+      });
     }
-    common_bounds_cache.Reset();
-    cutoff_cache.Reset();
-    trump_done(trump);
+    for (auto& thread : threads) thread.join();
+  } else
+#endif
+  {
+    for (size_t i = 0; i < trumps.size(); ++i)
+      results[i] = SolveTrump(hands, trumps[i], lead_seats);
+  }
+
+  for (size_t i = 0; i < trumps.size(); ++i) {
+    trump_start(trumps[i]);
+    for (size_t j = 0; j < lead_seats.size(); ++j)
+      seat_done(trumps[i], lead_seats[j], results[i][j]);
+    trump_done(trumps[i]);
   }
 }
 
@@ -2422,6 +2462,7 @@ EMSCRIPTEN_BINDINGS(my_module) {
 }
 #endif  // !_TEST
 #else   // _WEB
+#ifndef _TEST
 int main(int argc, char* argv[]) {
   options.Read(argc, argv);
 
@@ -2459,7 +2500,7 @@ int main(int argc, char* argv[]) {
         printf("%s can't make a %s contract.\n", SeatName(declarer), SuitSign(trump));
       }
     };
-    Solve(hands, trumps, lead_seats, do_nothing, seat_done, do_nothing);
+    Solve(hands, trumps, lead_seats, do_nothing, seat_done, do_nothing, /*parallel_trumps=*/false);
   } else {
     auto start_time = Now();
     auto trump_start = [](int trump) { printf("%c", SuitName(trump)[0]); };
@@ -2477,4 +2518,5 @@ int main(int argc, char* argv[]) {
   }
   return 0;
 }
+#endif  // !_TEST
 #endif  // _WEB
