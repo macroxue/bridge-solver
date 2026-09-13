@@ -223,7 +223,6 @@ class Cards {
   uint64_t Value() const { return bits; }
 
   int Size() const { return __builtin_popcountll(bits); }
-  bool Have(int card) const { return bits & Bit(card); }
   bool operator==(const Cards& c) const { return bits == c.bits; }
   bool operator!=(const Cards& c) const { return bits != c.bits; }
   operator bool() const { return bits != 0; }
@@ -237,6 +236,7 @@ class Cards {
   Cards Intersect(const Cards& c) const { return bits & c.bits; }
   Cards Different(const Cards& c) const { return bits & ~c.bits; }
   Cards Complement() const { return ((1ULL << TOTAL_CARDS) - 1) ^ bits; }
+  bool Include(int card) const { return bits & Bit(card); }
   bool Include(const Cards& c) const { return Intersect(c) == c; }
   bool StrictlyInclude(const Cards& c) const { return Include(c) && bits != c.bits; }
 
@@ -1059,7 +1059,7 @@ struct Trick {
 
       int bottom_rank_winner = RelativeCard(rank_winners.Suit(suit).Bottom(), suit);
       for (int seat = 0; seat < NUM_SEATS; ++seat) {
-        if (!relative_hands[seat].Have(bottom_rank_winner)) continue;
+        if (!relative_hands[seat].Include(bottom_rank_winner)) continue;
         auto suit_cards = relative_hands[seat].Suit(suit);
         // Extend bottom rank winner to its lowest equivalent card.
         bottom_rank_winner += __builtin_ctzll(~(suit_cards.Value() >> (bottom_rank_winner + 1)));
@@ -1232,7 +1232,7 @@ class Play {
                    playable_cards.Value()));
     const auto cutoff_hash = cutoff_cache.Hash(BuildCutoffIndex());
     int cutoff_card = LookupCutoffCard(cutoff_hash);
-    if (playable_cards.Have(cutoff_card)) {
+    if (playable_cards.Include(cutoff_card)) {
       VERBOSE(printf("%2d: use cutoff %s\n", depth, NameOf(cutoff_card)));
       ordered_cards.AddCard(cutoff_card);
       playable_cards.Remove(cutoff_card);
@@ -1323,11 +1323,11 @@ class Play {
       int t = all_suit_cards.Remove(j).Top();
       // Finesse LHO - good.
       if (pd_suit.Size() >= 2 && lho_suit.Size() >= 2) {
-        if ((pd_suit.Have(k) && lho_suit.Have(a)) ||
-            (pd_suit.Have(a) && lho_suit.Have(k) &&
-             (pd_suit.Have(q) || our_suits.Have(Cards().Add(q).Add(j)))) ||
-            (pd_suit.Have(k) && lho_suit.Have(q) &&
-             (pd_suit.Have(j) || our_suits.Have(Cards().Add(j).Add(t))))) {
+        if ((pd_suit.Include(k) && lho_suit.Include(a)) ||
+            (pd_suit.Include(a) && lho_suit.Include(k) &&
+             (pd_suit.Include(q) || our_suits.Include(Cards().Add(q).Add(j)))) ||
+            (pd_suit.Include(k) && lho_suit.Include(q) &&
+             (pd_suit.Include(j) || our_suits.Include(Cards().Add(j).Add(t))))) {
           good_leads.Add(my_suit.Top());
           good_leads.Add(my_suit.Bottom());
           continue;
@@ -1336,8 +1336,8 @@ class Play {
       auto rho_suit = rho_hand.Suit(suit);
       // Give free finesse to RHO - bad.
       if (my_suit.Size() >= 2 && rho_suit.Size() >= 2) {
-        if ((my_suit.Have(a) && rho_suit.Have(k)) ||
-            (my_suit.Have(k) && rho_suit.Have(a) && !our_suits.Have(q))) {
+        if ((my_suit.Include(a) && rho_suit.Include(k)) ||
+            (my_suit.Include(k) && rho_suit.Include(a) && !our_suits.Include(q))) {
           if (SUIT_CONTRACT) {
             bad_leads.Add(my_suit.Top());
             continue;
@@ -1594,7 +1594,7 @@ class Play {
     int sure_tricks = 0;
     Cards rank_winners;
     for (int card : all_trumps)
-      if (both_trumps.Have(card) && sure_tricks < max_trump_tricks) {
+      if (both_trumps.Include(card) && sure_tricks < max_trump_tricks) {
         ++sure_tricks;
         rank_winners.Add(card);
       } else
@@ -1655,7 +1655,7 @@ class Play {
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       if (!my_hand.Suit(suit)) continue;
       auto top = trick->all_cards.Suit(suit).Top();
-      if (our_hands.Have(top)) return {0, {}};
+      if (our_hands.Include(top)) return {0, {}};
       rank_winners.Add(top);
     }
     if (hands[LeftHandOpp()].Include(rank_winners) || hands[RightHandOpp()].Include(rank_winners)) {
@@ -1692,10 +1692,10 @@ class Play {
 
       int my_winners = 0, pd_winners = 0;
       for (int card : trick->all_cards.Suit(suit))
-        if (my_suit.Have(card)) {
+        if (my_suit.Include(card)) {
           ++my_winners;
           if (my_winners <= my_max_rank_winners) rank_winners.Add(card);
-        } else if (pd_suit.Have(card)) {
+        } else if (pd_suit.Include(card)) {
           ++pd_winners;
           if (pd_winners <= pd_max_rank_winners) pd_rank_winners.Add(card);
         } else
@@ -1861,7 +1861,7 @@ Cards ParseHand(const char* input_line, Cards all_cards) {
         rank = CharToRank(line[0]);
       }
       int card = CardOf(suit, rank);
-      if (all_cards.Have(card)) {
+      if (all_cards.Include(card)) {
         fprintf(stderr, "%s showed up twice.\n", NameOf(card));
         exit(-1);
       }
