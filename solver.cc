@@ -92,29 +92,39 @@ int CharToSeat(char c) {
   exit(-1);
 }
 
-char suit_of[TOTAL_CARDS];
-char rank_of[TOTAL_CARDS];
-char card_of[NUM_SUITS][16];
-char name_of[TOTAL_CARDS][4];
+// Number of bits in a suit, in the range of [13, 16]. Pick 16 to avoid divisions.
+const int SUIT_SPAN = 16;
+// The bit right after the highest valid card bit, also indicating an invalid card.
+const int CARD_END = (NUM_SUITS - 1) * SUIT_SPAN + NUM_RANKS;
 
-int SuitOf(int card) { return suit_of[card]; }
+char suit_of[CARD_END];
+char rank_of[CARD_END];
+char card_of[NUM_SUITS][16];
+char name_of[CARD_END][4];
+
+int SuitOf(int card) { return SUIT_SPAN == 16 ? card / SUIT_SPAN : suit_of[card]; }
 int RankOf(int card) { return rank_of[card]; }
 int CardOf(int suit, int rank) { return card_of[suit][rank]; }
-uint64_t MaskOf(int suit) { return 0x1fffULL << (suit * NUM_RANKS); }
+uint64_t MaskOf(int suit) { return 0x1fffULL << (suit * SUIT_SPAN); }
 const char* NameOf(int card) { return name_of[card]; }
+
+const auto DECK_MASK = MaskOf(SPADE) + MaskOf(HEART) + MaskOf(DIAMOND) + MaskOf(CLUB);
 
 bool LowerRank(int card1, int card2) { return card1 > card2; }
 bool HigherRank(int card1, int card2) { return card1 < card2; }
 
 struct CardInitializer {
   CardInitializer() {
-    for (int card = 0; card < TOTAL_CARDS; ++card) {
-      suit_of[card] = card / NUM_RANKS;
-      rank_of[card] = NUM_RANKS - 1 - card % NUM_RANKS;
-      card_of[SuitOf(card)][RankOf(card)] = card;
-      name_of[card][0] = SuitName(SuitOf(card))[0];
-      name_of[card][1] = RankName(RankOf(card));
-      name_of[card][2] = '\0';
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      for (int rank = 0; rank < NUM_RANKS; ++rank) {
+        int card = suit * SUIT_SPAN + NUM_RANKS - 1 - rank;
+        suit_of[card] = suit;
+        rank_of[card] = rank;
+        card_of[SuitOf(card)][RankOf(card)] = card;
+        name_of[card][0] = SuitName(SuitOf(card))[0];
+        name_of[card][1] = RankName(RankOf(card));
+        name_of[card][2] = '\0';
+      }
     }
   }
 } card_initializer;
@@ -221,6 +231,16 @@ class Cards {
   Cards() : bits(0) {}
   Cards(uint64_t b) : bits(b) {}
   uint64_t Value() const { return bits; }
+  uint64_t PackedValue() const {
+    if (SUIT_SPAN == NUM_RANKS) return bits;
+#ifdef __BMI2__
+    return PackBits(bits, DECK_MASK);
+#else
+    return Suit(0).Value() + (Suit(1).Value() >> (SUIT_SPAN - NUM_RANKS)) +
+           (Suit(2).Value() >> (SUIT_SPAN * 2 - NUM_RANKS * 2)) +
+           (Suit(3).Value() >> (SUIT_SPAN * 3 - NUM_RANKS * 3));
+#endif
+  }
 
   int Size() const { return __builtin_popcountll(bits); }
   bool operator==(const Cards& c) const { return bits == c.bits; }
@@ -235,7 +255,7 @@ class Cards {
   Cards Union(const Cards& c) const { return bits | c.bits; }
   Cards Intersect(const Cards& c) const { return bits & c.bits; }
   Cards Different(const Cards& c) const { return bits & ~c.bits; }
-  Cards Complement() const { return ((1ULL << TOTAL_CARDS) - 1) ^ bits; }
+  Cards Complement() const { return DECK_MASK ^ bits; }
   bool Include(int card) const { return bits & Bit(card); }
   bool Include(const Cards& c) const { return Intersect(c) == c; }
   bool StrictlyInclude(const Cards& c) const { return Include(c) && bits != c.bits; }
@@ -338,7 +358,7 @@ class Hands {
     int num_values =
         sscanf(code, "%" SCNx64 ",%" SCNx64 ",%" SCNx64, values, values + 1, values + 2);
     assert(num_values == 3);
-    auto mask = (1ULL << TOTAL_CARDS) - 1;
+    auto mask = DECK_MASK;
     for (int seat = 0; seat < NUM_SEATS - 1; ++seat) {
       hands[seat] = UnpackBits(values[seat], mask);
       mask &= ~hands[seat].Value();
@@ -404,7 +424,7 @@ class Hands {
 
   void ShowCode() const {
     uint64_t values[3];
-    auto mask = (1ULL << TOTAL_CARDS) - 1;
+    auto mask = DECK_MASK;
     for (int seat = 0; seat < NUM_SEATS - 1; ++seat) {
       values[seat] = PackBits(hands[seat].Value(), mask);
       mask &= ~hands[seat].Value();
@@ -899,7 +919,7 @@ struct Pattern {
     Cards rank_winners;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       if (!relative_rank_winners.Suit(suit)) continue;
-      auto packed = relative_rank_winners.Suit(suit).Value() >> (suit * NUM_RANKS);
+      auto packed = relative_rank_winners.Suit(suit).Value() >> (suit * SUIT_SPAN);
       rank_winners.Add(Cards(UnpackBits(packed, all_cards.Suit(suit).Value())));
     }
     return rank_winners;
@@ -988,7 +1008,7 @@ struct CutoffEntry {
 
   void Reset(uint64_t hash_in) {
     hash = hash_in;
-    memset(card, TOTAL_CARDS, sizeof(card));
+    memset(card, CARD_END, sizeof(card));
   }
 
   void MoveTo(CutoffEntry& to) { memcpy(&to, this, sizeof(*this)); }
@@ -1027,7 +1047,7 @@ struct Trick {
     if (!tried_suit_cards) return false;
     if (auto above = tried_suit_cards.Slice(0, card))
       if (all_cards.Slice(above.Bottom(), card) == hand.Slice(above.Bottom(), card)) return true;
-    if (auto below = tried_suit_cards.Slice(card + 1, TOTAL_CARDS))
+    if (auto below = tried_suit_cards.Slice(card + 1, CARD_END))
       if (all_cards.Slice(card, below.Top()) == hand.Slice(card, below.Top())) return true;
     return false;
   }
@@ -1067,7 +1087,7 @@ struct Trick {
         break;
       }
       relative_rank_winners.Add(Cards(MaskOf(suit)).Slice(0, bottom_rank_winner + 1));
-      auto packed = relative_rank_winners.Suit(suit).Value() >> (suit * NUM_RANKS);
+      auto packed = relative_rank_winners.Suit(suit).Value() >> (suit * SUIT_SPAN);
       extended_rank_winners.Add(Cards(UnpackBits(packed, all_cards.Suit(suit).Value())));
     }
 
@@ -1082,7 +1102,7 @@ struct Trick {
     for (int seat = 0; seat < NUM_SEATS; ++seat) {
       auto packed = PackBits(hands[seat].Suit(suit).Value(), all_suit_cards.Value());
       relative_hands[seat].ClearSuit(suit);
-      relative_hands[seat].Add(Cards(packed << (suit * NUM_RANKS)));
+      relative_hands[seat].Add(Cards(packed << (suit * SUIT_SPAN)));
     }
   }
 
@@ -1234,7 +1254,7 @@ class Play {
       ordered_cards.AddCard(cutoff_card);
       playable_cards.Remove(cutoff_card);
     } else {
-      STATS(stats[depth].num_cutoff_collisions += (cutoff_card != TOTAL_CARDS));
+      STATS(stats[depth].num_cutoff_collisions += (cutoff_card != CARD_END));
       OrderCards(playable_cards);
       playable_cards = Cards();
     }
@@ -1263,8 +1283,8 @@ class Play {
           STATS(++stats[depth].num_cuts);
           if (card != cutoff_card) {
             SaveCutoffCard(cutoff_hash, card);
-            STATS(stats[depth].num_new_cuts += (cutoff_card == TOTAL_CARDS));
-            STATS(stats[depth].num_missed_cuts += (cutoff_card != TOTAL_CARDS));
+            STATS(stats[depth].num_new_cuts += (cutoff_card == CARD_END));
+            STATS(stats[depth].num_missed_cuts += (cutoff_card != CARD_END));
           } else {
             STATS(++stats[depth].num_cached_cuts);
           }
@@ -1557,22 +1577,22 @@ class Play {
   uint64_t BuildCutoffIndex() const {
     if (TrickStarting()) {
       // 52 bits for my hand + 4 bits for partner's shape parity.
-      return hands[seat_to_play].Value() + (hands[Partner()].ShapeParity() << TOTAL_CARDS);
+      return hands[seat_to_play].PackedValue() + (hands[Partner()].ShapeParity() << TOTAL_CARDS);
     } else if (auto my_suit = hands[seat_to_play].Suit(LeadSuit())) {
       // 13/52 bits for all cards in suit + 6 bits for winner in the trick + 2 bits for lead seat.
       auto winner = PreviousPlay().WinningCard();
-      return trick->all_cards.Suit(LeadSuit()).Value() + (uint64_t(winner) << TOTAL_CARDS) +
+      return trick->all_cards.Suit(LeadSuit()).PackedValue() + (uint64_t(winner) << TOTAL_CARDS) +
              (uint64_t(plays[depth & ~3].seat_to_play) << (TOTAL_CARDS + 6));
     } else {
       // 52 bits for my hand + 6 bits for winner in the trick.
       auto winner = trump == NOTRUMP ? PreviousPlay().WinningSeat() : PreviousPlay().WinningCard();
-      return hands[seat_to_play].Value() + (uint64_t(winner) << TOTAL_CARDS);
+      return hands[seat_to_play].PackedValue() + (uint64_t(winner) << TOTAL_CARDS);
     }
   }
 
   int LookupCutoffCard(decltype(cutoff_cache)::HashT hash) const {
     const auto* entry = cutoff_cache.Lookup(hash);
-    return entry ? entry->card[depth & 3] : TOTAL_CARDS;
+    return entry ? entry->card[depth & 3] : CARD_END;
   }
 
   void SaveCutoffCard(decltype(cutoff_cache)::HashT hash, int cutoff_card) const {
