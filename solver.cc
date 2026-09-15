@@ -348,9 +348,6 @@ class Hands {
            hands[2].Size() == hands[3].Size());
   }
 
-  size_t Size() const {
-    return hands[WEST].Size() + hands[NORTH].Size() + hands[EAST].Size() + hands[SOUTH].Size();
-  }
   Cards all_cards() const {
     return hands[WEST].Union(hands[NORTH]).Union(hands[EAST]).Union(hands[SOUTH]);
   }
@@ -759,7 +756,7 @@ struct Pattern {
 #endif
 
   Pattern(const Hands& hands = Hands(), Bounds bounds = Bounds())
-      : hands(hands), bounds(bounds), order(hands.Size()) {
+      : hands(hands), bounds(bounds), order(hands.all_cards().Size()) {
     STATS(hits = cuts = 0);
   }
 
@@ -1009,7 +1006,7 @@ struct Trick {
 
   // A relative hand contains relative cards.
   void ComputeRelativeHands(int depth, const Hands& hands) {
-    if (depth < 4) {
+    if (depth == 0) {
       for (int suit = 0; suit < NUM_SUITS; ++suit)
         ConvertToRelativeSuit(hands, suit, all_cards.Suit(suit));
     } else {
@@ -1503,7 +1500,7 @@ class Play {
   };
 
   void ComputeShape() const {
-    if (depth < 4) {
+    if (depth == 0) {
       trick->shape = Shape(hands);
     } else {
       trick->shape = (trick - 1)->shape;
@@ -1731,18 +1728,15 @@ class Play {
   Cards GetTrickRankWinner() const {
     CHECK(TrickEnding());
     int winning_card = WinningCard();
-    for (int d = depth - 3; d <= depth; ++d) {
-      if (plays[d].card_played == winning_card) continue;
-      if (SuitOf(winning_card) == SuitOf(plays[d].card_played)) return Cards().Add(winning_card);
-    }
-    return Cards();
+    auto played_cards = trick->all_cards.Different(hands.all_cards());
+    return played_cards.Suit(SuitOf(winning_card)).Size() > 1 ? Cards().Add(winning_card) : Cards();
   }
 
   Result CollectLastTrick() const {
     int winning_card = hands[seat_to_play].Top();
     int winning_seat = seat_to_play;
-    for (int seat = (seat_to_play + 1) % NUM_SEATS; seat != seat_to_play;
-         seat = (seat + 1) % NUM_SEATS) {
+    for (int s = 1; s < NUM_SEATS; ++s) {
+      int seat = (seat_to_play + s) % NUM_SEATS;
       int card_to_play = hands[seat].Top();
       if (WinOver(card_to_play, winning_card)) {
         winning_card = card_to_play;
@@ -1750,8 +1744,7 @@ class Play {
       }
     }
     Cards rank_winners;
-    if (hands.all_cards().Remove(winning_card).Suit(SuitOf(winning_card)))
-      rank_winners.Add(winning_card);
+    if (hands.all_cards().Suit(SuitOf(winning_card)).Size() > 1) rank_winners.Add(winning_card);
     return {ns_tricks_won + IsNs(winning_seat), rank_winners};
   }
 
