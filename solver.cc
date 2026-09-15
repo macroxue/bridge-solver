@@ -1559,11 +1559,10 @@ class Play {
       // 52 bits for my hand + 4 bits for partner's shape parity.
       return hands[seat_to_play].Value() + (hands[Partner()].ShapeParity() << TOTAL_CARDS);
     } else if (auto my_suit = hands[seat_to_play].Suit(LeadSuit())) {
-      // 26/52 bits for all cards in suit and my suit + 6 bits for winner in the trick.
+      // 13/52 bits for all cards in suit + 6 bits for winner in the trick + 2 bits for lead seat.
       auto winner = PreviousPlay().WinningCard();
-      return trick->all_cards.Suit(LeadSuit()).Value() +
-             (LeadSuit() ? (my_suit.Value() >> NUM_RANKS) : (my_suit.Value() << NUM_RANKS)) +
-             (uint64_t(winner) << TOTAL_CARDS);
+      return trick->all_cards.Suit(LeadSuit()).Value() + (uint64_t(winner) << TOTAL_CARDS) +
+             (uint64_t(plays[depth & ~3].seat_to_play) << (TOTAL_CARDS + 6));
     } else {
       // 52 bits for my hand + 6 bits for winner in the trick.
       auto winner = trump == NOTRUMP ? PreviousPlay().WinningSeat() : PreviousPlay().WinningCard();
