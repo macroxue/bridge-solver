@@ -2480,13 +2480,11 @@ int main(int argc, char* argv[]) {
     auto trump_start = [](int trump) { printf("%c", SuitName(trump)[0]); };
     auto seat_done = [&hands](int trump, int lead_seat, int ns_tricks) {
       printf(" %2d", IsNs(lead_seat) ? hands.num_tricks() - ns_tricks : ns_tricks);
-      fflush(stdout);
     };
     auto trump_done = [start_time](int trump) {
       struct rusage usage;
       getrusage(RUSAGE_SELF, &usage);
       printf(" %5.2f s %5.1f M\n", Now() - start_time, usage.ru_maxrss / 1024.0);
-      fflush(stdout);
     };
     Solve(hands, trumps, lead_seats, trump_start, seat_done, trump_done);
   }
