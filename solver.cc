@@ -201,22 +201,52 @@ int BitSize(T v) {
   return sizeof(v) * 8;
 }
 
+template <int STAGES = 6>
 uint64_t PackBits(uint64_t source, uint64_t mask) {
 #ifdef __BMI2__
   return _pext_u64(source, mask);
-#else
+#elif defined(__EMSCRIPTEN__) && !defined(__wasm_simd128__)
+  // Bit-at-a-time loop: measured faster than the branchless version below on
+  // weak/narrow cores (older phones/tablets without wasm SIMD) -- its cost
+  // scales with popcount(mask) (avg ~5.4 for suit-local masks), cheaper
+  // there than paying the branchless version's larger fixed op count when
+  // branches are cheap and there's no spare execution width to hide it.
   if (source == 0) return 0;
   uint64_t packed = 0;
   for (uint64_t bit = 1; mask; bit <<= 1, mask &= mask - 1)
     if (source & mask & -mask) packed |= bit;
   return packed;
+#else
+  // Branchless bit compress (Hacker's Delight 7-4). 4 stages covers a
+  // suit-local mask (SUIT_SPAN <= 16), 6 the full 64-bit deck.
+  source &= mask;
+  uint64_t mk = ~mask << 1;
+  for (int i = 0; i < STAGES; ++i) {
+    uint64_t mp = mk ^ (mk << 1);
+    mp ^= mp << 2;
+    mp ^= mp << 4;
+    mp ^= mp << 8;
+    if constexpr (STAGES > 4) {
+      mp ^= mp << 16;
+      mp ^= mp << 32;
+    }
+    uint64_t mv = mp & mask;
+    mask = (mask ^ mv) | (mv >> (1 << i));
+    uint64_t t = source & mv;
+    source = (source ^ t) | (t >> (1 << i));
+    mk &= ~mp;
+  }
+  return source;
 #endif
 }
 
+template <int STAGES = 6>
 uint64_t UnpackBits(uint64_t source, uint64_t mask) {
 #ifdef __BMI2__
   return _pdep_u64(source, mask);
-#else
+#elif defined(__EMSCRIPTEN__) && !defined(__wasm_simd128__)
+  // Bit-at-a-time loop -- see PackBits's comment for why this beats the
+  // branchless version on weak/narrow cores.
   if (source == 0) return 0;
   uint64_t unpacked = 0;
   for (uint64_t bit = 1; source; bit <<= 1, mask &= mask - 1)
@@ -225,6 +255,26 @@ uint64_t UnpackBits(uint64_t source, uint64_t mask) {
       source &= ~bit;
     }
   return unpacked;
+#else
+  uint64_t mv[STAGES], mask0 = mask, mk = ~mask << 1;
+  for (int i = 0; i < STAGES; ++i) {
+    uint64_t mp = mk ^ (mk << 1);
+    mp ^= mp << 2;
+    mp ^= mp << 4;
+    mp ^= mp << 8;
+    if constexpr (STAGES > 4) {
+      mp ^= mp << 16;
+      mp ^= mp << 32;
+    }
+    mv[i] = mp & mask;
+    mask = (mask ^ mv[i]) | (mv[i] >> (1 << i));
+    mk &= ~mp;
+  }
+  for (int i = STAGES - 1; i >= 0; --i) {  // undo in reverse order
+    uint64_t t = source << (1 << i);
+    source = (source & ~mv[i]) | (t & mv[i]);
+  }
+  return source & mask0;
 #endif
 }
 
@@ -316,6 +366,21 @@ class Cards {
 
   uint64_t bits;
 };
+
+// Expands suit-local relative bits back to real card positions in all_cards.
+Cards UnpackSuitBits(Cards relative_bits, Cards all_cards, int suit) {
+  int shift = suit * SUIT_SPAN;
+  auto packed = relative_bits.Suit(suit).Value() >> shift;
+#if defined(__BMI2__) || (defined(__EMSCRIPTEN__) && !defined(__wasm_simd128__))
+  // Neither pext/pdep nor the bit-at-a-time loop care about mask's absolute
+  // position, so skip the extra shift the STAGES<6 trick below needs.
+  return Cards(UnpackBits(packed, all_cards.Suit(suit).Value()));
+#else
+  // Shift the mask down too and the result back up, so UnpackBits<4> applies.
+  auto suit_mask = all_cards.Suit(suit).Value() >> shift;
+  return Cards(UnpackBits<4>(packed, suit_mask) << shift);
+#endif
+}
 
 class Hands {
  public:
@@ -935,8 +1000,7 @@ struct Pattern {
     Cards rank_winners;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       if (!relative_rank_winners.Suit(suit)) continue;
-      auto packed = relative_rank_winners.Suit(suit).Value() >> (suit * SUIT_SPAN);
-      rank_winners.Add(Cards(UnpackBits(packed, all_cards.Suit(suit).Value())));
+      rank_winners.Add(UnpackSuitBits(relative_rank_winners, all_cards, suit));
     }
     return rank_winners;
   }
@@ -1103,8 +1167,7 @@ struct Trick {
         break;
       }
       relative_rank_winners.Add(Cards(MaskOf(suit)).Slice(0, bottom_rank_winner + 1));
-      auto packed = relative_rank_winners.Suit(suit).Value() >> (suit * SUIT_SPAN);
-      extended_rank_winners.Add(Cards(UnpackBits(packed, all_cards.Suit(suit).Value())));
+      extended_rank_winners.Add(UnpackSuitBits(relative_rank_winners, all_cards, suit));
     }
 
     Hands pattern_hands;
@@ -1115,11 +1178,25 @@ struct Trick {
 
  private:
   void ConvertToRelativeSuit(const Hands& hands, int suit, Cards all_suit_cards) {
+#if defined(__BMI2__) || (defined(__EMSCRIPTEN__) && !defined(__wasm_simd128__))
+    // Neither pext nor the bit-at-a-time loop care about the operands'
+    // absolute position, so skip the extra shift the STAGES<6 trick below
+    // needs.
     for (int seat = 0; seat < NUM_SEATS; ++seat) {
       auto packed = PackBits(hands[seat].Suit(suit).Value(), all_suit_cards.Value());
       relative_hands[seat].ClearSuit(suit);
       relative_hands[seat].Add(Cards(packed << (suit * SUIT_SPAN)));
     }
+#else
+    // Pre-shift into the suit's own bit range so PackBits<4> applies.
+    int shift = suit * SUIT_SPAN;
+    auto suit_mask = all_suit_cards.Value() >> shift;
+    for (int seat = 0; seat < NUM_SEATS; ++seat) {
+      auto packed = PackBits<4>(hands[seat].Suit(suit).Value() >> shift, suit_mask);
+      relative_hands[seat].ClearSuit(suit);
+      relative_hands[seat].Add(Cards(packed << shift));
+    }
+#endif
   }
 
   int RelativeRank(int card, int suit) const {
