@@ -2,6 +2,8 @@
 #include <ctype.h>
 #if defined(__BMI2__) || defined(__SSE4_1__)
 #include <immintrin.h>
+#elif defined(__ARM_NEON)
+#include <arm_neon.h>
 #endif
 #include <inttypes.h>
 #include <limits.h>
@@ -384,6 +386,13 @@ class Hands {
     __m128i b1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&other.hands[EAST]));
     __m128i missing = _mm_or_si128(_mm_andnot_si128(a0, b0), _mm_andnot_si128(a1, b1));
     return _mm_testz_si128(missing, missing);
+#elif defined(__ARM_NEON)
+    uint64x2_t a0 = vld1q_u64(reinterpret_cast<const uint64_t*>(&hands[WEST]));
+    uint64x2_t b0 = vld1q_u64(reinterpret_cast<const uint64_t*>(&other.hands[WEST]));
+    uint64x2_t a1 = vld1q_u64(reinterpret_cast<const uint64_t*>(&hands[EAST]));
+    uint64x2_t b1 = vld1q_u64(reinterpret_cast<const uint64_t*>(&other.hands[EAST]));
+    uint64x2_t missing = vorrq_u64(vbicq_u64(b0, a0), vbicq_u64(b1, a1));
+    return (vgetq_lane_u64(missing, 0) | vgetq_lane_u64(missing, 1)) == 0;
 #else
     return hands[WEST].Include(other.hands[WEST]) & hands[NORTH].Include(other.hands[NORTH]) &
            hands[EAST].Include(other.hands[EAST]) & hands[SOUTH].Include(other.hands[SOUTH]);
@@ -398,6 +407,13 @@ class Hands {
     __m128i b1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&other.hands[EAST]));
     __m128i diff = _mm_or_si128(_mm_xor_si128(a0, b0), _mm_xor_si128(a1, b1));
     return _mm_testz_si128(diff, diff);
+#elif defined(__ARM_NEON)
+    uint64x2_t a0 = vld1q_u64(reinterpret_cast<const uint64_t*>(&hands[WEST]));
+    uint64x2_t b0 = vld1q_u64(reinterpret_cast<const uint64_t*>(&other.hands[WEST]));
+    uint64x2_t a1 = vld1q_u64(reinterpret_cast<const uint64_t*>(&hands[EAST]));
+    uint64x2_t b1 = vld1q_u64(reinterpret_cast<const uint64_t*>(&other.hands[EAST]));
+    uint64x2_t diff = vorrq_u64(veorq_u64(a0, b0), veorq_u64(a1, b1));
+    return (vgetq_lane_u64(diff, 0) | vgetq_lane_u64(diff, 1)) == 0;
 #else
     return (hands[WEST] == other.hands[WEST]) & (hands[NORTH] == other.hands[NORTH]) &
            (hands[EAST] == other.hands[EAST]) & (hands[SOUTH] == other.hands[SOUTH]);
