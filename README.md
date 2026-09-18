@@ -125,6 +125,16 @@ The directory can be `deals/fixed` (the default), `deals/old`, `deals/new`, `dea
 ./parallel_run_tests.sh [DIRECTORY] [THREADS]
 ```
 
+Solving a single deal with one thread per strain can be done with:
+```
+echo N S H D C | xargs -n1 -P5 ./solver -if deals/freak/deal.0 -i -m0 -t
+D 11 11  2  2  0.08 s   9.2 M
+S  8  8  5  5  0.44 s  35.0 M
+H  8  8  5  5  1.10 s  62.7 M
+C  6  6  7  6  1.92 s  90.5 M
+N  7  7  6  5  5.70 s 242.9 M
+```
+
 Benchmarks below run on [AMD Ryzen 7 5800H](https://www.amd.com/en/products/apu/amd-ryzen-7-5800h)
 with 8 physical cores at 3.2GHz base clock and 4.4GHz boost clock. To get stable performance
 numbers, all irrelevant applications are closed and `taskset` is used to bind the process
@@ -132,13 +142,13 @@ to a single core for single-core runs.
 
 ### Single-core
 
-The solver fully analyzed 1000 random deals (under `deals/1k`) in just 96.5 seconds,
+The solver fully analyzed 1000 random deals (under `deals/1k`) in just 93.8 seconds,
 averaging more than ten deals per second. Below is a more detailed breakdown.
-The longest one (`deal.310`) took 1.00 seconds and consumed 40.7 MB of memory.
+The longest one (`deal.310`) took 0.98 seconds and consumed 40.8 MB of memory.
 
 | Time  | <= 0.1s | <= 0.2s | <= 0.5s |  <= 1s  |
 |-------|---------|---------|---------|---------|
-| Count |    710  |    905  |    992  |   1000  |
+| Count |    719  |    912  |    992  |   1000  |
 
 One of the most difficult deals is this symmetric one, with four void suits and
 nobody holding consecutive ranks in any suit. It took the solver less than four seconds.
@@ -146,24 +156,24 @@ nobody holding consecutive ranks in any suit. It took the solver less than four 
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
-N  5  5  5  5  1.94 s 132.6 M
-S  4  4  8  7  2.28 s 133.3 M
-H  8  7  4  4  2.73 s 133.9 M
-D  4  4  7  8  3.12 s 133.9 M
-C  7  8  4  4  3.49 s 133.9 M
+N  5  5  5  5  1.88 s 132.5 M
+S  4  4  8  7  2.21 s 133.3 M
+H  8  7  4  4  2.65 s 133.9 M
+D  4  4  7  8  3.02 s 133.9 M
+C  7  8  4  4  3.39 s 133.9 M
 ```
 
 An even more freakish deal with each player holding only two suits made the solver
-work hard for more than 13 seconds!
+work hard for more than 12 seconds!
 ```
                           ♠ KJ9753 ♥ - ♦ AQT8642 ♣ -
   ♠ AQT8642 ♥ KJ9753 ♦ - ♣ -                       ♠ - ♥ - ♦ KJ9753 ♣ AQT8642
                           ♠ - ♥ AQT8642 ♦ - ♣ KJ9753
-N  7  7  7  7  7.92 s 109.9 M
-S  6  6  7  7  8.92 s 110.2 M
-H  7  7  6  6 10.31 s 110.7 M
-D  7  7  6  6 11.99 s 110.9 M
-C  6  6  7  7 13.25 s 111.2 M
+N  7  7  7  7  7.48 s 109.9 M
+S  6  6  7  7  8.43 s 110.2 M
+H  7  7  6  6  9.74 s 110.7 M
+D  7  7  6  6 11.33 s 111.0 M
+C  6  6  7  7 12.54 s 111.3 M
 ```
 
 A new champion has emerged when North and South switch hands in the symmetric
@@ -174,11 +184,11 @@ for NT contracts.
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
-N  7  7  7  7 72.20 s 1688.1 M
-S  4  4  7  7 72.61 s 1688.4 M
-H  7  7  4  4 72.93 s 1688.4 M
-D  4  4  7  7 73.24 s 1688.6 M
-C  7  7  4  4 73.62 s 1688.6 M
+N  7  7  7  7 70.48 s 1688.0 M
+S  4  4  7  7 70.87 s 1688.3 M
+H  7  7  4  4 71.18 s 1688.3 M
+D  4  4  7  7 71.47 s 1688.6 M
+C  7  7  4  4 71.84 s 1688.6 M
 ```
 
 ### Multi-core
@@ -188,8 +198,8 @@ The solver is single-threaded, so multiple instances of the solver are running i
 
 | # Cores   |    1 |    2 |    4 |    8 |   16 |
 |-----------|------|------|------|------|------|
-| Time (s)  | 96.5 | 55.2 | 30.3 | 18.7 | 15.2 |
-| Speed-up  |  1.0 |  1.7 |  3.2 |  5.2 |  6.3 |
+| Time (s)  | 93.8 | 53.4 | 29.3 | 18.2 | 14.8 |
+| Speed-up  |  1.0 |  1.8 |  3.2 |  5.2 |  6.3 |
 
 The scaling is decent up to 8 cores. 16 cores give small additional speed-up as the cores
 are SMT threads rather than physical cores.
