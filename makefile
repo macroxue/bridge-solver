@@ -4,18 +4,44 @@ sanitizer: solver.m solver.a
 web:
 	$(MAKE) -C web
 
-include opts.mk
+CXX ?= g++
 
+# -march=native is unsafe on AArch64 (silently ignored by GCC, hard errors
+# or slower codegen on some Clang versions) and unneeded -- NEON is
+# baseline-mandatory there regardless of arch flags.
+IS_AARCH64 := $(shell echo | $(CXX) -E -dM -x c++ - 2>/dev/null | grep -q __aarch64__ && echo 1)
+ARCH_OPTS := $(if $(filter 1,$(IS_AARCH64)),,-march=native)
+OPTS=-std=c++17 -Wall -Wno-missing-profile $(ARCH_OPTS)
+
+# CXX may be Clang directly or Apple Clang aliased as g++ on stock macOS.
+# Its PGO format (.profraw + llvm-profdata) differs from GCC's (.gcda), and
+# GCC's flat-file recipe measures ~0.8% faster than directory-form, so each
+# compiler keeps its own recipe below.
+IS_CLANG := $(shell echo | $(CXX) -E -dM -x c++ - 2>/dev/null | grep -q __clang__ && echo 1)
+PGO_DIR = pgo-data
+
+ifeq ($(IS_CLANG),1)
+solver.p: solver.cc
+	rm -rf $(PGO_DIR)
+	mkdir $(PGO_DIR)
+	$(CXX) $(OPTS) -O3 -fprofile-generate=$(PGO_DIR) -o $@ $^
+	./$@ -if deals/hard/deal.8 | tail
+	llvm-profdata merge -o $(PGO_DIR)/default.profdata $(PGO_DIR)/*.profraw
+solver: solver.cc
+	$(CXX) $(OPTS) -O3 -fprofile-use=$(PGO_DIR) -o $@ $^
+	./$@ -if deals/hard/deal.8 | tail
+else
 solver.p: solver.cc
 	rm -f solver.gcda
-	g++ $(OPTS) -O3 -fprofile-generate -o $@ $^
+	$(CXX) $(OPTS) -O3 -fprofile-generate -o $@ $^
 	./$@ -if deals/hard/deal.8 | tail
 	mv solver.p-solver.gcda solver.gcda
 solver: solver.cc
-	g++ $(OPTS) -O3 -fprofile-use -o $@ $^
+	$(CXX) $(OPTS) -O3 -fprofile-use -o $@ $^
 	./$@ -if deals/hard/deal.8 | tail
+endif
 solver.g: solver.cc
-	g++ $(OPTS) -D_DEBUG -Og -g -o $@ $^
+	$(CXX) $(OPTS) -D_DEBUG -Og -g -o $@ $^
 solver.m: solver.cc
 	clang++ -std=c++17 -O3 -fsanitize=memory -o $@ $^
 	./$@ -if deals/hard/deal.1
@@ -23,5 +49,5 @@ solver.a: solver.cc
 	clang++ -std=c++17 -O3 -fsanitize=address -o $@ $^
 	./$@ -if deals/hard/deal.1
 clean:
-	rm -f solver.p solver solver.g solver.m solver.a
+	rm -rf solver.p solver solver.g solver.m solver.a solver.gcda $(PGO_DIR)
 	$(MAKE) -C web clean

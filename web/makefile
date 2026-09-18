@@ -1,8 +1,6 @@
 .PHONY: all clean
 all: solver.js solver.wasm solver-no-simd.wasm deals.js
 
-include ../opts.mk
-
 # emcc's own llvm-profdata, found next to it on PATH.
 EMSDK_BIN=$(dir $(shell which emcc))../bin
 # emsdk's own Node -- the system one here is too old to run wasm builds.
@@ -34,7 +32,7 @@ solver-no-simd.wasm: ../solver.cc web.profdata
 		--bind -s ALLOW_MEMORY_GROWTH
 	rm solver-no-simd.js
 web-test: web-test.cc ../solver.cc
-	g++ $(OPTS) -O3 -o $@ web-test.cc
+	g++ -std=c++17 -Wall -Wno-missing-profile -march=native -O3 -o $@ web-test.cc
 	./$@
 # Embeds deals/hard/ and deals/freak/ text directly into the app so it
 # doesn't depend on symlinks or runtime fetches (GitHub Pages deployments
