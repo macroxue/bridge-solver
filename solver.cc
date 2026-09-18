@@ -2500,7 +2500,13 @@ int main(int argc, char* argv[]) {
     auto trump_done = [start_time](int trump) {
       struct rusage usage;
       getrusage(RUSAGE_SELF, &usage);
-      printf(" %5.2f s %5.1f M\n", Now() - start_time, usage.ru_maxrss / 1024.0);
+      // ru_maxrss is KB on Linux but bytes on macOS/BSD.
+#ifdef __APPLE__
+      double peak_mb = usage.ru_maxrss / (1024.0 * 1024.0);
+#else
+      double peak_mb = usage.ru_maxrss / 1024.0;
+#endif
+      printf(" %5.2f s %5.1f M\n", Now() - start_time, peak_mb);
     };
     Solve(hands, trumps, lead_seats, trump_start, seat_done, trump_done);
   }
