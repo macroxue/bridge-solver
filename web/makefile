@@ -31,8 +31,11 @@ solver-no-simd.wasm: ../solver.cc web.profdata
 		-o solver-no-simd.js $< \
 		--bind -s ALLOW_MEMORY_GROWTH
 	rm solver-no-simd.js
+# -march=native is unsafe on AArch64 -- see ../makefile's IS_AARCH64 comment.
+IS_AARCH64 := $(shell echo | g++ -E -dM -x c++ - 2>/dev/null | grep -q __aarch64__ && echo 1)
+ARCH_OPTS := $(if $(filter 1,$(IS_AARCH64)),,-march=native)
 web-test: web-test.cc ../solver.cc
-	g++ -std=c++17 -Wall -Wno-missing-profile -march=native -O3 -o $@ web-test.cc
+	g++ -std=c++17 -Wall -Wno-missing-profile $(ARCH_OPTS) -O3 -o $@ web-test.cc
 	./$@
 # Embeds deals/hard/ and deals/freak/ text directly into the app so it
 # doesn't depend on symlinks or runtime fetches (GitHub Pages deployments

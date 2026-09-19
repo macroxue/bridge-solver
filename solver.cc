@@ -278,6 +278,14 @@ uint64_t UnpackBits(uint64_t source, uint64_t mask) {
 #endif
 }
 
+// True where PackBits/UnpackBits don't care about a mask's absolute
+// position (pext/pdep, and the wasm bit-loop fallback) -- so callers can
+// skip the shift-to-suit-local-range dance the branchless STAGES<6 path
+// needs.
+#if defined(__BMI2__) || (defined(__EMSCRIPTEN__) && !defined(__wasm_simd128__))
+#define POSITION_INDEPENDENT_BITS 1
+#endif
+
 class Cards {
  public:
   Cards() : bits(0) {}
@@ -371,9 +379,7 @@ class Cards {
 Cards UnpackSuitBits(Cards relative_bits, Cards all_cards, int suit) {
   int shift = suit * SUIT_SPAN;
   auto packed = relative_bits.Suit(suit).Value() >> shift;
-#if defined(__BMI2__) || (defined(__EMSCRIPTEN__) && !defined(__wasm_simd128__))
-  // Neither pext/pdep nor the bit-at-a-time loop care about mask's absolute
-  // position, so skip the extra shift the STAGES<6 trick below needs.
+#ifdef POSITION_INDEPENDENT_BITS
   return Cards(UnpackBits(packed, all_cards.Suit(suit).Value()));
 #else
   // Shift the mask down too and the result back up, so UnpackBits<4> applies.
@@ -1178,10 +1184,7 @@ struct Trick {
 
  private:
   void ConvertToRelativeSuit(const Hands& hands, int suit, Cards all_suit_cards) {
-#if defined(__BMI2__) || (defined(__EMSCRIPTEN__) && !defined(__wasm_simd128__))
-    // Neither pext nor the bit-at-a-time loop care about the operands'
-    // absolute position, so skip the extra shift the STAGES<6 trick below
-    // needs.
+#ifdef POSITION_INDEPENDENT_BITS
     for (int seat = 0; seat < NUM_SEATS; ++seat) {
       auto packed = PackBits(hands[seat].Suit(suit).Value(), all_suit_cards.Value());
       relative_hands[seat].ClearSuit(suit);
@@ -2577,7 +2580,8 @@ int main(int argc, char* argv[]) {
     auto trump_done = [start_time](int trump) {
       struct rusage usage;
       getrusage(RUSAGE_SELF, &usage);
-      // ru_maxrss is KB on Linux but bytes on macOS/BSD.
+      // ru_maxrss is KB on Linux, but bytes on macOS specifically -- other
+      // BSDs (FreeBSD/OpenBSD/NetBSD) report KB like Linux.
 #ifdef __APPLE__
       double peak_mb = usage.ru_maxrss / (1024.0 * 1024.0);
 #else
