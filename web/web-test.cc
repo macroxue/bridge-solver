@@ -1,7 +1,6 @@
-#define _WEB
 #define _TEST
 
-#include "../solver.cc"
+#include "web-bindings.cc"
 #include <cassert>
 #include <regex>
 

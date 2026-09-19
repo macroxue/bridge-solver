@@ -1,10 +1,9 @@
 // Drives the real _WEB code paths (solve/solve_plays) against a hard deal
 // to produce PGO profile data (see the web.profdata makefile target).
 // Has its own main() so it can run directly under Node.
-#define _WEB
 #define _TEST
 
-#include "../solver.cc"
+#include "web-bindings.cc"
 
 int main() {
   // deals/hard/deal.8, the same deal used to train the native PGO build.
