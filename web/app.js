@@ -84,11 +84,13 @@ for (const { id, dir, label } of DEAL_DIRS) {
 const worker = new Worker('worker.js');
 const shuffleWorker = new Worker('shuffle-worker.js');
 
-function resetBusyState() {
-  solveBtn.disabled = false;
-  shuffle10Btn.disabled = false;
-  shuffle100Btn.disabled = false;
-  setEntryDisabled(false);
+// Solve and Shuffle share one busy/idle state: entering hands and running
+// either one are mutually exclusive, so this covers both directions.
+function setBusyState(busy) {
+  solveBtn.disabled = busy;
+  shuffle10Btn.disabled = busy;
+  shuffle100Btn.disabled = busy;
+  setEntryDisabled(busy);
 }
 
 // Both workers load their own wasm module independently; only report ready
@@ -109,12 +111,12 @@ worker.onmessage = (event) => {
       break;
     case 'abort':
       statusEl.textContent = 'Solver crashed: ' + rest[0];
-      resetBusyState();
+      setBusyState(false);
       break;
     case 'error': {
       const [errType, message] = rest;
       statusEl.textContent = 'Solver error: ' + message;
-      if (errType === 'solve' || errType === 'solve_plays') resetBusyState();
+      if (errType === 'solve' || errType === 'solve_plays') setBusyState(false);
       break;
     }
     case 'solve': {
@@ -126,7 +128,7 @@ worker.onmessage = (event) => {
       updateTableHintText();
       tableHintEl.style.display = 'block';
       statusEl.textContent = `Solved in ${elapsedMs.toFixed(0)} ms.`;
-      resetBusyState();
+      setBusyState(false);
       break;
     }
     case 'solve_plays': {
@@ -148,12 +150,12 @@ shuffleWorker.onmessage = (event) => {
       break;
     case 'abort':
       statusEl.textContent = 'Solver crashed: ' + rest[0];
-      resetBusyState();
+      setBusyState(false);
       break;
     case 'error': {
       const [, message] = rest;
       statusEl.textContent = 'Solver error: ' + message;
-      resetBusyState();
+      setBusyState(false);
       break;
     }
     case 'shuffle_progress': {
@@ -168,7 +170,7 @@ shuffleWorker.onmessage = (event) => {
       const { rounds, elapsedMs } = shuffleAccumulator;
       const elapsedS = (elapsedMs / 1000).toFixed(1);
       statusEl.textContent = `Shuffled ${rounds} times each way in ${elapsedS} s.`;
-      resetBusyState();
+      setBusyState(false);
       break;
     }
   }
@@ -272,6 +274,11 @@ function renderTable(result) {
   tableEl.innerHTML = html;
 }
 
+// Shared by this table's fold toggle below and shuffleFolded's further down
+// -- the two use different render strategies (see each one's own comment
+// for why), but the fold arrow itself is the same idiom either way.
+const FOLD_ARROW = (folded) => (folded ? '▸' : '▾');
+
 // tableHintEl's text doubles as the DD table's clickable title; clicking it
 // folds/unfolds tableEl. Unlike the shuffle tables, this table's markup
 // doesn't depend on fold state, so a plain display toggle is enough --
@@ -280,7 +287,7 @@ const DD_HINT_TEXT = 'Double-dummy table: Click a cell to play out that contract
 let ddFolded = false;
 
 function updateTableHintText() {
-  tableHintEl.textContent = (ddFolded ? '▸ ' : '▾ ') + DD_HINT_TEXT;
+  tableHintEl.textContent = FOLD_ARROW(ddFolded) + ' ' + DD_HINT_TEXT;
 }
 
 tableHintEl.addEventListener('click', () => {
@@ -424,10 +431,7 @@ solveBtn.addEventListener('click', () => {
     return;
   }
 
-  solveBtn.disabled = true;
-  shuffle10Btn.disabled = true;
-  shuffle100Btn.disabled = true;
-  setEntryDisabled(true);
+  setBusyState(true);
   statusEl.textContent = 'Solving…';
   tableEl.innerHTML = '';
   tableHintEl.style.display = 'none';
@@ -459,7 +463,7 @@ function renderShuffleTable(data) {
 
   function section(dir, title, result, leftKey, rightKey) {
     const folded = shuffleFolded[dir];
-    const arrow = folded ? '▸' : '▾';
+    const arrow = FOLD_ARROW(folded);
     let html = `<h3 data-dir="${dir}">${arrow} ${title}</h3>`;
     if (folded) return html;
 
@@ -518,10 +522,7 @@ function runShuffleBatch(rounds) {
   }
 
   exitPlay();
-  solveBtn.disabled = true;
-  shuffle10Btn.disabled = true;
-  shuffle100Btn.disabled = true;
-  setEntryDisabled(true);
+  setBusyState(true);
   statusEl.textContent = `Shuffling… 0/${rounds * 2}`;
   shuffleWorker.postMessage(['shuffle', resolvedHands, rounds, SHUFFLE_MIN_TRICKS]);
 }
