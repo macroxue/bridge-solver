@@ -225,6 +225,8 @@
   button:disabled, select:disabled { cursor: default; opacity: 0.6; }
   #shuffleTable table { margin-bottom: 1rem; }
   #shuffleTable h3 { font-weight: normal; margin: 0.75rem 0 0.25rem; }
+  /* These double as fold/unfold toggles for the table below them. */
+  #tableHint, #shuffleTable h3 { cursor: pointer; user-select: none; }
   /* This table has 9 columns vs. the main DD table's 5 -- same font size,
      but the default 0.8rem horizontal padding alone would be ~230px
      across all columns, more than a phone screen has to spare. */

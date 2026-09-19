@@ -20,6 +20,7 @@ const shuffle10Btn = document.getElementById('shuffle10');
 const shuffle100Btn = document.getElementById('shuffle100');
 const statusEl = document.getElementById('status');
 const tableEl = document.getElementById('table');
+const tableHintEl = document.getElementById('tableHint');
 const shuffleTableEl = document.getElementById('shuffleTable');
 
 // Matches shuffle.py's CLI default.
@@ -34,6 +35,8 @@ let shuffleHandsKey = null;
 function clearShuffleResults() {
   shuffleAccumulator = null;
   shuffleHandsKey = null;
+  shuffleFolded.ew = false;
+  shuffleFolded.ns = false;
   shuffleTableEl.innerHTML = '';
 }
 
@@ -102,6 +105,9 @@ worker.onmessage = (event) => {
       const [result, elapsedMs] = rest;
       exitPlay();
       renderTable(result);
+      ddFolded = false;
+      tableEl.style.display = '';
+      updateTableHintText();
       tableHintEl.style.display = 'block';
       statusEl.textContent = `Solved in ${elapsedMs.toFixed(0)} ms.`;
       solveBtn.disabled = false;
@@ -233,6 +239,23 @@ function renderTable(result) {
   tableEl.innerHTML = html;
 }
 
+// tableHintEl's text doubles as the DD table's clickable title; clicking it
+// folds/unfolds tableEl. Unlike the shuffle tables, this table's markup
+// doesn't depend on fold state, so a plain display toggle is enough --
+// no need to re-render.
+const DD_HINT_TEXT = 'Double-dummy table: Click a cell to play out that contract.';
+let ddFolded = false;
+
+function updateTableHintText() {
+  tableHintEl.textContent = (ddFolded ? '▸ ' : '▾ ') + DD_HINT_TEXT;
+}
+
+tableHintEl.addEventListener('click', () => {
+  ddFolded = !ddFolded;
+  tableEl.style.display = ddFolded ? 'none' : '';
+  updateTableHintText();
+});
+
 tableEl.addEventListener('click', (event) => {
   const cell = event.target.closest('td.pick');
   if (!cell) return;
@@ -276,6 +299,8 @@ dealBtn.addEventListener('click', () => {
   const hands = randomDeal();
   for (const seat of SEATS) setHandValue(seat, hands[seat]);
   tableEl.innerHTML = '';
+  tableEl.style.display = '';
+  ddFolded = false;
   tableHintEl.style.display = 'none';
   clearShuffleResults();
   statusEl.textContent = 'Dealt a random hand.';
@@ -348,6 +373,8 @@ for (const { id, dir, label } of DEAL_DIRS) {
     resetDealSelects(id);
     for (const seat of SEATS) setHandValue(seat, hands[seat]);
     tableEl.innerHTML = '';
+    tableEl.style.display = '';
+    ddFolded = false;
     tableHintEl.style.display = 'none';
     clearShuffleResults();
     statusEl.textContent = `Loaded ${label.toLowerCase()} ${num}.`;
@@ -374,9 +401,16 @@ solveBtn.addEventListener('click', () => {
   worker.postMessage(['solve', hands]);
 });
 
+// Which shuffle sections are folded, keyed by the same 'ew'/'ns' dir used
+// as each <h3>'s data-dir -- persists across re-renders (accumulating a
+// batch, or toggling a fold) since renderShuffleTable() always rebuilds
+// from scratch and reads this each time.
+const shuffleFolded = { ew: false, ns: false };
+
 // Renders the two shuffle.py-style tables: shuffling E/W (with N/S fixed)
 // shows how South/North's actual hands fare against random opponents, and
-// vice versa for shuffling N/S.
+// vice versa for shuffling N/S. Each title is clickable to fold/unfold its
+// own table (see the click listener below).
 function renderShuffleTable(data) {
   const { rounds, minTricks, ew, ns } = data;
   const strains = ['N', 'S', 'H', 'D', 'C'];
@@ -390,8 +424,13 @@ function renderShuffleTable(data) {
   // phone widths without horizontal scrolling.
   const pair = (left, right) => (left === right ? `${left}` : `${left}/${right}`);
 
-  function section(title, result, leftKey, rightKey) {
-    let html = `<h3>${title}</h3><table><tr><th></th><th>${leftKey}/${rightKey} avg</th>`;
+  function section(dir, title, result, leftKey, rightKey) {
+    const folded = shuffleFolded[dir];
+    const arrow = folded ? '▸' : '▾';
+    let html = `<h3 data-dir="${dir}">${arrow} ${title}</h3>`;
+    if (folded) return html;
+
+    html += `<table><tr><th></th><th>${leftKey}/${rightKey} avg</th>`;
     for (const t of tricksList) html += `<th>${t}+</th>`;
     html += '</tr>';
     for (let row = 0; row < 5; ++row) {
@@ -410,9 +449,18 @@ function renderShuffleTable(data) {
   }
 
   shuffleTableEl.innerHTML =
-    section('Single-dummy table: Shuffling East/West.', ew, 'S', 'N') +
-    section('Single-dummy table: Shuffling North/South.', ns, 'W', 'E');
+    section('ew', 'Single-dummy table: Shuffling East/West.', ew, 'S', 'N') +
+    section('ns', 'Single-dummy table: Shuffling North/South.', ns, 'W', 'E');
 }
+
+// Delegated (not attached per-<h3>) since renderShuffleTable() replaces
+// those elements outright on every render.
+shuffleTableEl.addEventListener('click', (event) => {
+  const h3 = event.target.closest('h3');
+  if (!h3 || !shuffleAccumulator) return;
+  shuffleFolded[h3.dataset.dir] = !shuffleFolded[h3.dataset.dir];
+  renderShuffleTable(shuffleAccumulator);
+});
 
 function runShuffleBatch(rounds) {
   const hands = {};
@@ -462,7 +510,6 @@ const playBarEl = document.getElementById('playBar');
 const playStatusEl = document.getElementById('playStatus');
 const entryHintEl = document.getElementById('entryHint');
 const playHintEl = document.getElementById('playHint');
-const tableHintEl = document.getElementById('tableHint');
 const controlsEl = document.getElementById('controls');
 const undoBtn = document.getElementById('undo');
 const undoTrickBtn = document.getElementById('undoTrick');
