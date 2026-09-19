@@ -42,7 +42,13 @@ function clearShuffleResults() {
 
 function mergeShuffleData(acc, batch) {
   if (!acc) return batch;
-  const merged = { rounds: acc.rounds + batch.rounds, minTricks: batch.minTricks, ew: {}, ns: {} };
+  const merged = {
+    rounds: acc.rounds + batch.rounds,
+    minTricks: batch.minTricks,
+    elapsedMs: acc.elapsedMs + batch.elapsedMs,
+    ew: {},
+    ns: {},
+  };
   for (const key of ['ew', 'ns']) {
     const sums = {};
     for (const d of ['S', 'N', 'W', 'E']) sums[d] = acc[key].sums[d].map((v, i) => v + batch[key].sums[d][i]);
@@ -72,33 +78,43 @@ for (const { id, dir, label } of DEAL_DIRS) {
   }
 }
 
+// Solve/solve_plays run in `worker`; Shuffle runs in its own `shuffleWorker`
+// (its own wasm instance/memory) so its discard_suit_bottom fast-solve
+// caches can never be reused by solve_plays()'s exact-precision cache.
 const worker = new Worker('worker.js');
+const shuffleWorker = new Worker('shuffle-worker.js');
+
+function resetBusyState() {
+  solveBtn.disabled = false;
+  shuffle10Btn.disabled = false;
+  shuffle100Btn.disabled = false;
+  setEntryDisabled(false);
+}
+
+// Both workers load their own wasm module independently; only report ready
+// once both have, since either button set needs its own worker up.
+let workerReady = false;
+let shuffleWorkerReady = false;
+function maybeReportReady() {
+  if (workerReady && shuffleWorkerReady) statusEl.textContent = 'Ready.';
+}
 
 worker.onmessage = (event) => {
   const [type, ...rest] = event.data;
   switch (type) {
     case 'ready':
       solveBtn.disabled = false;
-      shuffle10Btn.disabled = false;
-      shuffle100Btn.disabled = false;
-      statusEl.textContent = 'Ready.';
+      workerReady = true;
+      maybeReportReady();
       break;
     case 'abort':
       statusEl.textContent = 'Solver crashed: ' + rest[0];
-      solveBtn.disabled = false;
-      shuffle10Btn.disabled = false;
-      shuffle100Btn.disabled = false;
-      setEntryDisabled(false);
+      resetBusyState();
       break;
     case 'error': {
       const [errType, message] = rest;
       statusEl.textContent = 'Solver error: ' + message;
-      if (errType === 'solve' || errType === 'shuffle') {
-        solveBtn.disabled = false;
-        shuffle10Btn.disabled = false;
-        shuffle100Btn.disabled = false;
-        setEntryDisabled(false);
-      }
+      if (errType === 'solve' || errType === 'solve_plays') resetBusyState();
       break;
     }
     case 'solve': {
@@ -110,15 +126,34 @@ worker.onmessage = (event) => {
       updateTableHintText();
       tableHintEl.style.display = 'block';
       statusEl.textContent = `Solved in ${elapsedMs.toFixed(0)} ms.`;
-      solveBtn.disabled = false;
-      shuffle10Btn.disabled = false;
-      shuffle100Btn.disabled = false;
-      setEntryDisabled(false);
+      resetBusyState();
       break;
     }
     case 'solve_plays': {
       const [result, , requestId] = rest;
       onSolvePlays(result, requestId);
+      break;
+    }
+  }
+};
+
+shuffleWorker.onmessage = (event) => {
+  const [type, ...rest] = event.data;
+  switch (type) {
+    case 'ready':
+      shuffle10Btn.disabled = false;
+      shuffle100Btn.disabled = false;
+      shuffleWorkerReady = true;
+      maybeReportReady();
+      break;
+    case 'abort':
+      statusEl.textContent = 'Solver crashed: ' + rest[0];
+      resetBusyState();
+      break;
+    case 'error': {
+      const [, message] = rest;
+      statusEl.textContent = 'Solver error: ' + message;
+      resetBusyState();
       break;
     }
     case 'shuffle_progress': {
@@ -130,11 +165,10 @@ worker.onmessage = (event) => {
       const [data] = rest;
       shuffleAccumulator = mergeShuffleData(shuffleAccumulator, data);
       renderShuffleTable(shuffleAccumulator);
-      statusEl.textContent = `Shuffled ${shuffleAccumulator.rounds} times each way.`;
-      solveBtn.disabled = false;
-      shuffle10Btn.disabled = false;
-      shuffle100Btn.disabled = false;
-      setEntryDisabled(false);
+      const { rounds, elapsedMs } = shuffleAccumulator;
+      const elapsedS = (elapsedMs / 1000).toFixed(1);
+      statusEl.textContent = `Shuffled ${rounds} times each way in ${elapsedS} s.`;
+      resetBusyState();
       break;
     }
   }
@@ -471,8 +505,9 @@ function runShuffleBatch(rounds) {
     statusEl.textContent = error;
     return;
   }
-  // The worker's card-shuffling logic assumes single-char ranks (no "10",
-  // no "X" wildcards); resolveWildcards() normalizes both unconditionally.
+  // solve()/shuffle_and_solve()'s hand parsing assumes single-char ranks
+  // (no "10", no "X" wildcards); resolveWildcards() normalizes both
+  // unconditionally.
   const resolvedHands = resolveWildcards(hands);
 
   // Results accumulate across presses, but only for the same hands -- reset
@@ -489,7 +524,7 @@ function runShuffleBatch(rounds) {
   shuffle100Btn.disabled = true;
   setEntryDisabled(true);
   statusEl.textContent = `Shuffling… 0/${rounds * 2}`;
-  worker.postMessage(['shuffle', resolvedHands, rounds, SHUFFLE_MIN_TRICKS]);
+  shuffleWorker.postMessage(['shuffle', resolvedHands, rounds, SHUFFLE_MIN_TRICKS]);
 }
 
 shuffle10Btn.addEventListener('click', () => runShuffleBatch(10));

@@ -1,8 +1,8 @@
 // The web demo's Emscripten-exported API: the C++ solver.cc engine plus
 // this file's WASM/JS-facing glue (WebPlay, CollectHands, solve,
-// solve_plays, and the EMSCRIPTEN_BINDINGS below). Kept separate from
-// solver.cc for separation of concerns; this file, not solver.cc, is what
-// the web build actually compiles.
+// shuffle_and_solve, solve_plays, and the EMSCRIPTEN_BINDINGS below). Kept
+// separate from solver.cc for separation of concerns; this file, not
+// solver.cc, is what the web build actually compiles.
 #define _WEB
 #include "../solver.cc"
 
@@ -83,14 +83,10 @@ Hands CollectHands(const char* west, const char* north, const char* east, const 
   return hands;
 }
 
-std::string solve(std::string west, std::string north, std::string east, std::string south) {
-  auto hands = CollectHands(west.c_str(), north.c_str(), east.c_str(), south.c_str());
-
-  // solve_plays() below leaves these populated for a different trump/deal;
-  // clear them so Solve() doesn't get stale hits.
-  common_bounds_cache.Reset();
-  cutoff_cache.Reset();
-
+// Runs Solve() over all 5 strains/4 lead seats and formats the per-seat
+// trick counts into solve()/shuffle_and_solve()'s shared "<strain> <S> <N>
+// <W> <E> <time> s" line format.
+std::string SolveToString(Hands& hands) {
   static char buffer[256];
   buffer[0] = '\0';
   auto start_time = Now();
@@ -106,6 +102,33 @@ std::string solve(std::string west, std::string north, std::string east, std::st
   std::vector<int> lead_seats = {WEST, EAST, NORTH, SOUTH};
   Solve(hands, trumps, lead_seats, trump_start, seat_done, trump_done);
   return buffer;
+}
+
+std::string solve(std::string west, std::string north, std::string east, std::string south) {
+  auto hands = CollectHands(west.c_str(), north.c_str(), east.c_str(), south.c_str());
+
+  // solve_plays() below leaves these populated for a different trump/deal;
+  // clear them so Solve() doesn't get stale hits.
+  common_bounds_cache.Reset();
+  cutoff_cache.Reset();
+  return SolveToString(hands);
+}
+
+// Like solve(), but first redeals the given seats' pooled cards among
+// themselves (matching the CLI's `-s <seats>` flag) and, when
+// discard_suit_bottom is set, solves with that speedup -- the web demo's
+// Shuffle feature passes true, mirroring shuffle.py's own `-s ... -d`
+// usage. Runs in its own worker/wasm instance, separate from
+// solve()/solve_plays()'s exact-precision caches.
+std::string shuffle_and_solve(std::string west, std::string north, std::string east,
+                              std::string south, std::string shuffle_seats,
+                              bool discard_suit_bottom) {
+  auto hands = CollectHands(west.c_str(), north.c_str(), east.c_str(), south.c_str());
+  hands.Shuffle(shuffle_seats.c_str());
+  options.discard_suit_bottom = discard_suit_bottom;
+  common_bounds_cache.Reset();
+  cutoff_cache.Reset();
+  return SolveToString(hands);
 }
 
 std::string solve_plays(std::string west, std::string north, std::string east, std::string south,
@@ -146,6 +169,7 @@ std::string solve_plays(std::string west, std::string north, std::string east, s
 using namespace emscripten;
 
 EMSCRIPTEN_BINDINGS(my_module) {
+  function("shuffle_and_solve", &shuffle_and_solve);
   function("solve", &solve);
   function("solve_plays", &solve_plays);
 }
