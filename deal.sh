@@ -37,8 +37,8 @@ card_line="^[AaKkQqJjTt1098765432Xx 	SHDC:♣♦♥♠-]+$"
   echo "- - - -"
   echo "- - - -"
   echo "- - - -"
-  egrep -v "$nocard_line" | \
-    egrep "$card_line" | \
+  grep -Ev "$nocard_line" | \
+    grep -E "$card_line" | \
     sed "N;N;N;s/\n/ /g" | \
     sed "N;s/\n/\n- - - -\n- - - -\n/"
       ) | tail -4)

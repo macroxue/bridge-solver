@@ -121,8 +121,19 @@ Run one of the following commands to measure performance and check correctness.
 The directory can be `deals/fixed` (the default), `deals/old`, `deals/new`, `deals/hard`,
 `deals/long` or `deals/1k`. For parallel runs, the number of threads is 2 by default.
 ```
-./run_tests.sh [DIRECTORY]
-./parallel_run_tests.sh [DIRECTORY] [THREADS]
+./run.sh [DIRECTORY]
+./parallel_run.sh [DIRECTORY] [THREADS]
+./parallel_run_strain.sh [DIRECTORY] [THREADS]
+```
+
+`parallel_run_strain.sh` parallelizes one thread per deal-strain pair instead of
+one thread per deal, useful for directories with few but hard deals (e.g.
+`deals/freak`) where per-deal parallelism alone can't use more threads than
+there are deals.
+
+To solve random deals instead of a fixed directory:
+```
+./parallel_run_random.sh [COUNT] [THREADS]
 ```
 
 Solving a single deal with one thread per strain can be done with:

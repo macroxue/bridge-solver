@@ -12,12 +12,10 @@ results=results.$(basename $test_dir).$parallelism
 echo Results are in $results
 cat $test_dir/* > /dev/null  # bring files into cache
 
-start=$(date +"%s.%N")
-ls $test_dir -I RESULTS | \
-  xargs -L 1 -P $parallelism ./parallel_run_tests.sh -r $test_dir > $results
-finish=$(date +"%s.%N")
+deals=$(ls $test_dir | grep -v '^RESULTS$')
+num_deals=$(echo "$deals" | wc -l)
 
-num_deals=$(ls $test_dir -I RESULTS | wc -l)
-echo Solved $num_deals deals in $(echo "scale=1;($finish-$start)/1" | bc) seconds
+TIMEFORMAT="Solved $num_deals deals in %1R seconds"
+time (echo "$deals" | xargs -L 1 -P $parallelism ./parallel_run.sh -r $test_dir > $results)
 
 diff <(sed -e "N;N;N;N;N;s/\n/ /g;s/  */ /g" $test_dir/RESULTS | sort) <(sort $results)

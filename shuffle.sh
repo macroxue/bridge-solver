@@ -72,16 +72,14 @@ for seats in $seats_list; do
     west_sum2=(0 0 0 0 0)
     east_sum2=(0 0 0 0 0)
   fi
-  declare -A south_histo
-  declare -A north_histo
-  declare -A west_histo
-  declare -A east_histo
+  # Indexed (not associative) arrays for bash 3.2 compat (macOS's stock
+  # /bin/bash); [row,tricks] packed as row*14+tricks (tricks stays in 0-13).
   for row in {0..4}; do
     for tricks in $(seq $min_tricks 13); do
-      south_histo[$row,$tricks]=0
-      north_histo[$row,$tricks]=0
-      west_histo[$row,$tricks]=0
-      east_histo[$row,$tricks]=0
+      south_histo[$((row*14+tricks))]=0
+      north_histo[$((row*14+tricks))]=0
+      west_histo[$((row*14+tricks))]=0
+      east_histo[$((row*14+tricks))]=0
     done
   done
   for round in $(seq 1 $rounds); do
@@ -102,10 +100,11 @@ for seats in $seats_list; do
         let east_sum2[row]+=result[i+4]*result[i+4]
       fi
       for tricks in $(seq $min_tricks 13); do
-        if [[ ${result[i+1]} -ge $tricks ]]; then let south_histo[$row,$tricks]++; fi
-        if [[ ${result[i+2]} -ge $tricks ]]; then let north_histo[$row,$tricks]++; fi
-        if [[ ${result[i+3]} -ge $tricks ]]; then let west_histo[$row,$tricks]++; fi
-        if [[ ${result[i+4]} -ge $tricks ]]; then let east_histo[$row,$tricks]++; fi
+        j=$((row*14+tricks))
+        if [[ ${result[i+1]} -ge $tricks ]]; then let south_histo[j]++; fi
+        if [[ ${result[i+2]} -ge $tricks ]]; then let north_histo[j]++; fi
+        if [[ ${result[i+3]} -ge $tricks ]]; then let west_histo[j]++; fi
+        if [[ ${result[i+4]} -ge $tricks ]]; then let east_histo[j]++; fi
       done
       if [[ -t 1 ]]; then
         printf "$eraser"
@@ -133,8 +132,9 @@ for seats in $seats_list; do
         printf "$trump  %4.1f %4.1f" $south_avg $north_avg
       fi
       for tricks in $(seq $min_tricks 13); do
-        south_rate=$(echo "${south_histo[$row,$tricks]}*100/$rounds" | bc)
-        north_rate=$(echo "${north_histo[$row,$tricks]}*100/$rounds" | bc)
+        j=$((row*14+tricks))
+        south_rate=$(echo "${south_histo[j]}*100/$rounds" | bc)
+        north_rate=$(echo "${north_histo[j]}*100/$rounds" | bc)
         printf "  %3d %3d" $south_rate $north_rate
       done
     elif [[ $seats = NS ]]; then
@@ -144,8 +144,9 @@ for seats in $seats_list; do
         printf "$trump  %4.1f %4.1f" $west_avg $east_avg
       fi
       for tricks in $(seq $min_tricks 13); do
-        west_rate=$(echo "${west_histo[$row,$tricks]}*100/$rounds" | bc)
-        east_rate=$(echo "${east_histo[$row,$tricks]}*100/$rounds" | bc)
+        j=$((row*14+tricks))
+        west_rate=$(echo "${west_histo[j]}*100/$rounds" | bc)
+        east_rate=$(echo "${east_histo[j]}*100/$rounds" | bc)
         printf "  %3d %3d" $west_rate $east_rate
       done
     elif [[ $seats = NEW ]]; then
@@ -155,7 +156,8 @@ for seats in $seats_list; do
         printf "$trump  %4.1f" $south_avg
       fi
       for tricks in $(seq $min_tricks 13); do
-        south_rate=$(echo "${south_histo[$row,$tricks]}*100/$rounds" | bc)
+        j=$((row*14+tricks))
+        south_rate=$(echo "${south_histo[j]}*100/$rounds" | bc)
         printf "  %3d" $south_rate
       done
     fi
