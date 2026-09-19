@@ -16,8 +16,47 @@ const DEAL_DIRS = [
 
 const dealBtn = document.getElementById('deal');
 const solveBtn = document.getElementById('solve');
+const shuffle10Btn = document.getElementById('shuffle10');
+const shuffle100Btn = document.getElementById('shuffle100');
 const statusEl = document.getElementById('status');
 const tableEl = document.getElementById('table');
+const shuffleTableEl = document.getElementById('shuffleTable');
+
+// Matches shuffle.py's CLI default.
+const SHUFFLE_MIN_TRICKS = 7;
+
+// Shuffle results accumulate across button presses (10 then 100 -> 110
+// total) as long as the hands being shuffled haven't changed since;
+// `shuffleHandsKey` is what detects that they have.
+let shuffleAccumulator = null;
+let shuffleHandsKey = null;
+
+function clearShuffleResults() {
+  shuffleAccumulator = null;
+  shuffleHandsKey = null;
+  shuffleTableEl.innerHTML = '';
+}
+
+function mergeShuffleData(acc, batch) {
+  if (!acc) return batch;
+  const merged = { rounds: acc.rounds + batch.rounds, minTricks: batch.minTricks, ew: {}, ns: {} };
+  for (const key of ['ew', 'ns']) {
+    const sums = {};
+    for (const d of ['S', 'N', 'W', 'E']) sums[d] = acc[key].sums[d].map((v, i) => v + batch[key].sums[d][i]);
+    const histo = {};
+    for (const d of ['S', 'N', 'W', 'E']) {
+      histo[d] = [];
+      for (let row = 0; row < 5; ++row) {
+        histo[d][row] = {};
+        for (let t = batch.minTricks; t <= 13; ++t) {
+          histo[d][row][t] = acc[key].histo[d][row][t] + batch[key].histo[d][row][t];
+        }
+      }
+    }
+    merged[key] = { sums, histo };
+  }
+  return merged;
+}
 
 for (const { id, dir, label } of DEAL_DIRS) {
   const select = document.getElementById(id);
@@ -37,18 +76,24 @@ worker.onmessage = (event) => {
   switch (type) {
     case 'ready':
       solveBtn.disabled = false;
+      shuffle10Btn.disabled = false;
+      shuffle100Btn.disabled = false;
       statusEl.textContent = 'Ready.';
       break;
     case 'abort':
       statusEl.textContent = 'Solver crashed: ' + rest[0];
       solveBtn.disabled = false;
+      shuffle10Btn.disabled = false;
+      shuffle100Btn.disabled = false;
       setEntryDisabled(false);
       break;
     case 'error': {
       const [errType, message] = rest;
       statusEl.textContent = 'Solver error: ' + message;
-      if (errType === 'solve') {
+      if (errType === 'solve' || errType === 'shuffle') {
         solveBtn.disabled = false;
+        shuffle10Btn.disabled = false;
+        shuffle100Btn.disabled = false;
         setEntryDisabled(false);
       }
       break;
@@ -60,12 +105,30 @@ worker.onmessage = (event) => {
       tableHintEl.style.display = 'block';
       statusEl.textContent = `Solved in ${elapsedMs.toFixed(0)} ms.`;
       solveBtn.disabled = false;
+      shuffle10Btn.disabled = false;
+      shuffle100Btn.disabled = false;
       setEntryDisabled(false);
       break;
     }
     case 'solve_plays': {
       const [result, , requestId] = rest;
       onSolvePlays(result, requestId);
+      break;
+    }
+    case 'shuffle_progress': {
+      const [done, total] = rest;
+      statusEl.textContent = `Shuffling… ${done}/${total}`;
+      break;
+    }
+    case 'shuffle': {
+      const [data] = rest;
+      shuffleAccumulator = mergeShuffleData(shuffleAccumulator, data);
+      renderShuffleTable(shuffleAccumulator);
+      statusEl.textContent = `Shuffled ${shuffleAccumulator.rounds} times each way.`;
+      solveBtn.disabled = false;
+      shuffle10Btn.disabled = false;
+      shuffle100Btn.disabled = false;
+      setEntryDisabled(false);
       break;
     }
   }
@@ -214,6 +277,7 @@ dealBtn.addEventListener('click', () => {
   for (const seat of SEATS) setHandValue(seat, hands[seat]);
   tableEl.innerHTML = '';
   tableHintEl.style.display = 'none';
+  clearShuffleResults();
   statusEl.textContent = 'Dealt a random hand.';
 });
 
@@ -285,6 +349,7 @@ for (const { id, dir, label } of DEAL_DIRS) {
     for (const seat of SEATS) setHandValue(seat, hands[seat]);
     tableEl.innerHTML = '';
     tableHintEl.style.display = 'none';
+    clearShuffleResults();
     statusEl.textContent = `Loaded ${label.toLowerCase()} ${num}.`;
   });
 }
@@ -300,12 +365,87 @@ solveBtn.addEventListener('click', () => {
   }
 
   solveBtn.disabled = true;
+  shuffle10Btn.disabled = true;
+  shuffle100Btn.disabled = true;
   setEntryDisabled(true);
   statusEl.textContent = 'Solving…';
   tableEl.innerHTML = '';
   tableHintEl.style.display = 'none';
   worker.postMessage(['solve', hands]);
 });
+
+// Renders the two shuffle.py-style tables: shuffling E/W (with N/S fixed)
+// shows how South/North's actual hands fare against random opponents, and
+// vice versa for shuffling N/S.
+function renderShuffleTable(data) {
+  const { rounds, minTricks, ew, ns } = data;
+  const strains = ['N', 'S', 'H', 'D', 'C'];
+  const tricksList = [];
+  for (let t = minTricks; t <= 13; ++t) tricksList.push(t);
+
+  // Both declarers stay in one table, side by side in each cell as
+  // "left/right", so they're still directly comparable at a glance -- but
+  // collapsed to one number when they don't differ (common at the high/low
+  // ends of the trick range), which also keeps cells narrow enough to fit
+  // phone widths without horizontal scrolling.
+  const pair = (left, right) => (left === right ? `${left}` : `${left}/${right}`);
+
+  function section(title, result, leftKey, rightKey) {
+    let html = `<h3>${title}</h3><table><tr><th></th><th>${leftKey}/${rightKey} avg</th>`;
+    for (const t of tricksList) html += `<th>${t}+</th>`;
+    html += '</tr>';
+    for (let row = 0; row < 5; ++row) {
+      const leftAvg = (result.sums[leftKey][row] / rounds).toFixed(1);
+      const rightAvg = (result.sums[rightKey][row] / rounds).toFixed(1);
+      html += `<tr><td>${STRAIN_LABELS[strains[row]]}</td><td>${pair(leftAvg, rightAvg)}</td>`;
+      for (const t of tricksList) {
+        const leftPct = Math.floor(result.histo[leftKey][row][t] * 100 / rounds);
+        const rightPct = Math.floor(result.histo[rightKey][row][t] * 100 / rounds);
+        const cell = leftPct === 0 && rightPct === 0 ? '' : pair(leftPct, rightPct);
+        html += `<td>${cell}</td>`;
+      }
+      html += '</tr>';
+    }
+    return html + '</table>';
+  }
+
+  shuffleTableEl.innerHTML =
+    section('Single-dummy table: Shuffling East/West.', ew, 'S', 'N') +
+    section('Single-dummy table: Shuffling North/South.', ns, 'W', 'E');
+}
+
+function runShuffleBatch(rounds) {
+  const hands = {};
+  for (const seat of SEATS) hands[seat] = getHandValue(seat);
+
+  const error = validateHands(hands);
+  if (error) {
+    statusEl.textContent = error;
+    return;
+  }
+  // The worker's card-shuffling logic assumes single-char ranks (no "10",
+  // no "X" wildcards); resolveWildcards() normalizes both unconditionally.
+  const resolvedHands = resolveWildcards(hands);
+
+  // Results accumulate across presses, but only for the same hands -- reset
+  // if they've changed (new deal, edited card, etc.) since the last batch.
+  const handsKey = SEATS.map(seat => resolvedHands[seat]).join('|');
+  if (handsKey !== shuffleHandsKey) {
+    clearShuffleResults();
+    shuffleHandsKey = handsKey;
+  }
+
+  exitPlay();
+  solveBtn.disabled = true;
+  shuffle10Btn.disabled = true;
+  shuffle100Btn.disabled = true;
+  setEntryDisabled(true);
+  statusEl.textContent = `Shuffling… 0/${rounds * 2}`;
+  worker.postMessage(['shuffle', resolvedHands, rounds, SHUFFLE_MIN_TRICKS]);
+}
+
+shuffle10Btn.addEventListener('click', () => runShuffleBatch(10));
+shuffle100Btn.addEventListener('click', () => runShuffleBatch(100));
 
 // --- CARD PLAY ---
 // Trump encoding expected by solve_plays (see solver.cc:

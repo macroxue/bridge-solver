@@ -207,17 +207,14 @@
     flex-wrap: wrap;
     margin-bottom: 0.75rem;
   }
+  /* One flat, non-native look for every button and select, so they all
+     render with identical height/border regardless of the OS/browser's
+     native control chrome (which otherwise differs subtly between the two
+     element types, and even between browsers for the same one). */
   button, select {
     font-size: 1rem;
-    padding: 0.4rem 1.2rem;
+    padding: 0.4rem 0.7rem;
     cursor: pointer;
-  }
-  button:disabled, select:disabled { cursor: default; opacity: 0.6; }
-  /* Also just locked out while a solve is pending, not truly unavailable --
-     stay full-opacity. Browsers alpha-blend color/background/border on
-     native controls' :disabled state regardless of opacity, so strip the
-     native theming (appearance: none) and draw it ourselves throughout. */
-  #deal, #freakDealNum, #hardDealNum {
     appearance: none;
     -webkit-appearance: none;
     background: #efefef;
@@ -225,16 +222,35 @@
     border: 1px solid #767676;
     border-radius: 2px;
   }
+  button:disabled, select:disabled { cursor: default; opacity: 0.6; }
+  #shuffleTable table { margin-bottom: 1rem; }
+  #shuffleTable h3 { font-weight: normal; margin: 0.75rem 0 0.25rem; }
+  /* This table has 9 columns vs. the main DD table's 5 -- same font size,
+     but the default 0.8rem horizontal padding alone would be ~230px
+     across all columns, more than a phone screen has to spare. */
+  #shuffleTable th, #shuffleTable td { padding: 0.3rem 0.2rem; min-width: 2rem; }
   #freakDealNum, #hardDealNum {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23555'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
-    background-position: right 0.6rem center;
+    background-position: right 0.5rem center;
     background-size: 0.6rem;
-    padding-right: 1.8rem;
+    /* Tighter than the shared button/select padding, and capped so
+       selecting a longer deal number (e.g. "Hard deal 20") doesn't grow
+       the box -- it ellipsizes instead. */
+    padding: 0.4rem 1.4rem 0.4rem 0.7rem;
+    width: 6.95rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
+  /* These three are just locked out while a solve is pending, not truly
+     unavailable -- stay full-opacity instead of the general dimming above.
+     (Relies on the flat, non-native button/select style above: browsers
+     alpha-blend color/background/border on a *native* control's :disabled
+     state regardless of opacity, so this override wouldn't fully cancel it.) */
   #deal:disabled, #freakDealNum:disabled, #hardDealNum:disabled { opacity: 1; }
   #status { margin: 0.75rem 0; color: #555; }
-  #table { overflow-x: auto; }
+  #table, #shuffleTable { overflow-x: auto; }
   table { border-collapse: collapse; margin-top: 0.5rem; }
   th, td {
     border: 1px solid #ccc;
@@ -244,9 +260,13 @@
   th { background: #f0f0f0; }
   .red { color: #c00; }
   .black { color: #000; }
-  p.hint { color: #666; font-size: 0.9rem; }
+  p.hint, #shuffleTable h3 { color: #666; font-size: 0.9rem; }
   #playHint { display: none; }
-  #tableHint { display: none; }
+  /* #table's overflow-x (needed for wide tables) starts a new block
+     formatting context, which blocks this paragraph's default bottom
+     margin from collapsing with the table's own margin-top below it --
+     so they'd otherwise stack instead of merging. */
+  #tableHint { display: none; margin-bottom: 0; }
   p.source {
     margin-top: 0;
     color: #999;
@@ -315,13 +335,15 @@
 
   <div class="controls" id="controls">
     <select id="freakDealNum">
-      <option value="" selected disabled>Load freak deal…</option>
+      <option value="" selected disabled>Freak deal</option>
     </select>
     <select id="hardDealNum">
-      <option value="" selected disabled>Load hard deal…</option>
+      <option value="" selected disabled>Hard deal</option>
     </select>
-    <button id="deal">Random Deal</button>
+    <button id="deal">Random deal</button>
     <button id="solve" disabled>Solve</button>
+    <button id="shuffle10" disabled>Shuffle 10</button>
+    <button id="shuffle100" disabled>Shuffle 100</button>
   </div>
   <div id="playBar">
     <button id="editHands">Edit Hands</button>
@@ -331,8 +353,9 @@
     </div>
   </div>
   <div id="status">Loading solver…</div>
-  <p class="hint" id="tableHint">Click a cell in the double-dummy table to play out that contract.</p>
+  <p class="hint" id="tableHint">Double-dummy table: Click a cell to play out that contract.</p>
   <div id="table"></div>
+  <div id="shuffleTable"></div>
 
   <script src="deals.js"></script>
   <script src="app.js"></script>
