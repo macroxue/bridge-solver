@@ -161,7 +161,7 @@ From ♠ A-8(-2)3(-2) ♥ K(-2) ♦ A-6(-2) ♣ K= North plays ♣ K?
 
 ## Single-dummy approximation
 
-`./shuffle.sh` shuffles one side's cards while holding the other side's cards
+`./shuffle.py` shuffles one side's cards while holding the other side's cards
 fixed. In the example below, the first half is just the double-dummy result of
 the deal; the second half are percentages of getting certain number of tricks,
 according to double-dummy results of the shuffles.
