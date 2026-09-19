@@ -39,7 +39,7 @@ memory usage.
 ## Solve a deal in a file
 
 ```
-./solver -f FILE
+./solver -f [FILE]
 ```
 
 The format of the deal in the file is like below.
@@ -55,6 +55,50 @@ is South. The forth line specifies the strain to play. The fifth line is the
 leading seat. If the leading seat is not given, the deal is solved for all four
 leading seats. If the strain to play is also not given, the deal is solved for
 all five strains.
+
+`-i` flag can be used to ignore the strain and the leading seat that are
+specified in the file.
+
+## Solve an encoded deal
+
+Each bridge deal is encoded by West, North and East's card holdings. When `-m`
+flag value has its lowest bit set, the solver outputs this code. For example,
+```
+./solver -r -m3
+# 3019E0620005,100A3AD222,2C419DB
+                          ♠ J73 ♥ KJ9732 ♦ A62 ♣ 4
+  ♠ AQ ♥ T65 ♦ JT9854 ♣ 98                       ♠ KT8642 ♥ A4 ♦ K ♣ Q652
+                          ♠ 95 ♥ Q8 ♦ Q73 ♣ AKJT73
+```
+
+Then the code can be used to reproduce exactly the same deal like below.
+```
+./solver -c 3019E0620005,100A3AD222,2C419DB
+```
+
+## Solve a strain
+
+```
+./solver -r -t [STRAIN]
+./solver -f [FILE] -t [STRAIN]
+./solver -c [CODE] -t [STRAIN]
+```
+where [STRAIN] is one of {N, S, H, D, C}.
+
+Solving a single deal with one thread per strain can be done with `xargs`:
+```
+echo N S H D C | xargs -n1 -P5 ./solver -if deals/freak/deal.0 -m0 -t
+D 11 11  2  2  0.08 s   9.2 M
+S  8  8  5  5  0.44 s  35.0 M
+H  8  8  5  5  1.10 s  62.7 M
+C  6  6  7  6  1.92 s  90.5 M
+N  7  7  6  5  5.70 s 242.9 M
+```
+
+To get the strains sorted, pipe the previous command to
+```
+tr NSHDC ABCDE | sort | tr ABCDE NSHDC
+```
 
 ## Interactive play
 ```
@@ -115,11 +159,56 @@ From ♥ 9=3= South plays ♥ 3.
 From ♠ A-8(-2)3(-2) ♥ K(-2) ♦ A-6(-2) ♣ K= North plays ♣ K?
 ```
 
+## Single-dummy approximation
+
+`./shuffle.sh` shuffles one side's cards while holding the other side's cards
+fixed. In the example below, the first half is just the double-dummy result of
+the deal; the second half are percentages of getting certain number of tricks,
+according to double-dummy results of the shuffles.
+
+```
+# 801138827A000,858EA3208,1BCB0E2
+                        N ♠ J52
+                          ♥ K42
+                          ♦ QJT2
+                       12 ♣ AJ6
+           W ♠ -                       E ♠ K876
+             ♥ AQJT96                    ♥ 53
+             ♦ K9874                     ♦ 6
+          13 ♣ K2                      5 ♣ QT9854
+                        S ♠ AQT943
+                          ♥ 87
+                          ♦ A53
+                       10 ♣ 73
+N  9  9  3  3  0.01 s   6.0 M
+S 10  9  3  3  0.03 s   6.3 M
+H  4  4  8  8  0.05 s   6.3 M
+D  7  7  5  6  0.10 s  11.7 M
+C  6  6  6  6  0.12 s  11.7 M
+      S    N   7S  7N   8S  8N   9S  9N  10S 10N  11S 11N  12S 12N  13S 13N
+N   7.3  7.7   66  72   54  54   36  36   22  26    6  10    0   0    0   0
+S   9.4  9.4  100 100  100 100   76  76   48  50   14  16    4   4    0   0
+H   4.6  4.7    4   6    2   2    0   0    0   0    0   0    0   0    0   0
+D   7.9  8.1   84  88   56  66   30  30   14  16    4   6    4   4    0   0
+C   4.6  4.8    4   6    2   2    0   0    0   0    0   0    0   0    0   0
+      W    E   7W  7E   8W  8E   9W  9E  10W 10E  11W 11E  12W 12E  13W 13E
+N   4.3  4.4    4   6    0   0    0   0    0   0    0   0    0   0    0   0
+S   3.5  3.6    0   0    0   0    0   0    0   0    0   0    0   0    0   0
+H   8.0  7.8   98  96   80  68   26  20    0   0    0   0    0   0    0   0
+D   5.6  5.5   16  16    2   0    0   0    0   0    0   0    0   0    0   0
+C   7.4  7.5   82  80   48  52   18  20    0   2    0   0    0   0    0   0
+```
+
+Specifically, `S   9.4  9.4` means either South or North averages 9.4 tricks
+when declaring a spade contract. `48  50` on the same row shows South has 48%
+chance of making 4♠ while North has a slightly higher chance at 50%.
+
 ## Performance
 
 Run one of the following commands to measure performance and check correctness.
-The directory can be `deals/fixed` (the default), `deals/old`, `deals/new`, `deals/hard`,
-`deals/long` or `deals/1k`. For parallel runs, the number of threads is 2 by default.
+The directory can be `deals/fixed` (the default), `deals/old`, `deals/new`,
+`deals/hard`, `deals/long`, `deals/1k` or `deals/freak`. For parallel runs,
+the number of threads is 2 by default.
 ```
 ./run.sh [DIRECTORY]
 ./parallel_run.sh [DIRECTORY] [THREADS]
@@ -131,19 +220,9 @@ one thread per deal, useful for directories with few but hard deals (e.g.
 `deals/freak`) where per-deal parallelism alone can't use more threads than
 there are deals.
 
-To solve random deals instead of a fixed directory:
+To solve random deals instead of deals in a directory:
 ```
 ./parallel_run_random.sh [COUNT] [THREADS]
-```
-
-Solving a single deal with one thread per strain can be done with:
-```
-echo N S H D C | xargs -n1 -P5 ./solver -if deals/freak/deal.0 -i -m0 -t
-D 11 11  2  2  0.08 s   9.2 M
-S  8  8  5  5  0.44 s  35.0 M
-H  8  8  5  5  1.10 s  62.7 M
-C  6  6  7  6  1.92 s  90.5 M
-N  7  7  6  5  5.70 s 242.9 M
 ```
 
 Benchmarks below run on [AMD Ryzen 7 5800H](https://www.amd.com/en/products/apu/amd-ryzen-7-5800h)

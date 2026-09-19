@@ -6,7 +6,6 @@
 #include <arm_neon.h>
 #endif
 #include <inttypes.h>
-#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -183,8 +182,8 @@ struct Options {
         "\t               2    Show the deal in compact format\n"
         "\t               4    Show the deal in expanded format\n"
         "\t-o           Show the deal without solving it.\n"
-        "\t-i           Ignore the trump and the lead specified in the input file.\n"
-        "\t-t <trump>   Solve for the specified trump, one of {N, S, H, D, C}.\n"
+        "\t-i           Ignore the strain and the leading seat specified in the input file.\n"
+        "\t-t <strain>  Solve for the specified strain, one of {N, S, H, D, C}.\n"
         "\t-d           Discard only the smallest card in a suit, imprecise but faster.\n");
     exit(0);
   }
