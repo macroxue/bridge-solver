@@ -13,12 +13,20 @@ Module = {
   },
 };
 
-// Parses solve()'s "<strain> <S> <N> <W> <E> <time> s" lines (see
-// DECLARER_COLUMNS in app.js for why the 4 numbers land in that order).
+importScripts('declarer-columns.js');
+// Maps DECLARER_COLUMNS' full seat names to the single-letter keys sums/histo
+// below use.
+const SEAT_LETTER = { south: 'S', north: 'N', west: 'W', east: 'E' };
+
+// Parses solve()'s "<strain> <S> <N> <W> <E> <time> s" lines, using the same
+// DECLARER_COLUMNS app.js renders the DD table with as the single source of
+// truth for which column is which declarer's trick count.
 function parseSolveResult(result) {
   return result.trim().split('\n').map(line => {
     const p = line.trim().split(/\s+/);
-    return { S: +p[1], N: +p[2], W: +p[3], E: +p[4] };
+    const row = {};
+    DECLARER_COLUMNS.forEach((seat, i) => { row[SEAT_LETTER[seat]] = +p[i + 1]; });
+    return row;
   });
 }
 
@@ -48,14 +56,21 @@ function runShuffle(hands, rounds, minTricks, onProgress) {
       }
     }
     for (let round = 0; round < rounds; ++round) {
-      const result = Module.shuffle_and_solve(
-        hands.west, hands.north, hands.east, hands.south, seats, /*discard_suit_bottom=*/true);
-      parseSolveResult(result).forEach((row, r) => {
-        for (const d of ['S', 'N', 'W', 'E']) {
-          sums[d][r] += row[d];
-          for (let t = minTricks; t <= 13; ++t) if (row[d] >= t) ++histo[d][r][t];
-        }
-      });
+      // A single bad round (rare edge-case hand, transient wasm error)
+      // shouldn't discard every round already completed in this batch --
+      // skip it and keep going rather than letting it throw out of runShuffle().
+      try {
+        const result = Module.shuffle_and_solve(
+          hands.west, hands.north, hands.east, hands.south, seats, /*discard_suit_bottom=*/true);
+        parseSolveResult(result).forEach((row, r) => {
+          for (const d of ['S', 'N', 'W', 'E']) {
+            sums[d][r] += row[d];
+            for (let t = minTricks; t <= 13; ++t) if (row[d] >= t) ++histo[d][r][t];
+          }
+        });
+      } catch (e) {
+        console.error('[shuffle] round failed, skipping:', e);
+      }
       if (onProgress && (++done % 5 === 0 || done === total)) onProgress(done, total);
     }
     results[key] = { sums, histo };

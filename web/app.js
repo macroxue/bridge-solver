@@ -253,10 +253,9 @@ function validateHands(hands) {
   return null;
 }
 
-// Declarer for each DD-table column; matches solve()'s fixed column order
-// in solver.cc (derived from its lead_seats iteration), independent of trump.
-const DECLARER_COLUMNS = ['south', 'north', 'west', 'east'];
-
+// DECLARER_COLUMNS (declarer-columns.js) maps each DD-table column to its
+// declarer; matches solve()'s fixed column order in solver.cc (derived from
+// its lead_seats iteration), independent of trump.
 function renderTable(result) {
   const lines = result.split('\n').filter(Boolean);
   let html = '<table><tr><th></th><th>South</th><th>North</th><th>West</th><th>East</th></tr>';
