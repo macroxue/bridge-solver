@@ -17,7 +17,12 @@ To build the web demo, [Emscripten](https://emscripten.org) is required.
 make web
 ```
 
-## Solve a random deal
+## Solve a deal
+
+There are three ways to specify a deal to solve. Later sections write `[DEAL]`
+for any one of them.
+
+### 1. A random deal
 ```
 ./solver -r
 ```
@@ -36,8 +41,7 @@ Each line after the deal shows the strain to play, the number of tricks when
 South/North/West/East declares respectively, the cumulative time and the peak
 memory usage.
 
-## Solve a deal in a file
-
+### 2. A deal in a file
 ```
 ./solver -f [FILE]
 ```
@@ -59,7 +63,10 @@ all five strains.
 `-i` flag can be used to ignore the strain and the leading seat that are
 specified in the file.
 
-## Solve an encoded deal
+### 3. An encoded deal
+```
+./solver -c [CODE]
+```
 
 Each bridge deal is encoded by West, North and East's card holdings. When `-m`
 flag value has its lowest bit set, the solver outputs this code. For example,
@@ -77,11 +84,8 @@ Then the code can be used to reproduce exactly the same deal like below.
 ```
 
 ## Solve a strain
-
 ```
-./solver -r -t [STRAIN]
-./solver -f [FILE] -t [STRAIN]
-./solver -c [CODE] -t [STRAIN]
+./solver [DEAL] -t [STRAIN]
 ```
 where [STRAIN] is one of {N, S, H, D, C}.
 
@@ -102,11 +106,7 @@ tr NSHDC ABCDE | sort | tr ABCDE NSHDC
 
 ## Interactive play
 ```
-./solver -r -p
-```
-or
-```
-./solver -f FILE -p
+./solver [DEAL] -p
 ```
 
 The solver automatically determines the contract. If nobody can make any
@@ -160,8 +160,11 @@ From ♠ A-8(-2)3(-2) ♥ K(-2) ♦ A-6(-2) ♣ K= North plays ♣ K?
 ```
 
 ## Single-dummy approximation
+```
+./shuffle.py [DEAL] -n [ROUNDS] -j [PARALLELISM]
+```
 
-`./shuffle.py` shuffles one side's cards while holding the other side's cards
+The script shuffles one side's cards while holding the other side's cards
 fixed. In the example below, the first half is just the double-dummy result of
 the deal; the second half are percentages of getting certain number of tricks,
 according to double-dummy results of the shuffles.
