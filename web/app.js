@@ -78,11 +78,23 @@ for (const { id, dir, label } of DEAL_DIRS) {
   }
 }
 
-// Solve/solve_plays run in `worker`; Shuffle runs in its own `shuffleWorker`
-// (its own wasm instance/memory) so its discard_suit_bottom fast-solve
-// caches can never be reused by solve_plays()'s exact-precision cache.
+// Solve/solve_plays run in `worker`; Shuffle runs across a pool of
+// `shuffleWorkers` (each its own wasm instance/memory, so their
+// discard_suit_bottom fast-solve caches can never be reused by
+// solve_plays()'s exact-precision cache), so a batch's rounds run across
+// the machine's cores in parallel instead of one at a time.
 const worker = new Worker('worker.js');
-const shuffleWorker = new Worker('shuffle-worker.js');
+// hardwareConcurrency counts logical (SMT) threads; solving is CPU/cache-
+// bound, and README.md's own multi-core benchmark shows SMT buys almost
+// nothing for it (8 physical cores -> 16 SMT threads only takes the
+// speed-up from 5.2x to 6.3x), so target physical cores (/2, the common
+// case on x86) rather than one worker per logical thread -- that
+// benchmark says nothing about scaling across *more* physical cores, so
+// this isn't otherwise capped. A browser without hardwareConcurrency at
+// all is likely on old, low-core hardware, hence the low (not 8) fallback.
+const SHUFFLE_WORKER_COUNT = Math.max(1, Math.floor((navigator.hardwareConcurrency || 4) / 2));
+const shuffleWorkers =
+  Array.from({ length: SHUFFLE_WORKER_COUNT }, () => new Worker('shuffle-worker.js'));
 
 // Solve and Shuffle share one busy/idle state: entering hands and running
 // either one are mutually exclusive, so this covers both directions.
@@ -93,12 +105,13 @@ function setBusyState(busy) {
   setEntryDisabled(busy);
 }
 
-// Both workers load their own wasm module independently; only report ready
-// once both have, since either button set needs its own worker up.
+// Every worker loads its own wasm module independently; only report ready
+// once all of them have, since a shuffle batch can land on any pool member.
 let workerReady = false;
-let shuffleWorkerReady = false;
+let shuffleWorkersReadyCount = 0;
 function maybeReportReady() {
-  if (workerReady && shuffleWorkerReady) statusEl.textContent = 'Ready.';
+  const shuffleReady = shuffleWorkersReadyCount === shuffleWorkers.length;
+  if (workerReady && shuffleReady) statusEl.textContent = 'Ready.';
 }
 
 worker.onmessage = (event) => {
@@ -139,42 +152,68 @@ worker.onmessage = (event) => {
   }
 };
 
-shuffleWorker.onmessage = (event) => {
-  const [type, ...rest] = event.data;
-  switch (type) {
-    case 'ready':
-      shuffle10Btn.disabled = false;
-      shuffle100Btn.disabled = false;
-      shuffleWorkerReady = true;
-      maybeReportReady();
-      break;
-    case 'abort':
-      statusEl.textContent = 'Solver crashed: ' + rest[0];
-      setBusyState(false);
-      break;
-    case 'error': {
-      const [, message] = rest;
-      statusEl.textContent = 'Solver error: ' + message;
-      setBusyState(false);
-      break;
+// A shuffle batch currently in flight across the pool (null when idle).
+// Each pool worker gets its own slice of the requested round count (see
+// runShuffleBatch()) and reports back independently; this folds their
+// partial results together the same way mergeShuffleData() already folds
+// separate button-press batches, and tracks combined progress/timing.
+let pendingBatch = null;
+
+// Dispatch always uses a prefix shuffleWorkers[0..workersToUse-1] of the
+// pool (see runShuffleBatch()), so a message's workerIndex here is always
+// a valid index into pendingBatch.doneByWorker.
+shuffleWorkers.forEach((shuffleWorker, workerIndex) => {
+  shuffleWorker.onmessage = (event) => {
+    const [type, ...rest] = event.data;
+    switch (type) {
+      case 'ready':
+        ++shuffleWorkersReadyCount;
+        if (shuffleWorkersReadyCount === shuffleWorkers.length) {
+          shuffle10Btn.disabled = false;
+          shuffle100Btn.disabled = false;
+        }
+        maybeReportReady();
+        break;
+      case 'abort':
+        statusEl.textContent = 'Solver crashed: ' + rest[0];
+        pendingBatch = null;
+        setBusyState(false);
+        break;
+      case 'error': {
+        const [, message] = rest;
+        statusEl.textContent = 'Solver error: ' + message;
+        pendingBatch = null;
+        setBusyState(false);
+        break;
+      }
+      case 'shuffle_progress': {
+        if (!pendingBatch) break;
+        const [done] = rest;
+        pendingBatch.doneByWorker[workerIndex] = done;
+        const totalDone = pendingBatch.doneByWorker.reduce((a, b) => a + b, 0);
+        statusEl.textContent = `Shuffling… ${totalDone}/${pendingBatch.totalUnits}`;
+        break;
+      }
+      case 'shuffle': {
+        if (!pendingBatch) break;
+        const [data] = rest;
+        pendingBatch.merged = mergeShuffleData(pendingBatch.merged, data);
+        if (--pendingBatch.workersRemaining > 0) break;
+        // Wall-clock time for the whole parallel batch, not the sum of each
+        // worker's own elapsedMs (which ran concurrently, not back to back).
+        pendingBatch.merged.elapsedMs = performance.now() - pendingBatch.startTime;
+        shuffleAccumulator = mergeShuffleData(shuffleAccumulator, pendingBatch.merged);
+        renderShuffleTable(shuffleAccumulator);
+        pendingBatch = null;
+        const { rounds, elapsedMs } = shuffleAccumulator;
+        const elapsedS = (elapsedMs / 1000).toFixed(1);
+        statusEl.textContent = `Shuffled ${rounds} times each way in ${elapsedS} s.`;
+        setBusyState(false);
+        break;
+      }
     }
-    case 'shuffle_progress': {
-      const [done, total] = rest;
-      statusEl.textContent = `Shuffling… ${done}/${total}`;
-      break;
-    }
-    case 'shuffle': {
-      const [data] = rest;
-      shuffleAccumulator = mergeShuffleData(shuffleAccumulator, data);
-      renderShuffleTable(shuffleAccumulator);
-      const { rounds, elapsedMs } = shuffleAccumulator;
-      const elapsedS = (elapsedMs / 1000).toFixed(1);
-      statusEl.textContent = `Shuffled ${rounds} times each way in ${elapsedS} s.`;
-      setBusyState(false);
-      break;
-    }
-  }
-};
+  };
+});
 
 // Splits a hand's suit token (e.g. "KJ1042" or "X") into individual rank
 // characters, treating "10" as a single "T" rank.
@@ -523,8 +562,27 @@ function runShuffleBatch(rounds) {
 
   exitPlay();
   setBusyState(true);
-  statusEl.textContent = `Shuffling… 0/${rounds * 2}`;
-  shuffleWorker.postMessage(['shuffle', resolvedHands, rounds, SHUFFLE_MIN_TRICKS]);
+
+  // Split rounds as evenly as possible across the pool -- capped to
+  // `rounds` itself so a small batch (e.g. Shuffle 10 on a many-core
+  // machine) doesn't spin up workers that would get 0 rounds.
+  const workersToUse = Math.min(shuffleWorkers.length, rounds);
+  const baseRounds = Math.floor(rounds / workersToUse);
+  const extraRounds = rounds % workersToUse;
+
+  pendingBatch = {
+    totalUnits: rounds * 2, // *2 for the ew/ns directions, like shuffle-worker.js's own `total`
+    doneByWorker: new Array(workersToUse).fill(0),
+    merged: null,
+    workersRemaining: workersToUse,
+    startTime: performance.now(),
+  };
+
+  statusEl.textContent = `Shuffling… 0/${pendingBatch.totalUnits}`;
+  for (let i = 0; i < workersToUse; ++i) {
+    const workerRounds = baseRounds + (i < extraRounds ? 1 : 0);
+    shuffleWorkers[i].postMessage(['shuffle', resolvedHands, workerRounds, SHUFFLE_MIN_TRICKS]);
+  }
 }
 
 shuffle10Btn.addEventListener('click', () => runShuffleBatch(10));
