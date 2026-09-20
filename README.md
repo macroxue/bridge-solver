@@ -161,10 +161,11 @@ From ♠ A-8(-2)3(-2) ♥ K(-2) ♦ A-6(-2) ♣ K= North plays ♣ K?
 
 ## Single-dummy approximation
 ```
-./shuffle.py [DEAL] -n [ROUNDS] -j [PARALLELISM]
+./shuffle.py [DEAL] -n [ROUNDS] -j [PARALLELISM] -s [SEATS]
 ```
+where [SEATS] is any combination of {W, N, E, S}, e.g. EW.
 
-The script shuffles one side's cards while holding the other side's cards
+By default it shuffles one side's cards while holding the other side's cards
 fixed. In the example below, the first half is just the double-dummy result of
 the deal; the second half are percentages of getting certain number of tricks,
 according to double-dummy results of the shuffles.

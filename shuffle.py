@@ -49,27 +49,20 @@ def show_usage():
         "\n"
         "\t-n <rounds>  Number of shuffles to run. Default 50.\n"
         "\t-j <n>       Run shuffles in parallel using <n> threads. Default 1.\n"
-        "\t-s           Show only South's column instead of both seats of a pair.\n"
+        "\t-s <seats>   Shuffle these seats, a combination of {W, N, E, S}, instead of the\n"
+        "\t             default EW and NS pairs.\n"
         "\t-m <tricks>  Lowest trick count shown in the histogram. Default 7.\n"
         "\t-e           Show standard error alongside averages.\n"
         "\t-v           Print timing information.")
     sys.exit(0)
 
 
-def print_header(seats, show_err, tricks_list):
-    if seats == 'EW':
-        print("      S        N      " if show_err else "      S    N  ", end='')
-        for t in tricks_list:
-            print(f"{t:2d}S {t:2d}N  ", end='')
-    elif seats == 'NS':
-        print("      W        E      " if show_err else "      W    E  ", end='')
-        for t in tricks_list:
-            print(f"{t:2d}W {t:2d}E  ", end='')
-    else:  # NEW
-        print("      S      " if show_err else "      S  ", end='')
-        for t in tricks_list:
-            print(f"{t:2d}S  ", end='')
-    print()
+def print_header(columns, show_err, tricks_list):
+    avg_width = 9 if show_err else 5
+    header = '  ' + ''.join(d.rjust(avg_width) for d in columns)
+    for t in tricks_list:
+        header += ''.join(f"{t:2d}{d}".rjust(5) for d in columns)
+    print(header)
 
 
 def main():
@@ -85,12 +78,15 @@ def main():
     p.add_argument('-m', dest='min_tricks', type=int, default=7)
     p.add_argument('-n', dest='rounds', type=int, default=50)
     p.add_argument('-r', dest='randomize', action='store_true')
-    p.add_argument('-s', dest='single_seat', action='store_true')
+    p.add_argument('-s', dest='seats')
     p.add_argument('-v', dest='verbose', action='store_true')
     args = p.parse_args()
 
     if not (args.code or args.build_deal or args.input_file or args.randomize):
         show_usage()
+
+    if args.seats and not set(args.seats.upper()) <= set('WNES'):
+        sys.exit(f"Invalid seats: {args.seats} (use a combination of W, N, E, S)")
 
     code = args.code
     if args.build_deal:
@@ -102,10 +98,11 @@ def main():
 
     subprocess.run(['./solver', '-c', code, '-m5'])
 
-    seats_list = ['NEW'] if args.single_seat else ['EW', 'NS']
+    seats_list = [args.seats] if args.seats else ['EW', 'NS']
     tricks_list = list(range(args.min_tricks, 14))
 
     for seats in seats_list:
+        columns = [d for d in 'SNWE' if d not in seats.upper()]
         sums = {d: [0] * 5 for d in 'SNWE'}
         sums2 = {d: [0] * 5 for d in 'SNWE'}
         histo = {d: {(row, t): 0 for row in range(5) for t in tricks_list} for d in 'SNWE'}
@@ -133,7 +130,7 @@ def main():
         if args.verbose:
             print(f"Solved {args.rounds} shuffles in {monotonic() - start:.1f} seconds")
 
-        print_header(seats, args.show_err, tricks_list)
+        print_header(columns, args.show_err, tricks_list)
 
         for line in lines:
             tok = line.split()
@@ -161,28 +158,16 @@ def main():
                         err[d] = 0.0
 
             out = [trump, ' ']
-            if seats == 'EW':
-                left, right = 'S', 'N'
-            elif seats == 'NS':
-                left, right = 'W', 'E'
-            else:
-                left, right = 'S', None
-
-            if args.show_err:
-                out.append(f" {avg[left]:4.1f}±{err[left]:3.1f}")
-                if right:
-                    out.append(f" {avg[right]:4.1f}±{err[right]:3.1f}")
-            else:
-                out.append(f" {avg[left]:4.1f}")
-                if right:
-                    out.append(f" {avg[right]:4.1f}")
+            for d in columns:
+                if args.show_err:
+                    out.append(f" {avg[d]:4.1f}±{err[d]:3.1f}")
+                else:
+                    out.append(f" {avg[d]:4.1f}")
 
             for t in tricks_list:
-                lr = histo[left][(row, t)] * 100 // args.rounds
-                out.append(f"  {lr:3d}")
-                if right:
-                    rr = histo[right][(row, t)] * 100 // args.rounds
-                    out.append(f" {rr:3d}")
+                for d in columns:
+                    pct = histo[d][(row, t)] * 100 // args.rounds
+                    out.append(f"  {pct:3d}")
 
             print(''.join(out))
 
