@@ -11,12 +11,31 @@
   html { scrollbar-gutter: stable; }
   body {
     font-family: system-ui, sans-serif;
-    max-width: 640px;
+    /* 700px content width -- same as .deal-column below -- so the 6-control
+       button row (~640-675px unwrapped, depending on the browser's font
+       metrics) never wraps here either. */
+    max-width: 732px;
     margin: 2rem auto;
     padding: 0 1rem;
     color: #222;
   }
   h1 { font-size: 1.3rem; }
+  .layout { display: block; }
+  .deal-column, .tables-column { min-width: 0; }
+  /* Wide screens: DD/SD tables move beside the deal instead of below it.
+     Breakpoint is chosen so the tables column still has enough room for
+     the widest (9-column) shuffle table (~480px) beside the deal column,
+     rather than switching to two columns before there's space and forcing
+     that table into horizontal scroll. */
+  @media (min-width: 1280px) {
+    body { max-width: 1400px; }
+    /* Neither column grows past its own content, so on very wide viewports
+       the pair is centered as one block instead of the tables column
+       stretching to fill the rest of body's max-width. */
+    .layout { display: flex; justify-content: center; align-items: flex-start; gap: 2.5rem; }
+    .deal-column { flex: 0 0 700px; }
+    .tables-column { flex: 0 1 auto; }
+  }
   .hands {
     position: relative;
     display: grid;
@@ -283,11 +302,13 @@
 </style>
 </head>
 <body>
+  <div class="layout" id="layout">
+  <div class="deal-column">
   <h1>Fast Double-Dummy Solver Web Demo</h1>
   <p class="source">
     Source on <a href="https://github.com/macroxue/bridge-solver" target="_blank" rel="noopener">https://github.com/macroxue/bridge-solver</a>
   </p>
-  <p class="hint" id="playHint">Each card shows how the result would change (=, +N, &ndash;N) if played and
+  <p class="hint" id="playHint">Each card shows how the contract ends (=, +N, &ndash;N) if played and
     followed by best defense/declarer play.</p>
   <p class="hint" id="entryHint">
     Enter each suit's ranks, blank for void, <code>T</code>/<code>10</code> for ten,
@@ -359,9 +380,13 @@
     </div>
   </div>
   <div id="status">Loading solver…</div>
+  </div>
+  <div class="tables-column">
   <p class="hint" id="tableHint">Double-dummy table: Click a cell to play out that contract.</p>
   <div id="table"></div>
   <div id="shuffleTable"></div>
+  </div>
+  </div>
 
   <script src="deals.js"></script>
   <script src="declarer-columns.js"></script>

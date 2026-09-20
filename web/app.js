@@ -509,7 +509,7 @@ function renderShuffleTable(data) {
     let html = `<h3 data-dir="${dir}">${arrow} ${title}</h3>`;
     if (folded) return html;
 
-    html += `<table><tr><th></th><th>${leftKey}/${rightKey} avg</th>`;
+    html += `<table><tr><th>${leftKey}/${rightKey}</th><th>avg</th>`;
     for (const t of tricksList) html += `<th>${t}+</th>`;
     html += '</tr>';
     for (let row = 0; row < 5; ++row) {
