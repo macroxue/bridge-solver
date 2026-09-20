@@ -25,6 +25,34 @@ const statusEl = document.getElementById('status');
 const tableEl = document.getElementById('table');
 const tableHintEl = document.getElementById('tableHint');
 const shuffleTableEl = document.getElementById('shuffleTable');
+const tablesColumnEl = document.getElementById('tablesColumn');
+
+// On wide screens .tables-column sizes to its content (see index.html), so
+// clearing it back to empty -- at the start of every solve/shuffle, or on a
+// new deal -- would collapse it to 0 width and shift the deal column
+// sideways as the centered flex row re-centers. Track the widest a table
+// has actually rendered at and never let the column shrink past that.
+const wideLayoutQuery = window.matchMedia('(min-width: 1280px)');
+let tablesColumnMinWidth = 0;
+function growTablesColumnMinWidth() {
+  // Deferred a frame: right after a table's markup is inserted, an
+  // auto-layout <table> can still be mid-convergence (its shrink-to-fit
+  // width depends on its container's width, which depends on the table's
+  // own width), so reading scrollWidth synchronously here can catch an
+  // intermediate, too-narrow layout pass instead of the settled one.
+  requestAnimationFrame(() => {
+    // Below the breakpoint .tables-column is a plain stacked block that's
+    // stretched to its container's full width (not sized to its content),
+    // so scrollWidth there reflects that stretch, not the table's real
+    // width -- recording it would over-reserve space once the layout
+    // switches to two columns and push the deal column off-screen.
+    if (!wideLayoutQuery.matches) return;
+    const width = tablesColumnEl.scrollWidth;
+    if (width <= tablesColumnMinWidth) return;
+    tablesColumnMinWidth = width;
+    document.documentElement.style.setProperty('--tables-min-width', width + 'px');
+  });
+}
 
 // Matches shuffle.py's CLI default.
 const SHUFFLE_MIN_TRICKS = 7;
@@ -141,6 +169,7 @@ worker.onmessage = (event) => {
       renderTable(result);
       ddFolded = false;
       tableEl.style.display = '';
+      growTablesColumnMinWidth();
       updateTableHintText();
       tableHintEl.style.display = 'block';
       statusEl.textContent = `Solved in ${elapsedMs.toFixed(0)} ms.`;
@@ -207,6 +236,7 @@ shuffleWorkers.forEach((shuffleWorker, workerIndex) => {
         pendingBatch.merged.elapsedMs = performance.now() - pendingBatch.startTime;
         shuffleAccumulator = mergeShuffleData(shuffleAccumulator, pendingBatch.merged);
         renderShuffleTable(shuffleAccumulator);
+        growTablesColumnMinWidth();
         pendingBatch = null;
         const { rounds, elapsedMs } = shuffleAccumulator;
         const elapsedS = (elapsedMs / 1000).toFixed(1);

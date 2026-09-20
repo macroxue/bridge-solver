@@ -34,7 +34,12 @@
        stretching to fill the rest of body's max-width. */
     .layout { display: flex; justify-content: center; align-items: flex-start; gap: 2.5rem; }
     .deal-column { flex: 0 0 700px; }
-    .tables-column { flex: 0 1 auto; }
+    /* Sizes to content, but never shrinks below the widest a table has
+       actually rendered at (JS sets --tables-min-width) -- otherwise
+       clearing #table/#shuffleTable (start of a solve/shuffle, a new deal)
+       collapses this column to 0 width, which re-centers the flex row and
+       shifts the deal column sideways; see app.js's growTablesColumnMinWidth. */
+    .tables-column { flex: 0 1 auto; min-width: var(--tables-min-width, 0px); }
   }
   .hands {
     position: relative;
@@ -381,7 +386,7 @@
   </div>
   <div id="status">Loading solver…</div>
   </div>
-  <div class="tables-column">
+  <div class="tables-column" id="tablesColumn">
   <p class="hint" id="tableHint">Double-dummy table: Click a cell to play out that contract.</p>
   <div id="table"></div>
   <div id="shuffleTable"></div>
