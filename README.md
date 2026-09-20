@@ -229,7 +229,7 @@ To solve random deals instead of deals in a directory:
 ./parallel_run_random.sh [COUNT] [THREADS]
 ```
 
-Benchmarks below run on [AMD Ryzen 7 5800H](https://www.amd.com/en/products/apu/amd-ryzen-7-5800h)
+Benchmarks below run on [AMD Ryzen 7 5800H](https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen/ryzen-5000-series/amd-ryzen-7-5800h.html)
 with 8 physical cores at 3.2GHz base clock and 4.4GHz boost clock. To get stable performance
 numbers, all irrelevant applications are closed and `taskset` is used to bind the process
 to a single core for single-core runs.
