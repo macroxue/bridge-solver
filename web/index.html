@@ -213,7 +213,7 @@
      element types, and even between browsers for the same one). */
   button, select {
     font-size: 1rem;
-    padding: 0.4rem 0.7rem;
+    padding: 0.4rem 0.6rem;
     cursor: pointer;
     appearance: none;
     -webkit-appearance: none;
@@ -232,18 +232,23 @@
      across all columns, more than a phone screen has to spare. */
   #shuffleTable th, #shuffleTable td { padding: 0.3rem 0.2rem; min-width: 2rem; }
   #freakDealNum, #hardDealNum {
+    /* The arrow is a background image, not a real element, so it always
+       floats over the box's own right-padding rather than sharing space
+       with the text. */
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23555'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 0.5rem center;
     background-size: 0.6rem;
-    /* Tighter than the shared button/select padding, and capped so
-       selecting a longer deal number (e.g. "Hard deal 20") doesn't grow
-       the box -- it ellipsizes instead. */
+    /* Tighter than the shared button/select padding. */
     padding: 0.4rem 1.4rem 0.4rem 0.7rem;
-    width: 6.95rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    /* Fixed, not auto: Chrome sizes an unstyled select to its *selected*
+       option, but Firefox sizes it to the *widest* option in the list --
+       here, the placeholder ("Freak deal"/"Hard deal") is wider than any
+       shortened numbered option ("Hard 19"), so Firefox would otherwise
+       always render at placeholder width regardless of what's picked.
+       Fixed width sidesteps that divergence; sized with margin above the
+       placeholder text's own width so nothing here ever needs to ellipsize. */
+    width: 7rem;
   }
   /* These three are just locked out while a solve is pending, not truly
      unavailable -- stay full-opacity instead of the general dimming above.
@@ -285,9 +290,8 @@
   <p class="hint" id="playHint">Each card shows how the result would change (=, +N, &ndash;N) if played and
     followed by best defense/declarer play.</p>
   <p class="hint" id="entryHint">
-    Enter each suit's ranks, leaving a suit blank if void.
-    Use <code>T</code> or <code>10</code> for ten, and <code>X</code>
-    for a small (don't-care) card.
+    Enter each suit's ranks, blank for void, <code>T</code>/<code>10</code> for ten,
+    <code>X</code> for a small card,  all case-insensitive.
   </p>
 
   <div class="hands" id="hands">
