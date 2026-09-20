@@ -31,8 +31,29 @@ def get_random_code():
     return run_for_code(['./solver', '-ro', '-m1'])
 
 
+def get_file_code(path):
+    return run_for_code(['./solver', '-f', path, '-o', '-m1'])
+
+
 def solve_once(code, seats):
     return run(['./solver', '-c', code, '-s', seats, '-d', '-m0'])
+
+
+def show_usage():
+    print(f"{sys.argv[0]}  Estimate single-dummy trick-taking by shuffling one side's cards many times.")
+    print(
+        "\t-r           Shuffle a fully random deal.\n"
+        "\t-b           Build a deal interactively (fixed hands via stdin). See deal.sh.\n"
+        "\t-f <file>    Shuffle a deal in the input file. See files in *_deals/ for examples.\n"
+        "\t-c <code>    Shuffle a deal defined by its unique code. See ./solver -m1.\n"
+        "\n"
+        "\t-n <rounds>  Number of shuffles to run. Default 50.\n"
+        "\t-j <n>       Run shuffles in parallel using <n> threads. Default 1.\n"
+        "\t-s           Show only South's column instead of both seats of a pair.\n"
+        "\t-m <tricks>  Lowest trick count shown in the histogram. Default 7.\n"
+        "\t-e           Show standard error alongside averages.\n"
+        "\t-v           Print timing information.")
+    sys.exit(0)
 
 
 def print_header(seats, show_err, tricks_list):
@@ -52,21 +73,31 @@ def print_header(seats, show_err, tricks_list):
 
 
 def main():
+    if len(sys.argv) == 1:
+        show_usage()
+
     p = argparse.ArgumentParser()
+    p.add_argument('-b', dest='build_deal', action='store_true')
     p.add_argument('-c', dest='code')
-    p.add_argument('-d', dest='random_deal', action='store_true')
     p.add_argument('-e', dest='show_err', action='store_true')
-    p.add_argument('-p', dest='parallelism', type=int, default=1)
-    p.add_argument('-r', dest='rounds', type=int, default=50)
+    p.add_argument('-f', dest='input_file')
+    p.add_argument('-j', dest='parallelism', type=int, default=1)
+    p.add_argument('-m', dest='min_tricks', type=int, default=7)
+    p.add_argument('-n', dest='rounds', type=int, default=50)
+    p.add_argument('-r', dest='randomize', action='store_true')
     p.add_argument('-s', dest='single_seat', action='store_true')
-    p.add_argument('-t', dest='min_tricks', type=int, default=7)
     p.add_argument('-v', dest='verbose', action='store_true')
     args = p.parse_args()
 
+    if not (args.code or args.build_deal or args.input_file or args.randomize):
+        show_usage()
+
     code = args.code
-    if args.random_deal:
+    if args.build_deal:
         code = get_deal_code()
-    if not code:
+    if not code and args.input_file:
+        code = get_file_code(args.input_file)
+    if not code and args.randomize:
         code = get_random_code()
 
     subprocess.run(['./solver', '-c', code, '-m5'])
