@@ -6,7 +6,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { parsePBN, parseDealFile, parsePastedDeal } = require('./deal-parser.js');
+const { parsePBN, parseDealFile, parsePastedDeal, formatPBN } = require('./deal-parser.js');
 
 const readDeal = (name) => fs.readFileSync(path.join(__dirname, '..', 'deals', 'hard', name), 'utf8');
 
@@ -50,6 +50,19 @@ test('parsePBN: non-PBN text returns null', () => {
 test('parsePBN: "10" as an alternative to "T" for ten', () => {
   const pbn = 'N:42.AQ1063.K52.T84 AJ65.42.J963.KQJ Q973..AT74.A9632 KT8.KJ9875.Q8.75';
   assert.deepStrictEqual(parsePBN(pbn), { ...DEFAULT_HANDS, north: '42 AQ1063 K52 T84' });
+});
+
+// --- formatPBN ---
+
+test('formatPBN: starts from North, clockwise, uppercase, "-" for void', () => {
+  assert.strictEqual(
+    formatPBN(DEFAULT_HANDS),
+    'N:42.AQT63.K52.T84 AJ65.42.J963.KQJ Q973..AT74.A9632 KT8.KJ9875.Q8.75',
+  );
+});
+
+test('formatPBN: round-trips through parsePBN back to the same hands', () => {
+  assert.deepStrictEqual(parsePBN(formatPBN(DEFAULT_HANDS)), DEFAULT_HANDS);
 });
 
 // --- parseDealFile: symbol formats ---

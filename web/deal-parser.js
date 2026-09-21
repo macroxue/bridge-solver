@@ -149,6 +149,19 @@ function parsePBN(text) {
   return hands;
 }
 
+// Formats a hands object (as produced by randomDeal()/the parsers above,
+// {seat: "S H D C"} with '-' for void) as a PBN Deal field, starting from
+// North and listing the rest clockwise (N,E,S,W) -- the inverse of
+// parsePBN(), used to show a freshly generated/selected deal in the paste
+// bar as PBN regardless of which format it actually came from.
+function formatPBN(hands) {
+  const clockwiseFromNorth = ['north', 'east', 'south', 'west'];
+  const hand = (seat) => hands[seat].trim().split(/\s+/)
+    .map((token) => (token === '-' ? '' : token.toUpperCase()))
+    .join('.');
+  return `N:${clockwiseFromNorth.map(hand).join(' ')}`;
+}
+
 // Tries every known deal format against pasted clipboard text, in order from
 // most to least specific. Returns null (not four fully-populated hands) if
 // nothing recognized it, so the caller can fall back to a normal paste.
@@ -161,5 +174,5 @@ function parsePastedDeal(text) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { SEATS, SEAT_NAME_BY_LETTER, parsePBN, parseDealFile, parsePastedDeal };
+  module.exports = { SEATS, SEAT_NAME_BY_LETTER, parsePBN, parseDealFile, parsePastedDeal, formatPBN };
 }

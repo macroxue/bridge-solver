@@ -416,7 +416,7 @@ dealBtn.addEventListener('click', () => {
   ddFolded = false;
   tableHintEl.style.display = 'none';
   clearShuffleResults();
-  pasteBoxEl.value = '';
+  pasteBoxEl.value = formatPBN(hands);
   statusEl.textContent = 'Dealt a random hand.';
 });
 
@@ -494,7 +494,7 @@ for (const { id, dir, label } of DEAL_DIRS) {
     ddFolded = false;
     tableHintEl.style.display = 'none';
     clearShuffleResults();
-    pasteBoxEl.value = '';
+    pasteBoxEl.value = formatPBN(hands);
     statusEl.textContent = `Loaded ${label.toLowerCase()} ${num}.`;
   });
 }
