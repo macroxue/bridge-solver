@@ -1,4 +1,5 @@
 const SEATS = ['west', 'north', 'east', 'south'];
+const SEAT_NAME_BY_LETTER = { W: 'west', N: 'north', E: 'east', S: 'south' };
 const SUIT_LETTERS = ['S', 'H', 'D', 'C'];
 const STRAIN_LABELS = { N: 'NT', S: '<span class="black">&spades;</span>',
   H: '<span class="red">&hearts;</span>', D: '<span class="red">&diams;</span>',
@@ -281,6 +282,7 @@ function setHandsDisabled(disabled) {
   for (const seat of SEATS) {
     for (const suit of SUIT_LETTERS) document.getElementById(seat + '-' + suit).disabled = disabled;
   }
+  document.getElementById('pasteBox').disabled = disabled;
 }
 
 // Locks out anything that could change the deal while a solve is pending,
@@ -415,6 +417,7 @@ dealBtn.addEventListener('click', () => {
   ddFolded = false;
   tableHintEl.style.display = 'none';
   clearShuffleResults();
+  pasteBoxEl.value = '';
   statusEl.textContent = 'Dealt a random hand.';
 });
 
@@ -432,12 +435,11 @@ function parseDealFile(text) {
   const hands = {};
 
   const symbolPattern = /(?:([NWES])\s*)?♠\s*(\S+)\s*♥\s*(\S+)\s*♦\s*(\S+)\s*♣\s*(\S+)/g;
-  const seatNames = { N: 'north', W: 'west', E: 'east', S: 'south' };
   const symbolMatches = [...text.matchAll(symbolPattern)];
   if (symbolMatches.length === 4) {
     symbolMatches.forEach((match, i) => {
       const [, seat, spades, hearts, diamonds, clubs] = match;
-      hands[seatNames[seat] || positionalSeats[i]] = `${spades} ${hearts} ${diamonds} ${clubs}`;
+      hands[SEAT_NAME_BY_LETTER[seat] || positionalSeats[i]] = `${spades} ${hearts} ${diamonds} ${clubs}`;
     });
     if (SEATS.every(seat => hands[seat])) return hands;
   }
@@ -473,6 +475,74 @@ function parseDealFile(text) {
   return hands;
 }
 
+// Parses a PBN "Deal" field: "<first>:<hand1> <hand2> <hand3> <hand4>", each
+// hand "S.H.D.C" (dot-separated ranks, empty for void), hands listed
+// clockwise starting from <first>. The regex has no anchors, so this also
+// picks the field out of a full PBN tag/file, e.g. `[Deal "N:..."]`.
+function parsePBN(text) {
+  const hand = '[2-9TJQKAXtjqkax]*';
+  const re = new RegExp(`\\b([NESW]):((?:${hand}\\.){3}${hand}(?:\\s+(?:${hand}\\.){3}${hand}){3})`);
+  const match = text.match(re);
+  if (!match) return null;
+  const [, first, rest] = match;
+  const handTokens = rest.trim().split(/\s+/);
+  // SEATS is declared in this same clockwise cyclic order (just starting
+  // at 'west' instead of the seat PBN happens to name first), so indexing
+  // into it modulo 4 walks clockwise the same way SEATS_CLOCKWISE did.
+  const start = SEATS.indexOf(SEAT_NAME_BY_LETTER[first]);
+  const hands = {};
+  handTokens.forEach((token, i) => {
+    const suits = token.split('.');
+    hands[SEATS[(start + i) % 4]] = suits.map(s => s.toUpperCase() || '-').join(' ');
+  });
+  return hands;
+}
+
+// Tries every known deal format against pasted clipboard text, in order from
+// most to least specific. Returns null (not four fully-populated hands) if
+// nothing recognized it, so the caller can fall back to a normal paste.
+function parsePastedDeal(text) {
+  for (const parser of [parsePBN, parseDealFile]) {
+    const hands = parser(text);
+    if (hands && SEATS.every(seat => hands[seat])) return hands;
+  }
+  return null;
+}
+
+function applyPastedHands(hands) {
+  exitPlay();
+  resetDealSelects();
+  for (const seat of SEATS) setHandValue(seat, hands[seat]);
+  tableEl.innerHTML = '';
+  tableEl.style.display = '';
+  ddFolded = false;
+  tableHintEl.style.display = 'none';
+  clearShuffleResults();
+  statusEl.textContent = 'Loaded deal.';
+}
+
+// A dedicated box, rather than intercepting paste page-wide or reading the
+// clipboard directly on some other gesture: both are less predictable
+// across browsers (notably Firefox, which doesn't support script-initiated
+// clipboard reads) and touch devices, where paste only works inside an
+// editable field anyway. Fires on plain `input`, not `paste`, so typing a
+// deal in by hand works identically -- no clipboard API involved at all.
+const pasteBoxEl = document.getElementById('pasteBox');
+pasteBoxEl.addEventListener('input', () => {
+  const hands = parsePastedDeal(pasteBoxEl.value);
+  if (!hands) return;
+  // Left as-is (not cleared) so the box keeps showing what was actually
+  // pasted/typed, as confirmation -- rather than snapping back to the
+  // placeholder as if nothing had happened.
+  applyPastedHands(hands);
+  pasteBoxEl.blur();
+});
+pasteBoxEl.addEventListener('blur', () => {
+  if (pasteBoxEl.value.trim() && !parsePastedDeal(pasteBoxEl.value)) {
+    statusEl.textContent = "That doesn't look like a recognized deal format.";
+  }
+});
+
 for (const { id, dir, label } of DEAL_DIRS) {
   document.getElementById(id).addEventListener('change', (event) => {
     const num = event.target.value;
@@ -489,6 +559,7 @@ for (const { id, dir, label } of DEAL_DIRS) {
     ddFolded = false;
     tableHintEl.style.display = 'none';
     clearShuffleResults();
+    pasteBoxEl.value = '';
     statusEl.textContent = `Loaded ${label.toLowerCase()} ${num}.`;
   });
 }
@@ -957,6 +1028,7 @@ function setPlayModeUI(active) {
   playBarEl.style.display = active ? 'flex' : 'none';
   playStatusEl.style.display = active ? 'block' : 'none';
   entryHintEl.style.display = active ? 'none' : '';
+  document.getElementById('pasteBar').style.display = active ? 'none' : '';
   playHintEl.style.display = active ? 'block' : 'none';
   controlsEl.style.display = active ? 'none' : 'flex';
   setHandsDisabled(active);
