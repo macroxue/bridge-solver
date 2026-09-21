@@ -1,5 +1,4 @@
-const SEATS = ['west', 'north', 'east', 'south'];
-const SEAT_NAME_BY_LETTER = { W: 'west', N: 'north', E: 'east', S: 'south' };
+// SEATS and SEAT_NAME_BY_LETTER come from deal-parser.js.
 const SUIT_LETTERS = ['S', 'H', 'D', 'C'];
 const STRAIN_LABELS = { N: 'NT', S: '<span class="black">&spades;</span>',
   H: '<span class="red">&hearts;</span>', D: '<span class="red">&diams;</span>',
@@ -421,94 +420,6 @@ dealBtn.addEventListener('click', () => {
   statusEl.textContent = 'Dealt a random hand.';
 });
 
-// Parses the deal layouts used by deals/hard/, deals/freak/, etc. Hands
-// always appear in North, West, East, South order, but the surrounding
-// format varies:
-//  - seat letter + suit symbols: "N ♠.. ♥.. ♦.. ♣.."
-//  - suit symbols only (no seat letter): "♠.. ♥.. ♦.. ♣.."
-//  - plain positional groups: "- Q853 AJ962 KT74", either West and East
-//    sharing one line (separated by a wide gap) or each on its own line
-//  - optionally followed by trailing metadata lines (trump/lead seat,
-//    e.g. "N", "C", "West") that must be ignored
-function parseDealFile(text) {
-  const positionalSeats = ['north', 'west', 'east', 'south'];
-  const hands = {};
-
-  const symbolPattern = /(?:([NWES])\s*)?♠\s*(\S+)\s*♥\s*(\S+)\s*♦\s*(\S+)\s*♣\s*(\S+)/g;
-  const symbolMatches = [...text.matchAll(symbolPattern)];
-  if (symbolMatches.length === 4) {
-    symbolMatches.forEach((match, i) => {
-      const [, seat, spades, hearts, diamonds, clubs] = match;
-      hands[SEAT_NAME_BY_LETTER[seat] || positionalSeats[i]] = `${spades} ${hearts} ${diamonds} ${clubs}`;
-    });
-    if (SEATS.every(seat => hands[seat])) return hands;
-  }
-
-  // Plain-text fallback: collect every group of 4 card tokens found, in
-  // file order, whether a line holds one hand or two (West and East
-  // sharing a line, split on the wide gap between them). Lines that
-  // aren't a hand (blank, or a trailing trump/lead-seat annotation)
-  // simply don't match and are skipped.
-  const isCardGroup = (tokens) =>
-    tokens.length === 4 && tokens.every(t => /^(-|[2-9TJQKAX]+)$/i.test(t));
-
-  const blocks = [];
-  for (const rawLine of text.split('\n')) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const gap = line.match(/\s{2,}/);
-    if (gap) {
-      const left = line.slice(0, gap.index).trim().split(/\s+/);
-      const right = line.slice(gap.index + gap[0].length).trim().split(/\s+/);
-      if (isCardGroup(left) && isCardGroup(right)) {
-        blocks.push(left.join(' '), right.join(' '));
-        continue;
-      }
-    }
-    const tokens = line.split(/\s+/);
-    if (isCardGroup(tokens)) blocks.push(tokens.join(' '));
-  }
-
-  if (blocks.length === 4) {
-    positionalSeats.forEach((seat, i) => { hands[seat] = blocks[i]; });
-  }
-  return hands;
-}
-
-// Parses a PBN "Deal" field: "<first>:<hand1> <hand2> <hand3> <hand4>", each
-// hand "S.H.D.C" (dot-separated ranks, empty for void), hands listed
-// clockwise starting from <first>. The regex has no anchors, so this also
-// picks the field out of a full PBN tag/file, e.g. `[Deal "N:..."]`.
-function parsePBN(text) {
-  const hand = '[2-9TJQKAXtjqkax]*';
-  const re = new RegExp(`\\b([NESW]):((?:${hand}\\.){3}${hand}(?:\\s+(?:${hand}\\.){3}${hand}){3})`);
-  const match = text.match(re);
-  if (!match) return null;
-  const [, first, rest] = match;
-  const handTokens = rest.trim().split(/\s+/);
-  // SEATS is declared in this same clockwise cyclic order (just starting
-  // at 'west' instead of the seat PBN happens to name first), so indexing
-  // into it modulo 4 walks clockwise the same way SEATS_CLOCKWISE did.
-  const start = SEATS.indexOf(SEAT_NAME_BY_LETTER[first]);
-  const hands = {};
-  handTokens.forEach((token, i) => {
-    const suits = token.split('.');
-    hands[SEATS[(start + i) % 4]] = suits.map(s => s.toUpperCase() || '-').join(' ');
-  });
-  return hands;
-}
-
-// Tries every known deal format against pasted clipboard text, in order from
-// most to least specific. Returns null (not four fully-populated hands) if
-// nothing recognized it, so the caller can fall back to a normal paste.
-function parsePastedDeal(text) {
-  for (const parser of [parsePBN, parseDealFile]) {
-    const hands = parser(text);
-    if (hands && SEATS.every(seat => hands[seat])) return hands;
-  }
-  return null;
-}
-
 function applyPastedHands(hands) {
   exitPlay();
   resetDealSelects();
@@ -527,6 +438,12 @@ function applyPastedHands(hands) {
 // clipboard reads) and touch devices, where paste only works inside an
 // editable field anyway. Fires on plain `input`, not `paste`, so typing a
 // deal in by hand works identically -- no clipboard API involved at all.
+//
+// An <input>'s value is always one line -- a multi-line paste (e.g. text
+// copied off a vugraph page's deal panel) lands here with each newline
+// turned into a single space, which parseDealFile is built to tolerate
+// (see deal-parser.js), so there's no need to read clipboardData directly
+// to see the pre-sanitized original.
 const pasteBoxEl = document.getElementById('pasteBox');
 pasteBoxEl.addEventListener('input', () => {
   const hands = parsePastedDeal(pasteBoxEl.value);
