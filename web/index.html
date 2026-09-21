@@ -100,6 +100,10 @@
   #pasteBar:focus-within { border-color: #888; }
   #pasteBarIcon { width: 1.2rem; height: 1.2rem; flex: none; opacity: 0.55; }
   #pasteBox {
+    /* type="search" avoids mobile password/card-autofill prompts (same as
+       .suit-input); strip its native rounded/clear-button styling. */
+    -webkit-appearance: none;
+    appearance: none;
     flex: 1 1 auto;
     min-width: 0;
     border: none;
@@ -110,6 +114,7 @@
     padding: 0.15rem 0;
   }
   #pasteBox:disabled { color: inherit; }
+  #pasteBox::-webkit-search-cancel-button { display: none; }
   .hands .seat {
     display: flex;
     flex-direction: column;
@@ -343,7 +348,7 @@
 
   <div id="pasteBar">
     <img id="pasteBarIcon" src="favicon.svg" alt="">
-    <input id="pasteBox" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+    <input id="pasteBox" type="search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
       aria-label="Paste a deal (PBN)"
       placeholder="Paste a deal (PBN), e.g. N:42.AQT63.K52.T84 AJ65.42.J963.KQJ Q973..AT74.A9632 KT8.KJ9875.Q8.75">
   </div>
