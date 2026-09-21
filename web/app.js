@@ -445,20 +445,38 @@ function applyPastedHands(hands) {
 // (see deal-parser.js), so there's no need to read clipboardData directly
 // to see the pre-sanitized original.
 const pasteBoxEl = document.getElementById('pasteBox');
-pasteBoxEl.addEventListener('input', () => {
-  const hands = parsePastedDeal(pasteBoxEl.value);
-  if (!hands) return;
-  // Left as-is (not cleared) so the box keeps showing what was actually
-  // pasted/typed, as confirmation -- rather than snapping back to the
-  // placeholder as if nothing had happened.
-  applyPastedHands(hands);
-  pasteBoxEl.blur();
-});
-pasteBoxEl.addEventListener('blur', () => {
-  if (pasteBoxEl.value.trim() && !parsePastedDeal(pasteBoxEl.value)) {
+
+// Parses/applies whatever's currently in the box, or reports why not --
+// shared by every way of "finishing" here: a paste/drop (below), pressing
+// Enter, or just clicking away.
+function commitPasteBox() {
+  const value = pasteBoxEl.value;
+  if (!value.trim()) return;
+  const hands = parsePastedDeal(value);
+  if (hands) {
+    // Left as-is (not cleared) so the box keeps showing what was actually
+    // pasted/typed, as confirmation -- rather than snapping back to the
+    // placeholder as if nothing had happened.
+    applyPastedHands(hands);
+  } else {
     statusEl.textContent = "That doesn't look like a recognized deal format.";
   }
+}
+
+pasteBoxEl.addEventListener('input', (event) => {
+  // Only a paste or drop -- a single bulk insertion, distinct from typing's
+  // one 'input' event per keystroke -- auto-commits immediately. Checking
+  // on every keystroke while typing would trigger the moment a *partial*
+  // prefix of the last card already happened to look like a complete,
+  // valid deal (e.g. "...K10" while still typing "K106"), applying early
+  // and blurring the field out from under whoever was still typing.
+  if (event.inputType !== 'insertFromPaste' && event.inputType !== 'insertFromDrop') return;
+  pasteBoxEl.blur();
 });
+pasteBoxEl.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') pasteBoxEl.blur();
+});
+pasteBoxEl.addEventListener('blur', commitPasteBox);
 
 for (const { id, dir, label } of DEAL_DIRS) {
   document.getElementById(id).addEventListener('change', (event) => {
