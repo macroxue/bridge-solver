@@ -8,11 +8,14 @@
 const SEATS = ['west', 'north', 'east', 'south'];
 const SEAT_NAME_BY_LETTER = { W: 'west', N: 'north', E: 'east', S: 'south' };
 
-// Parses the deal layouts used by deals/hard/, deals/freak/, etc. Hands
-// always appear in North, West, East, South order, but the surrounding
-// format varies:
+// Parses the deal layouts used by deals/hard/, deals/freak/, etc., plus
+// whatever a few real sites' own deal panels happen to copy-paste as.
+// Absent a seat label, hands are assumed North, West, East, South order,
+// but the surrounding format varies a lot:
 //  - seat letter + suit symbols: "N ♠.. ♥.. ♦.. ♣.."
-//  - suit symbols only (no seat letter): "♠.. ♥.. ♦.. ♣.."
+//  - full seat name, suit symbols and ranks each their own line (e.g.
+//    bridgewinners.com): "West\n♠\n7\n♥\n...", in whatever seat order
+//  - suit symbols only (no seat label): "♠.. ♥.. ♦.. ♣.."
 //  - plain positional groups: "- Q853 AJ962 KT74", either West and East
 //    sharing one line (separated by a wide gap) or each on its own line
 //  - optionally followed by trailing metadata lines (trump/lead seat,
@@ -25,31 +28,45 @@ function parseDealFile(text) {
   // one-line form runs everything together with no separators at all (e.g.
   // "...♣K762♠KJ96..."), so anything looser than an explicit rank charclass
   // greedily eats straight through the next suit symbol. This also covers a
-  // void suit (nothing between one symbol and the next, e.g. "♠♥AK94..."),
-  // which needs to become an explicit '-' below rather than silently
-  // dropping out and shifting the other three suits into the wrong slots
-  // downstream. The seat letter, if present, must be separated from ♠ by
-  // only horizontal whitespace (never a newline) -- otherwise it can cross
-  // paragraphs and grab an unrelated stray N/W/E/S, e.g. the "W" in a
-  // preceding "Vulnerable:E-W" line. Includes 0/1 (not just 2-9) so "10"
-  // (an alternative to "T" for ten) doesn't split the token in two.
+  // void suit written as nothing between one symbol and the next (e.g.
+  // "♠♥AK94..."), captured empty -- and each empty (or literal "-", see
+  // below) capture becomes an explicit '-' rather than silently dropping
+  // out and shifting the other three suits into the wrong slots downstream.
+  // Includes 0/1 (not just 2-9) so "10" (an alternative to "T" for ten)
+  // doesn't split the token in two.
   const rank = '[0-9TJQKAXtjqkax]*';
-  const symbolPattern =
-    new RegExp(`(?:([NWES])[ \\t]*)?♠\\s*(${rank})\\s*♥\\s*(${rank})\\s*♦\\s*(${rank})\\s*♣\\s*(${rank})`, 'g');
+  // A void suit can also be written as an explicit "-" instead of nothing
+  // at all (e.g. one line per field: "West\n♠\n-\n♥\nKQJ96\n...") -- since
+  // "-" isn't a rank character, without this alternative the capture group
+  // would match zero characters there and then fail to reach the next
+  // suit symbol (the "-" itself is in the way and isn't whitespace).
+  const rankOrDash = `(?:${rank}|-)`;
+  // Two ways a hand gets labeled, both optional and tried in this order:
+  //  - a full seat name on its own (e.g. bridgewinners.com's copy-pasted
+  //    "West\n♠\n7\n♥\n..."), which can cross newlines to reach the ♠ --
+  //    a whole word is too deliberate a signal to plausibly be a
+  //    coincidental stray one, unlike a bare letter (see below).
+  //  - a single seat letter (deals/hard's "N ♠ A87 ..."), which must stay
+  //    on the same line (only horizontal whitespace before the ♠) --
+  //    crossing a newline risks grabbing an unrelated stray N/W/E/S, e.g.
+  //    the "W" in a preceding "Vulnerable:E-W" line.
+  const symbolPattern = new RegExp(
+    `(?:\\b(North|South|East|West)\\b\\s*|([NWES])[ \\t]*)?` +
+      `♠\\s*(${rankOrDash})\\s*♥\\s*(${rankOrDash})\\s*♦\\s*(${rankOrDash})\\s*♣\\s*(${rankOrDash})`,
+    'gi',
+  );
   const symbolMatches = [...text.matchAll(symbolPattern)];
   if (symbolMatches.length === 4) {
-    // Trust captured seat letters only if every match has one -- a mix (one
-    // stray letter alongside three blanks) isn't real labeling, just a
-    // coincidental N/W/E/S right before one hand with nothing (or, with no
-    // separator at all between fields, not even a space) between them and
-    // the ♠, e.g. the "W" in a preceding "Vulnerable:E-W". `[ \t]*` being
-    // zero-width doesn't help distinguish that from genuine labeling like
-    // deals/hard's "N ♠ A87 ...", so require all four or trust none.
-    const allLabeled = symbolMatches.every(([, seat]) => seat);
+    const seatOf = ([, fullName, letter]) =>
+      fullName ? fullName.toLowerCase() : letter ? SEAT_NAME_BY_LETTER[letter.toUpperCase()] : null;
+    // Trust captured seat labels only if every match has one -- a mix (one
+    // stray label alongside three blanks) isn't real labeling, just a
+    // coincidence, so require all four or trust none.
+    const allLabeled = symbolMatches.every(seatOf);
     symbolMatches.forEach((match, i) => {
-      const [, seat, spades, hearts, diamonds, clubs] = match;
+      const [, , , spades, hearts, diamonds, clubs] = match;
       const suits = [spades, hearts, diamonds, clubs].map(s => s || '-');
-      hands[allLabeled ? SEAT_NAME_BY_LETTER[seat] : positionalSeats[i]] = suits.join(' ');
+      hands[allLabeled ? seatOf(match) : positionalSeats[i]] = suits.join(' ');
     });
     if (SEATS.every(seat => hands[seat])) return hands;
   }

@@ -132,6 +132,70 @@ test('parseDealFile: symbol format, "10" as an alternative to "T" for ten', () =
   assert.strictEqual(hands.north, 'K109743 QJT A J72');
 });
 
+const BRIDGEWINNERS_HANDS = {
+  west: '7 KQJ96 A74 J1082',
+  north: 'J65 1032 98 A9763',
+  east: 'Q43 A75 QJ105 KQ5',
+  south: 'AK10982 84 K632 4',
+};
+
+test('parseDealFile: full seat names, one symbol/rank per line, not in N/W/E/S order (bridgewinners.com)', () => {
+  // Regression: seats are listed West, North, East, South here -- not the
+  // usual N,W,E,S -- so this only comes out right if "West"/"North"/etc.
+  // are recognized as real labels; falling back to positional order would
+  // silently swap North and West (both still 4-card spades, easy to miss).
+  const text = [
+    'West', '♠', '7', '♥', 'KQJ96', '♦', 'A74', '♣', 'J1082',
+    'North', '♠', 'J65', '♥', '1032', '♦', '98', '♣', 'A9763',
+    'East', '♠', 'Q43', '♥', 'A75', '♦', 'QJ105', '♣', 'KQ5',
+    'South', '♠', 'AK10982', '♥', '84', '♦', 'K632', '♣', '4',
+  ].join('\n');
+  assert.deepStrictEqual(parseDealFile(text), BRIDGEWINNERS_HANDS);
+});
+
+test('parseDealFile: same bridgewinners.com text collapsed to spaces (what a real <input> paste leaves)', () => {
+  const text = [
+    'West', '♠', '7', '♥', 'KQJ96', '♦', 'A74', '♣', 'J1082',
+    'North', '♠', 'J65', '♥', '1032', '♦', '98', '♣', 'A9763',
+    'East', '♠', 'Q43', '♥', 'A75', '♦', 'QJ105', '♣', 'KQ5',
+    'South', '♠', 'AK10982', '♥', '84', '♦', 'K632', '♣', '4',
+  ].join(' ');
+  assert.deepStrictEqual(parseDealFile(text), BRIDGEWINNERS_HANDS);
+});
+
+test('parseDealFile: one-symbol-per-line format, void suit written as nothing at all', () => {
+  const text = [
+    'West', '♠', '♥', 'KQJ96', '♦', 'A74', '♣', 'J1082',
+    'North', '♠', 'J65', '♥', '1032', '♦', '98', '♣', 'A9763',
+    'East', '♠', 'Q43', '♥', 'A75', '♦', 'QJ105', '♣', 'KQ5',
+    'South', '♠', 'AK10982', '♥', '84', '♦', 'K632', '♣', '4',
+  ].join('\n');
+  assert.deepStrictEqual(parseDealFile(text), { ...BRIDGEWINNERS_HANDS, west: '- KQJ96 A74 J1082' });
+});
+
+test('parseDealFile: one-symbol-per-line format, void suit written as an explicit "-"', () => {
+  const text = [
+    'West', '♠', '-', '♥', 'KQJ96', '♦', 'A74', '♣', 'J1082',
+    'North', '♠', 'J65', '♥', '1032', '♦', '98', '♣', 'A9763',
+    'East', '♠', 'Q43', '♥', 'A75', '♦', 'QJ105', '♣', 'KQ5',
+    'South', '♠', 'AK10982', '♥', '84', '♦', 'K632', '♣', '4',
+  ].join('\n');
+  assert.deepStrictEqual(parseDealFile(text), { ...BRIDGEWINNERS_HANDS, west: '- KQJ96 A74 J1082' });
+});
+
+test('parseDealFile: full seat names inline on one line (space-separated), void written as nothing at all', () => {
+  const text = 'West ♠ A1042 ♥ Q107 ♦ KJ7 ♣ K106 ' +
+    'North ♠ 76 ♥ A92 ♦ AQ92 ♣ AJ84 ' +
+    'East ♠ KQ8 ♥ J6 ♦ 1086543 ♣ Q9 ' +
+    'South ♠ J953 ♥ K8543 ♦ ♣ 7532';
+  assert.deepStrictEqual(parseDealFile(text), {
+    west: 'A1042 Q107 KJ7 K106',
+    north: '76 A92 AQ92 AJ84',
+    east: 'KQ8 J6 1086543 Q9',
+    south: 'J953 K8543 - 7532',
+  });
+});
+
 // --- parseDealFile: positional (no suit symbols) formats ---
 
 const DEAL2_HANDS = {
