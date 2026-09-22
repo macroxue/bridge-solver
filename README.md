@@ -101,7 +101,7 @@ N  7  7  6  5  5.70 s 242.9 M
 
 To get the strains sorted, pipe the previous command to
 ```
-tr NSHDC ABCDE | sort | tr ABCDE NSHDC
+tr N Z | sort -r | tr Z N
 ```
 
 ## Interactive play
