@@ -1,11 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <g transform="translate(4,0)">
     <!-- back D: upper-right, green -->
-    <path fill-rule="evenodd" fill="#15803d" transform="translate(18,-2)" d="
+    <path fill-rule="evenodd" fill="#15803d" transform="translate(19,0)" d="
       M 3,1 L 3,55 A 38,27 0 0 0 3,1 Z
       M 9,12 L 9,44 A 27,16 0 0 0 9,12 Z"/>
     <!-- front D: lower-left, orange -->
-    <path fill-rule="evenodd" fill="#ea580c" transform="translate(-8,4)" d="
+    <path fill-rule="evenodd" fill="#ea580c" transform="translate(-7,6)" d="
       M 3,1 L 3,55 A 38,27 0 0 0 3,1 Z
       M 9,12 L 9,44 A 27,16 0 0 0 9,12 Z"/>
   </g>
