@@ -236,53 +236,53 @@ to a single core for single-core runs.
 
 ### Single-core
 
-The solver fully analyzed 1000 random deals (under `deals/1k`) in just 93.8 seconds,
-averaging more than ten deals per second. Below is a more detailed breakdown.
-The longest one (`deal.310`) took 0.98 seconds and consumed 40.8 MB of memory.
+The solver fully analyzed 1000 random deals (under `deals/1k`) in just 89.5 seconds,
+averaging more than 11 deals per second. Below is a more detailed breakdown.
+The longest one (`deal.310`) took 0.92 seconds and consumed 36.1 MB of memory.
 
 | Time  | <= 0.1s | <= 0.2s | <= 0.5s |  <= 1s  |
 |-------|---------|---------|---------|---------|
-| Count |    719  |    912  |    992  |   1000  |
+| Count |    736  |    917  |    993  |   1000  |
 
 One of the most difficult deals is this symmetric one, with four void suits and
-nobody holding consecutive ranks in any suit. It took the solver less than four seconds.
+nobody holding consecutive ranks in any suit. It took the solver more than 3 seconds.
 ```
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
-N  5  5  5  5  1.88 s 132.5 M
-S  4  4  8  7  2.21 s 133.3 M
-H  8  7  4  4  2.65 s 133.9 M
-D  4  4  7  8  3.02 s 133.9 M
-C  7  8  4  4  3.39 s 133.9 M
+N  5  5  5  5  1.71 s 123.4 M
+S  4  4  8  7  2.01 s 124.2 M
+H  8  7  4  4  2.41 s 124.4 M
+D  4  4  7  8  2.75 s 124.7 M
+C  7  8  4  4  3.08 s 124.7 M
 ```
 
 An even more freakish deal with each player holding only two suits made the solver
-work hard for more than 12 seconds!
+work hard for more than 10 seconds!
 ```
                           ♠ KJ9753 ♥ - ♦ AQT8642 ♣ -
   ♠ AQT8642 ♥ KJ9753 ♦ - ♣ -                       ♠ - ♥ - ♦ KJ9753 ♣ AQT8642
                           ♠ - ♥ AQT8642 ♦ - ♣ KJ9753
-N  7  7  7  7  7.48 s 109.9 M
-S  6  6  7  7  8.43 s 110.2 M
-H  7  7  6  6  9.74 s 110.7 M
-D  7  7  6  6 11.33 s 111.0 M
-C  6  6  7  7 12.54 s 111.3 M
+N  7  7  7  7  6.00 s 108.2 M
+S  6  6  7  7  6.80 s 108.8 M
+H  7  7  6  6  7.87 s 109.3 M
+D  7  7  6  6  9.22 s 109.5 M
+C  6  6  7  7 10.22 s 109.8 M
 ```
 
 A new champion has emerged when North and South switch hands in the symmetric
 three-suited deal above. This simple change surprisingly increases the solving
-time by more than 20x and the memory usage by nearly 13x, overwhelmingly just
+time by more than 20x and the memory usage by nearly 14x, overwhelmingly just
 for NT contracts.
 ```
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
-N  7  7  7  7 70.48 s 1688.0 M
-S  4  4  7  7 70.87 s 1688.3 M
-H  7  7  4  4 71.18 s 1688.3 M
-D  4  4  7  7 71.47 s 1688.6 M
-C  7  7  4  4 71.84 s 1688.6 M
+N  7  7  7  7 63.19 s 1698.7 M
+S  4  4  7  7 63.53 s 1698.9 M
+H  7  7  4  4 63.82 s 1699.2 M
+D  4  4  7  7 64.08 s 1699.2 M
+C  7  7  4  4 64.41 s 1699.2 M
 ```
 
 ### Multi-core
@@ -292,7 +292,7 @@ The solver is single-threaded, so multiple instances of the solver are running i
 
 | # Cores   |    1 |    2 |    4 |    8 |   16 |
 |-----------|------|------|------|------|------|
-| Time (s)  | 93.8 | 53.4 | 29.3 | 18.2 | 14.8 |
+| Time (s)  | 89.5 | 51.1 | 27.6 | 17.1 | 14.1 |
 | Speed-up  |  1.0 |  1.8 |  3.2 |  5.2 |  6.3 |
 
 The scaling is decent up to 8 cores. 16 cores give small additional speed-up as the cores
@@ -315,8 +315,8 @@ wider than the gap between DDS and bcalc.
 
 ![5k.log](https://github.com/macroxue/bridge-solver/blob/master/comparison/5k_deals.log.png)
 
-**Sep 2026 update**: this solver has improved by 20% since the above
-comparison, so it's 1.6x faster than DDS 2.9 and 2.1x faster than bcalc now.
+**Sep 2026 update**: this solver has improved by 35% since the above
+comparison, so it's 1.8x faster than DDS 2.9 and 2.3x faster than bcalc now.
 Performance improvements seem to have stagnated with both DDS and bcalc.
 
 ## License
