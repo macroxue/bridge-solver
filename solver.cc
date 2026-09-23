@@ -866,13 +866,11 @@ struct Pattern {
     STATS(hits = cuts = 0);
   }
 
+  // Takes over p, leaving it with no subpatterns. Any subpatterns this pattern
+  // owns are overwritten, not freed.
   void MoveFrom(Pattern& p) {
-    hands = p.hands;
-    bounds = p.bounds;
-    order = p.order;
-    patterns.swap(p.patterns);
-    STATS(hits = p.hits);
-    STATS(cuts = p.cuts);
+    memcpy((void*)this, (void*)&p, sizeof(Pattern));
+    new (&p.patterns) Vector<Pattern>();
   }
 
   void swap(Pattern& p) {
@@ -941,7 +939,6 @@ struct Pattern {
     // Slot kept owns nothing, so memmove is safe like the relocation in Vector::resize().
     if (kept == n) patterns.resize(n + 1);
     memmove((void*)&patterns[pos + 1], (void*)&patterns[pos], (kept - pos) * sizeof(Pattern));
-    memset((void*)&patterns[pos], 0, sizeof(Pattern));
     patterns[pos].MoveFrom(new_pattern);
     while (patterns.size() > kept + 1) patterns.pop_back();
   }
