@@ -19,16 +19,20 @@ OPTS=-std=c++17 -Wall -Wno-missing-profile $(ARCH_OPTS)
 # compiler keeps its own recipe below.
 IS_CLANG := $(shell echo | $(CXX) -E -dM -x c++ - 2>/dev/null | grep -q __clang__ && echo 1)
 PGO_DIR = pgo-data
+# Apple Clang ships llvm-profdata in the Xcode toolchain, not on PATH.
+LLVM_PROFDATA := $(shell xcrun --find llvm-profdata 2>/dev/null || command -v llvm-profdata)
 
 ifeq ($(IS_CLANG),1)
-solver.p: solver.cc
+$(PGO_DIR)/default.profdata: solver.cc
+	@test -n "$(LLVM_PROFDATA)" || { echo "llvm-profdata not found (install Xcode CLT or LLVM)" >&2; exit 1; }
 	rm -rf $(PGO_DIR)
 	mkdir $(PGO_DIR)
-	$(CXX) $(OPTS) -O3 -fprofile-generate=$(PGO_DIR) -o $@ $^
-	./$@ -if deals/hard/deal.8 | tail
-	llvm-profdata merge -o $(PGO_DIR)/default.profdata $(PGO_DIR)/*.profraw
-solver: solver.cc
-	$(CXX) $(OPTS) -O3 -fprofile-use=$(PGO_DIR) -o $@ $^
+	$(CXX) $(OPTS) -O3 -fprofile-generate=$(PGO_DIR) -o solver.p solver.cc
+	./solver.p -if deals/hard/deal.8 | tail
+	$(LLVM_PROFDATA) merge -o $@ $(PGO_DIR)/*.profraw
+solver.p: $(PGO_DIR)/default.profdata
+solver: solver.cc $(PGO_DIR)/default.profdata
+	$(CXX) $(OPTS) -O3 -fprofile-use=$(PGO_DIR) -o $@ solver.cc
 	./$@ -if deals/hard/deal.8 | tail
 else
 solver.p: solver.cc
