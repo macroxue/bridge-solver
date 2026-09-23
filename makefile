@@ -29,7 +29,7 @@ solver.p: solver.cc
 	mkdir $(PGO_DIR)
 	$(CXX) $(OPTS) -O3 -fprofile-generate=$(PGO_DIR) -o $@ $^
 	./$@ -if deals/hard/deal.8 | tail
-	$(LLVM_PROFDATA) merge -o $(PGO_DIR)/default.profdata $(PGO_DIR)/*.profraw
+	"$(LLVM_PROFDATA)" merge -o $(PGO_DIR)/default.profdata $(PGO_DIR)/*.profraw
 solver: solver.cc solver.p
 	$(CXX) $(OPTS) -O3 -fprofile-use=$(PGO_DIR) -o $@ solver.cc
 	./$@ -if deals/hard/deal.8 | tail
