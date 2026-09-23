@@ -884,17 +884,16 @@ struct Pattern {
     STATS(std::swap(cuts, p.cuts));
   }
 
-  static const Pattern* Lookup(const Vector<Pattern>& patterns, const Pattern& new_pattern,
-                               int beta) {
+  static const Pattern* Lookup(const Vector<Pattern>& patterns, const Hands& hands, int beta) {
     for (size_t i = 0; i < patterns.size(); ++i) {
       auto& pattern = patterns[i];
-      if (!(new_pattern <= pattern)) continue;
+      if (!hands.Include(pattern.hands)) continue;
       STATS(++pattern.hits);
       if (pattern.bounds.Cutoff(beta)) {
         STATS(++pattern.cuts);
         return &pattern;
       }
-      if (auto detail = Lookup(pattern.patterns, new_pattern, beta)) return detail;
+      if (auto detail = Lookup(pattern.patterns, hands, beta)) return detail;
     }
     return nullptr;
   }
