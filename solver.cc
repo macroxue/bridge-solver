@@ -866,14 +866,6 @@ struct Pattern {
     STATS(hits = cuts = 0);
   }
 
-  void Reset() {
-    hands = Hands();
-    bounds = {0, TOTAL_TRICKS};
-    order = 0;
-    patterns.clear();
-    STATS(hits = cuts = 0);
-  }
-
   void MoveFrom(Pattern& p) {
     hands = p.hands;
     bounds = p.bounds;
@@ -892,7 +884,8 @@ struct Pattern {
     STATS(std::swap(cuts, p.cuts));
   }
 
-  const Pattern* Lookup(const Pattern& new_pattern, int beta) const {
+  static const Pattern* Lookup(const Vector<Pattern>& patterns, const Pattern& new_pattern,
+                               int beta) {
     for (size_t i = 0; i < patterns.size(); ++i) {
       auto& pattern = patterns[i];
       if (!(new_pattern <= pattern)) continue;
@@ -901,12 +894,12 @@ struct Pattern {
         STATS(++pattern.cuts);
         return &pattern;
       }
-      if (auto detail = pattern.Lookup(new_pattern, beta)) return detail;
+      if (auto detail = Lookup(pattern.patterns, new_pattern, beta)) return detail;
     }
     return nullptr;
   }
 
-  void Update(Pattern& new_pattern) {
+  static void Update(Vector<Pattern>& patterns, Pattern& new_pattern) {
     for (size_t i = 0; i < patterns.size(); ++i) {
       auto& pattern = patterns[i];
       if (new_pattern == pattern) {
@@ -916,13 +909,13 @@ struct Pattern {
         // Old pattern is more generic. Add new pattern under.
         new_pattern.bounds = new_pattern.bounds.Intersect(pattern.bounds);
         CHECK(!new_pattern.bounds.Empty());
-        if (new_pattern.bounds != pattern.bounds) pattern.Update(new_pattern);
+        if (new_pattern.bounds != pattern.bounds) Update(pattern.patterns, new_pattern);
         return;
       } else if (pattern <= new_pattern) {
         // New pattern is more generic. Absorb sub-patterns.
         pattern.UpdateBounds(new_pattern.bounds);
         if (pattern.bounds != new_pattern.bounds)
-          new_pattern.Append(pattern);
+          Append(new_pattern.patterns, pattern);
         else {
           STATS(new_pattern.hits += pattern.hits);
           STATS(new_pattern.cuts += pattern.cuts);
@@ -933,26 +926,26 @@ struct Pattern {
           if (!(old_pattern <= new_pattern)) continue;
           old_pattern.UpdateBounds(new_pattern.bounds);
           if (old_pattern.bounds != new_pattern.bounds)
-            new_pattern.Append(old_pattern);
+            Append(new_pattern.patterns, old_pattern);
           else if (!new_pattern.patterns.size()) {
             STATS(new_pattern.hits += old_pattern.hits);
             STATS(new_pattern.cuts += old_pattern.cuts);
             new_pattern.patterns.swap(old_pattern.patterns);
           } else
-            new_pattern.Append(old_pattern.patterns);
-          Delete(j);
+            Append(new_pattern.patterns, old_pattern.patterns);
+          Delete(patterns, j);
           --j;
         }
         pattern.MoveFrom(new_pattern);
-        BubbleUp(i);
+        BubbleUp(patterns, i);
         return;
       }
     }
-    Append(new_pattern);
-    BubbleUp(patterns.size() - 1);
+    Append(patterns, new_pattern);
+    BubbleUp(patterns, patterns.size() - 1);
   }
 
-  void BubbleUp(size_t pos) {
+  static void BubbleUp(Vector<Pattern>& patterns, size_t pos) {
     while (patterns[pos].order < patterns[pos / 2].order) {
       patterns[pos].swap(patterns[pos / 2]);
       pos /= 2;
@@ -971,18 +964,18 @@ struct Pattern {
       // patterns[i].patterns invalid.
       Vector<Pattern> subpatterns;
       subpatterns.swap(patterns[i].patterns);
-      Append(subpatterns);
-      Delete(i);
+      Append(patterns, subpatterns);
+      Delete(patterns, i);
       --i;
     }
   }
 
-  void Append(Pattern& new_pattern) {
+  static void Append(Vector<Pattern>& patterns, Pattern& new_pattern) {
     patterns.resize(patterns.size() + 1);
     patterns.back().MoveFrom(new_pattern);
   }
 
-  void Append(Vector<Pattern>& new_patterns) {
+  static void Append(Vector<Pattern>& patterns, Vector<Pattern>& new_patterns) {
     auto new_size = new_patterns.size();
     if (new_size == 0) return;
     auto size = patterns.size();
@@ -990,7 +983,7 @@ struct Pattern {
     for (size_t i = 0; i < new_size; ++i) patterns[size + i].MoveFrom(new_patterns[i]);
   }
 
-  void Delete(size_t i) {
+  static void Delete(Vector<Pattern>& patterns, size_t i) {
     patterns[i].MoveFrom(patterns.back());
     patterns.pop_back();
   }
@@ -1043,29 +1036,35 @@ struct Pattern {
 
 struct ShapeEntry {
   uint64_t hash;
-  Pattern pattern[NUM_SEATS];
+  Vector<Pattern> patterns[NUM_SEATS];
 #ifdef _DEBUG
   Shape shape;
 
   void Show() const {
     for (int s = 0; s < NUM_SEATS; ++s) {
-      if (pattern[s].patterns.size() == 0) continue;
+      if (patterns[s].size() == 0) continue;
       printf("hash %016lx shape %016lx seat %c size %ld total size %d\n", hash, shape.Value(),
-             SeatLetter(s), pattern[s].patterns.size(), pattern[s].Size() - 1);
-      pattern[s].Show(shape, 0);
+             SeatLetter(s), patterns[s].size(), Size(s));
+      for (size_t i = 0; i < patterns[s].size(); ++i) patterns[s][i].Show(shape);
     }
   }
 #endif
 
+  int Size(int s) const {
+    int total = 0;
+    for (size_t i = 0; i < patterns[s].size(); ++i) total += patterns[s][i].Size();
+    return total;
+  }
+
   int Size() const {
     int total = 0;
-    for (int s = 0; s < NUM_SEATS; ++s) total += pattern[s].Size() - 1;
+    for (int s = 0; s < NUM_SEATS; ++s) total += Size(s);
     return total;
   }
 
   void Reset(uint64_t hash_in) {
     hash = hash_in;
-    for (int s = 0; s < NUM_SEATS; ++s) pattern[s].Reset();
+    for (int s = 0; s < NUM_SEATS; ++s) patterns[s].clear();
 #ifdef _DEBUG
     shape = Shape();
 #endif
@@ -1073,7 +1072,7 @@ struct ShapeEntry {
 
   void MoveTo(ShapeEntry& to) {
     to.hash = hash;
-    for (int s = 0; s < NUM_SEATS; ++s) to.pattern[s].MoveFrom(pattern[s]);
+    for (int s = 0; s < NUM_SEATS; ++s) to.patterns[s].swap(patterns[s]);
 #ifdef _DEBUG
     to.shape = shape;
 #endif
@@ -1263,8 +1262,8 @@ class Play {
     const auto shape_hash = common_bounds_cache.Hash(trick->shape.Value());
     auto* shape_entry = common_bounds_cache.Lookup(shape_hash);
     if (shape_entry) {
-      auto pattern =
-          shape_entry->pattern[seat_to_play].Lookup(trick->relative_hands, beta - ns_tricks_won);
+      auto pattern = Pattern::Lookup(shape_entry->patterns[seat_to_play], trick->relative_hands,
+                                     beta - ns_tricks_won);
       if (pattern) {
         auto rank_winners = pattern->GetRankWinners(trick->all_cards);
         VERBOSE(ShowPattern("match", *pattern, trick->shape));
@@ -1291,7 +1290,7 @@ class Play {
 #ifdef _DEBUG
     new_shape_entry->shape = trick->shape;
 #endif
-    new_shape_entry->pattern[seat_to_play].Update(new_pattern);
+    Pattern::Update(new_shape_entry->patterns[seat_to_play], new_pattern);
     return {ns_tricks, extended_rank_winners};
   }
 
