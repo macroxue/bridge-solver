@@ -885,88 +885,71 @@ struct Pattern {
   }
 
   static const Pattern* Lookup(const Vector<Pattern>& patterns, const Hands& hands, int beta) {
+    const Pattern* best = nullptr;
+    Lookup(patterns, hands, beta, best);
+    return best;
+  }
+
+  static void Lookup(const Vector<Pattern>& patterns, const Hands& hands, int beta,
+                     const Pattern*& best) {
     for (size_t i = 0; i < patterns.size(); ++i) {
       auto& pattern = patterns[i];
       if (!hands.Include(pattern.hands)) continue;
       STATS(++pattern.hits);
       if (pattern.bounds.Cutoff(beta)) {
         STATS(++pattern.cuts);
-        return &pattern;
+        best = &pattern;
+        return;
       }
-      if (auto detail = Lookup(pattern.patterns, hands, beta)) return detail;
+      Lookup(pattern.patterns, hands, beta, best);
+      if (best) return;
     }
-    return nullptr;
   }
 
+  // Patterns are sorted by order, most generic first.
   static void Update(Vector<Pattern>& patterns, Pattern& new_pattern) {
-    for (size_t i = 0; i < patterns.size(); ++i) {
+    size_t n = patterns.size(), pos = 0;
+    // Go under the most generic pattern including the new one.
+    for (; pos < n && patterns[pos].order <= new_pattern.order; ++pos) {
+      auto& pattern = patterns[pos];
+      if (!(new_pattern <= pattern)) continue;
+      if (new_pattern == pattern)
+        pattern.bounds = pattern.bounds.Intersect(new_pattern.bounds);
+      else
+        Update(pattern.patterns, new_pattern);
+      return;
+    }
+    // Adopt more specific patterns, dropping those with no tighter bounds but
+    // keeping their subpatterns. The rest are kept in patterns[pos, kept).
+    bool sorted = true;
+    size_t kept = pos;
+    for (size_t i = pos; i < n; ++i) {
       auto& pattern = patterns[i];
-      if (new_pattern == pattern) {
-        pattern.UpdateBounds(new_pattern.bounds);
-        return;
-      } else if (new_pattern <= pattern) {
-        // Old pattern is more generic. Add new pattern under.
-        new_pattern.bounds = new_pattern.bounds.Intersect(pattern.bounds);
-        CHECK(!new_pattern.bounds.Empty());
-        if (new_pattern.bounds != pattern.bounds) Update(pattern.patterns, new_pattern);
-        return;
-      } else if (pattern <= new_pattern) {
-        // New pattern is more generic. Absorb sub-patterns.
-        pattern.UpdateBounds(new_pattern.bounds);
-        if (pattern.bounds != new_pattern.bounds)
-          Append(new_pattern.patterns, pattern);
-        else {
-          STATS(new_pattern.hits += pattern.hits);
-          STATS(new_pattern.cuts += pattern.cuts);
-          new_pattern.patterns.swap(pattern.patterns);
-        }
-        for (size_t j = i + 1; j < patterns.size(); ++j) {
-          auto& old_pattern = patterns[j];
-          if (!(old_pattern <= new_pattern)) continue;
-          old_pattern.UpdateBounds(new_pattern.bounds);
-          if (old_pattern.bounds != new_pattern.bounds)
-            Append(new_pattern.patterns, old_pattern);
-          else if (!new_pattern.patterns.size()) {
-            STATS(new_pattern.hits += old_pattern.hits);
-            STATS(new_pattern.cuts += old_pattern.cuts);
-            new_pattern.patterns.swap(old_pattern.patterns);
-          } else
-            Append(new_pattern.patterns, old_pattern.patterns);
-          Delete(patterns, j);
-          --j;
-        }
-        pattern.MoveFrom(new_pattern);
-        BubbleUp(patterns, i);
-        return;
+      if (!(pattern <= new_pattern)) {
+        if (kept != i) patterns[kept].MoveFrom(pattern);
+        ++kept;
+      } else if (pattern.bounds.Include(new_pattern.bounds)) {
+        sorted &= pattern.patterns.size() == 0;
+        Append(new_pattern.patterns, pattern.patterns);
+        pattern.patterns.clear();
+      } else {
+        Append(new_pattern.patterns, pattern);
       }
     }
-    Append(patterns, new_pattern);
-    BubbleUp(patterns, patterns.size() - 1);
+    if (!sorted) Sort(new_pattern.patterns);
+    // Shift the kept patterns one slot back and put the new pattern at pos.
+    // Slot kept owns nothing, so memmove is safe like the relocation in Vector::resize().
+    if (kept == n) patterns.resize(n + 1);
+    memmove((void*)&patterns[pos + 1], (void*)&patterns[pos], (kept - pos) * sizeof(Pattern));
+    memset((void*)&patterns[pos], 0, sizeof(Pattern));
+    patterns[pos].MoveFrom(new_pattern);
+    while (patterns.size() > kept + 1) patterns.pop_back();
   }
 
-  static void BubbleUp(Vector<Pattern>& patterns, size_t pos) {
-    while (patterns[pos].order < patterns[pos / 2].order) {
-      patterns[pos].swap(patterns[pos / 2]);
-      pos /= 2;
-    }
-  }
-
-  void UpdateBounds(Bounds new_bounds) {
-    auto old_bounds = bounds;
-    bounds = bounds.Intersect(new_bounds);
-    CHECK(!bounds.Empty());
-    if (bounds == old_bounds) return;
-    for (size_t i = 0; i < patterns.size(); ++i) {
-      patterns[i].UpdateBounds(bounds);
-      if (patterns[i].bounds != bounds) continue;
-      // Get the subpatterns out as resizing patterns in Append renders
-      // patterns[i].patterns invalid.
-      Vector<Pattern> subpatterns;
-      subpatterns.swap(patterns[i].patterns);
-      Append(patterns, subpatterns);
-      Delete(patterns, i);
-      --i;
-    }
+  static void Sort(Vector<Pattern>& patterns) {
+    for (size_t i = 1; i < patterns.size(); ++i)
+      for (size_t j = i; j > 0 && patterns[j - 1].order > patterns[j].order; --j)
+        patterns[j].swap(patterns[j - 1]);
   }
 
   static void Append(Vector<Pattern>& patterns, Pattern& new_pattern) {
@@ -980,11 +963,6 @@ struct Pattern {
     auto size = patterns.size();
     patterns.resize(size + new_size);
     for (size_t i = 0; i < new_size; ++i) patterns[size + i].MoveFrom(new_patterns[i]);
-  }
-
-  static void Delete(Vector<Pattern>& patterns, size_t i) {
-    patterns[i].MoveFrom(patterns.back());
-    patterns.pop_back();
   }
 
   // Whether this pattern is more detailed than (or a subset of) the other one.
