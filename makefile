@@ -1,4 +1,6 @@
 .PHONY: all sanitizer web clean
+# Don't leave a half-built solver.p that later makes look up to date.
+.DELETE_ON_ERROR:
 all: solver.p solver
 sanitizer: solver.m solver.a
 web:
@@ -11,7 +13,7 @@ CXX ?= g++
 # baseline-mandatory there regardless of arch flags.
 IS_AARCH64 := $(shell echo | $(CXX) -E -dM -x c++ - 2>/dev/null | grep -q __aarch64__ && echo 1)
 ARCH_OPTS := $(if $(filter 1,$(IS_AARCH64)),,-march=native)
-OPTS=-std=c++17 -Wall -Wno-missing-profile $(ARCH_OPTS)
+OPTS=-std=c++17 -Wall $(if $(IS_CLANG),,-Wno-missing-profile) $(ARCH_OPTS)
 
 # CXX may be Clang directly or Apple Clang aliased as g++ on stock macOS.
 # Its PGO format (.profraw + llvm-profdata) differs from GCC's (.gcda), and
@@ -19,10 +21,12 @@ OPTS=-std=c++17 -Wall -Wno-missing-profile $(ARCH_OPTS)
 # compiler keeps its own recipe below.
 IS_CLANG := $(shell echo | $(CXX) -E -dM -x c++ - 2>/dev/null | grep -q __clang__ && echo 1)
 PGO_DIR = pgo-data
-# Apple Clang ships llvm-profdata in the Xcode toolchain, not on PATH.
-LLVM_PROFDATA := $(shell xcrun --find llvm-profdata 2>/dev/null || command -v llvm-profdata)
 
 ifeq ($(IS_CLANG),1)
+# Prefer the llvm-profdata next to CXX so profile versions match (e.g. Homebrew
+# LLVM alongside Xcode); Apple Clang's lives in the Xcode toolchain, off PATH.
+LLVM_PROFDATA := $(shell p=$$($(CXX) -print-prog-name=llvm-profdata); \
+	[ -x "$$p" ] && echo "$$p" || xcrun --find llvm-profdata 2>/dev/null || command -v llvm-profdata)
 solver.p: solver.cc
 	@test -n "$(LLVM_PROFDATA)" || { echo "llvm-profdata not found (install Xcode CLT or LLVM)" >&2; exit 1; }
 	rm -rf $(PGO_DIR)
