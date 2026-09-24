@@ -1002,7 +1002,7 @@ struct Pattern {
       }
       printf(" %2d", order);
       STATS(printf(" hits %d cuts %d", hits, cuts));
-      puts(level > 1 && bounds == parent_bounds ? " dup" : "");
+      puts(level > 1 && bounds.Include(parent_bounds) ? " dup" : "");
     }
     for (size_t i = 0; i < patterns.size(); ++i) patterns[i].Show(shape, level + 1, bounds);
   }
