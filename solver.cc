@@ -1784,8 +1784,10 @@ class Play {
           if (pd_winners <= pd_max_rank_winners) pd_rank_winners.Add(card);
         } else
           break;
-      my_tricks += SuitFastTricks(my_suit, my_winners, my_entry, pd_suit, pd_winners);
-      pd_tricks += SuitFastTricks(pd_suit, pd_winners, pd_entry, my_suit, my_winners);
+      my_tricks +=
+          SuitFastTricks(my_suit, my_winners, my_max_rank_winners, my_entry, pd_suit, pd_winners);
+      pd_tricks +=
+          SuitFastTricks(pd_suit, pd_winners, pd_max_rank_winners, pd_entry, my_suit, my_winners);
     }
     if (pd_entry) {
       fast_tricks = std::max(my_tricks, pd_tricks);
@@ -1795,12 +1797,16 @@ class Play {
     return {std::min(trump_tricks + fast_tricks, my_hand.Size()), rank_winners};
   }
 
-  int SuitFastTricks(Cards my_suit, int my_winners, bool& my_entry, Cards pd_suit,
-                     int pd_winners) const {
+  int SuitFastTricks(Cards my_suit, int my_winners, int max_rank_winners, bool& my_entry,
+                     Cards pd_suit, int pd_winners) const {
     // Entry from partner if my top winner can cover partner's bottom card.
     if (pd_suit && my_winners > 0 && HigherRank(my_suit.Top(), pd_suit.Bottom())) my_entry = true;
-    // Partner has no winners.
-    if (pd_winners == 0) return my_winners;
+    if (pd_winners == 0) {
+      // My winners outlast everyone else's cards, so my small cards win too.
+      if (my_winners >= max_rank_winners) return my_suit.Size();
+      // Partner has no winners.
+      return my_winners;
+    }
     // Cash all my winners, then partner's.
     if (my_winners == 0) return my_suit ? pd_winners : 0;
     // Suit blocked by partner.
