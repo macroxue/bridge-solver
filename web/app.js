@@ -123,7 +123,10 @@ const worker = new Worker('worker.js');
 // benchmark says nothing about scaling across *more* physical cores, so
 // this isn't otherwise capped. A browser without hardwareConcurrency at
 // all is likely on old, low-core hardware, hence the low (not 8) fallback.
-const SHUFFLE_WORKER_COUNT = Math.max(1, Math.floor((navigator.hardwareConcurrency || 4) / 2));
+// ?workers=N overrides the default, for timing pool sizes per device.
+const workersParam = parseInt(new URLSearchParams(location.search).get('workers'), 10);
+const SHUFFLE_WORKER_COUNT = workersParam > 0 ? workersParam
+  : Math.max(1, Math.floor((navigator.hardwareConcurrency || 4) / 2));
 const shuffleWorkers =
   Array.from({ length: SHUFFLE_WORKER_COUNT }, () => new Worker('shuffle-worker.js'));
 
@@ -191,6 +194,10 @@ worker.onmessage = (event) => {
 // separate button-press batches, and tracks combined progress/timing.
 let pendingBatch = null;
 
+function workersLabel(n) {
+  return ` (${n} worker${n === 1 ? '' : 's'})`;
+}
+
 // Dispatch always uses a prefix shuffleWorkers[0..workersToUse-1] of the
 // pool (see runShuffleBatch()), so a message's workerIndex here is always
 // a valid index into pendingBatch.doneByWorker.
@@ -223,7 +230,7 @@ shuffleWorkers.forEach((shuffleWorker, workerIndex) => {
         const [done] = rest;
         pendingBatch.doneByWorker[workerIndex] = done;
         const totalDone = pendingBatch.doneByWorker.reduce((a, b) => a + b, 0);
-        statusEl.textContent = `Shuffling… ${totalDone}/${pendingBatch.totalUnits}`;
+        statusEl.textContent = `Shuffling… ${totalDone}/${pendingBatch.totalUnits}${workersLabel(pendingBatch.workers)}`;
         break;
       }
       case 'shuffle': {
@@ -237,10 +244,11 @@ shuffleWorkers.forEach((shuffleWorker, workerIndex) => {
         shuffleAccumulator = mergeShuffleData(shuffleAccumulator, pendingBatch.merged);
         renderShuffleTable(shuffleAccumulator);
         growTablesColumnMinWidth();
+        const { workers } = pendingBatch;
         pendingBatch = null;
         const { rounds, elapsedMs } = shuffleAccumulator;
         const elapsedS = (elapsedMs / 1000).toFixed(1);
-        statusEl.textContent = `Shuffled ${rounds} times each way in ${elapsedS} s.`;
+        statusEl.textContent = `Shuffled ${rounds} times each way in ${elapsedS} s${workersLabel(workers)}.`;
         setBusyState(false);
         break;
       }
@@ -617,11 +625,12 @@ function runShuffleBatch(rounds) {
     totalUnits: rounds * 2, // *2 for the ew/ns directions, like shuffle-worker.js's own `total`
     doneByWorker: new Array(workersToUse).fill(0),
     merged: null,
+    workers: workersToUse,
     workersRemaining: workersToUse,
     startTime: performance.now(),
   };
 
-  statusEl.textContent = `Shuffling… 0/${pendingBatch.totalUnits}`;
+  statusEl.textContent = `Shuffling… 0/${pendingBatch.totalUnits}${workersLabel(workersToUse)}`;
   for (let i = 0; i < workersToUse; ++i) {
     const workerRounds = baseRounds + (i < extraRounds ? 1 : 0);
     shuffleWorkers[i].postMessage(['shuffle', resolvedHands, workerRounds, SHUFFLE_MIN_TRICKS]);
