@@ -1276,6 +1276,14 @@ class Play {
     if (lead_tricks == 0 && with_trumps)
       std::tie(lead_tricks, lead_rank_winners) = SlowTrumpTricks(
           MySuit(trump), PdSuit(trump), LhoSuit(trump), RhoSuit(trump), /*leading=*/true);
+    if (with_trumps) {
+      int length_tricks =
+          TrumpLengthTricks(MySuit(trump), PdSuit(trump), LhoSuit(trump), RhoSuit(trump));
+      if (length_tricks > 0 && length_tricks >= lead_tricks) {
+        lead_tricks = length_tricks;
+        lead_rank_winners = {};
+      }
+    }
     auto ns_tricks = SureTrickCutoff(beta, lead_tricks, NsToPlay(), /*leading=*/true);
     if (ns_tricks >= 0) return {ns_tricks, lead_rank_winners};
 
@@ -1284,6 +1292,14 @@ class Play {
     if (other_tricks == 0 && with_trumps)
       std::tie(other_tricks, other_rank_winners) = SlowTrumpTricks(
           LhoSuit(trump), RhoSuit(trump), PdSuit(trump), MySuit(trump), /*leading=*/false);
+    if (with_trumps) {
+      int length_tricks =
+          TrumpLengthTricks(LhoSuit(trump), RhoSuit(trump), PdSuit(trump), MySuit(trump));
+      if (length_tricks > 0 && length_tricks >= other_tricks) {
+        other_tricks = length_tricks;
+        other_rank_winners = {};
+      }
+    }
     ns_tricks = SureTrickCutoff(beta, other_tricks, !NsToPlay(), /*leading=*/false);
     if (ns_tricks >= 0) return {ns_tricks, other_rank_winners};
 
@@ -1730,6 +1746,13 @@ class Play {
         return {1, a.Union(k).Union(q)};
     }
     return {0, {}};
+  }
+
+  // Each of our trumps wins a trick unless an opponent's trump is in it.
+  // Trump lengths are in the shape, so this needs no rank winners.
+  static int TrumpLengthTricks(Cards my_trumps, Cards pd_trumps, Cards lho_trumps,
+                               Cards rho_trumps) {
+    return std::max(my_trumps.Size(), pd_trumps.Size()) - lho_trumps.Size() - rho_trumps.Size();
   }
 
   Result OtherSlowNoTrumpTricks() const {
