@@ -1817,6 +1817,23 @@ class Play {
       rank_winners.Add(pd_rank_winners);
     } else
       fast_tricks = my_tricks;
+
+    if (trump != NOTRUMP) {
+      // The long trump hand keeps its trumps while the fast tricks are cashed if it has
+      // enough other cards to play, so its length tricks come afterwards.
+      auto my_trumps = my_hand.Suit(trump), pd_trumps = pd_hand.Suit(trump);
+      int length_tricks = TrumpLengthTricks(my_trumps, pd_trumps, lho_hand.Suit(trump),
+                                            rho_hand.Suit(trump));
+      int max_trumps = std::max(my_trumps.Size(), pd_trumps.Size());
+      bool my_keeps = my_trumps.Size() == max_trumps &&
+                      my_hand.Size() - my_trumps.Size() >= fast_tricks;
+      bool pd_keeps = pd_trumps.Size() == max_trumps &&
+                      pd_hand.Size() - pd_trumps.Size() >= fast_tricks;
+      if (length_tricks > 0 && length_tricks >= trump_tricks && (my_keeps || pd_keeps)) {
+        trump_tricks = length_tricks;
+        rank_winners = rank_winners.Different(trick->all_cards.Suit(trump));
+      }
+    }
     return {std::min(trump_tricks + fast_tricks, my_hand.Size()), rank_winners};
   }
 
