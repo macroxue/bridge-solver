@@ -1,4 +1,4 @@
-.PHONY: all clean check-emcc
+.PHONY: all clean check-emcc setup
 .DELETE_ON_ERROR:
 all: solver.js solver.wasm solver-no-simd.wasm deals.js
 
@@ -6,28 +6,39 @@ all: solver.js solver.wasm solver-no-simd.wasm deals.js
 # compiler-rt still on v10, so -fprofile-instr-generate crashes at exit.
 # 5.0.7 is the last release whose clang and compiler-rt agree on the layout.
 EMSCRIPTEN_VERSION ?= 5.0.7
-# Prefer an activated emsdk tree (source emsdk_env.sh, or set EMSDK).
-EMCC ?= $(or $(wildcard $(EMSDK)/upstream/emscripten/emcc),emcc)
+# Repo-local emsdk (gitignored). Run `make setup` once to install the pinned
+# version. Override on the command line if needed: `make EMSDK=/path/to/emsdk`.
+# Environment EMSDK is ignored so a leftover ~/emsdk from `emsdk_env.sh`
+# cannot shadow the pin.
+ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
+EMSDK := $(ROOT)/.emsdk
+EMCC := $(or $(wildcard $(EMSDK)/upstream/emscripten/emcc),emcc)
 # emcc's own llvm-profdata, in the LLVM tree emcc is configured with.
-LLVM_PROFDATA ?= $(shell $(EMCC) --print-prog-name=llvm-profdata 2>/dev/null)
+LLVM_PROFDATA := $(shell $(EMCC) --print-prog-name=llvm-profdata 2>/dev/null)
 # emsdk's own Node -- the system one here is too old to run wasm builds.
-NODE=$(or $(EMSDK_NODE),node)
+# Ignore EMSDK_NODE from a prior emsdk_env.sh for the same reason as EMSDK.
+NODE := $(or $(firstword $(wildcard $(EMSDK)/node/*/bin/node)),node)
 
-# Fail fast with install instructions when PATH has the wrong emcc.
-# Inlined into recipes (not a prerequisite) so a .PHONY check doesn't
-# force every target to rebuild on each make.
+# Fail fast when the pinned toolchain isn't available. Inlined into recipes
+# (not a prerequisite) so a .PHONY check doesn't force rebuilds every time.
 define require_emcc
 v=$$($(EMCC) --version 2>/dev/null | sed -n 's/.* \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1); \
 if [ "$$v" != "$(EMSCRIPTEN_VERSION)" ]; then \
 	echo "error: need Emscripten $(EMSCRIPTEN_VERSION) (got '$${v:-none}' from $(EMCC))" >&2; \
-	echo "  git clone https://github.com/emscripten-core/emsdk.git ~/emsdk && cd ~/emsdk && \\" >&2; \
-	echo "  ./emsdk install $(EMSCRIPTEN_VERSION) && ./emsdk activate $(EMSCRIPTEN_VERSION) && \\" >&2; \
-	echo "  source ./emsdk_env.sh" >&2; \
+	echo "  run: make -C web setup" >&2; \
 	exit 1; \
 fi
 endef
 check-emcc:
 	@$(require_emcc)
+
+# Clone emsdk into $(EMSDK) and install the pinned version. Idempotent.
+setup:
+	@if [ ! -x "$(EMSDK)/emsdk" ]; then \
+		git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$(EMSDK)"; \
+	fi
+	"$(EMSDK)/emsdk" install $(EMSCRIPTEN_VERSION)
+	"$(EMSDK)/emsdk" activate $(EMSCRIPTEN_VERSION)
 
 # Instrumented wasm run under Node to produce PGO data for the builds
 # below. -sNODERAWFS escapes Emscripten's in-memory FS so default.profraw
