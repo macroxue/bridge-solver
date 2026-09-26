@@ -14,12 +14,12 @@ Requirement: Linux or macOS on x86-64 or ARM64, with G++ or Clang installed.
 make
 ```
 
-To build the [web app](web/README.md), [Emscripten](https://emscripten.org) **5.0.7**
-(via [emsdk](https://github.com/emscripten-core/emsdk)) is required — see
-[`web/README.md`](web/README.md) for the pin and install steps. Emscripten
-6.0+ cannot build this tree (broken PGO instrumentation).
+To build the [web app](web/README.md), run `make -C web setup` once (installs a pinned
+Emscripten 5.0.7 into a repo-local `.emsdk/`), then `make -C web`. See
+[`web/README.md`](web/README.md). Emscripten 6.0+ cannot build this tree
+(broken PGO instrumentation).
 ```
-make -C web
+make -C web setup && make -C web
 ```
 
 To check correctness in a few seconds:
