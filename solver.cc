@@ -449,7 +449,11 @@ class Hands {
   // Whether every seat's hand in `other` is a subset of the hand here.
   // Pack two adjacent hands into one 128-bit PTESTs.
   bool Include(const Hands& other) const {
-#ifdef __SSE4_1__
+#ifdef __AVX2__
+    __m256i a = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hands));
+    __m256i b = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(other.hands));
+    return _mm256_testc_si256(a, b);
+#elif defined(__SSE4_1__)
     __m128i a0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&hands[WEST]));
     __m128i b0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&other.hands[WEST]));
     __m128i a1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&hands[EAST]));
@@ -470,7 +474,12 @@ class Hands {
   }
 
   bool Equals(const Hands& other) const {
-#ifdef __SSE4_1__
+#ifdef __AVX2__
+    __m256i a = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hands));
+    __m256i b = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(other.hands));
+    __m256i diff = _mm256_xor_si256(a, b);
+    return _mm256_testz_si256(diff, diff);
+#elif defined(__SSE4_1__)
     __m128i a0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&hands[WEST]));
     __m128i b0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&other.hands[WEST]));
     __m128i a1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&hands[EAST]));
