@@ -7,7 +7,7 @@ Try the [web demo](https://macroxue.github.io/bridge-solver/web/), which
 runs the same solver compiled to WebAssembly.
 
 ## Build the solver
-Requirement: a Linux machine with G++ compiler installed.
+Requirement: Linux or macOS on x86-64 or ARM64, with G++ or Clang installed.
 ```
 make
 ```
@@ -92,11 +92,11 @@ where [STRAIN] is one of {N, S, H, D, C}.
 Solving a single deal with one thread per strain can be done with `xargs`:
 ```
 echo N S H D C | xargs -n1 -P5 ./solver -if deals/freak/deal.0 -m0 -t
-D 11 11  2  2  0.09 s   7.8 M
-S  8  8  5  5  0.39 s  28.6 M
-H  8  8  5  5  1.01 s  57.2 M
-C  6  6  7  6  1.70 s  83.2 M
-N  7  7  6  5  5.03 s 227.7 M
+D 11 11  2  2  0.07 s   7.9 M
+S  8  8  5  5  0.33 s  25.7 M
+H  8  8  5  5  1.00 s  57.7 M
+C  6  6  7  6  1.69 s  82.3 M
+N  7  7  6  5  4.16 s 201.6 M
 ```
 
 To get the strains sorted, pipe the previous command to
@@ -233,29 +233,38 @@ Benchmarks below run on [AMD Ryzen 7 5800H](https://www.amd.com/en/support/downl
 with 8 physical cores at 3.2GHz base clock and 4.4GHz boost clock. To get stable performance
 numbers, all irrelevant applications are closed and `taskset` is used to bind the process
 to a single core for single-core runs.
+Also `GLIBC_TUNABLES=glibc.malloc.hugetlb=1` is set to enable transparent huge
+pages with glibc 2.35 or later. (`/sys/kernel/mm/transparent_hugepage/enabled`
+must be set to `madvise` or `always`.) Fewer TLB misses make the solver about
+2% faster on typical deals and up to 10% faster on very difficult deals, at the
+cost of slightly higher memory usage. A benchmark run looks like below.
+
+```
+GLIBC_TUNABLES=glibc.malloc.hugetlb=1 taskset -c 0 ./run.sh deals/1k
+```
 
 ### Single-core
 
-The solver fully analyzed 1000 random deals (under `deals/1k`) in just 85.0 seconds,
-averaging more than 11 deals per second. Below are time and memory distributions,
+The solver fully analyzed 1000 random deals (under `deals/1k`) in just 80.0 seconds,
+averaging more than 12 deals per second. Below are time and memory distributions,
 with both maximums from `deal.310`.
 
 | Percentile   | 50th | 75th | 90th | 95th | 99th | 99.9th | Max  |
 |--------------|------|------|------|------|------|--------|------|
-| Time (s)     | 0.06 | 0.10 | 0.18 | 0.26 | 0.44 |  0.60  | 0.83 |
-| Memory (MiB) |  6.4 |  8.1 | 10.8 | 13.5 | 19.5 |  30.2  | 32.7 |
+| Time (s)     | 0.05 | 0.10 | 0.17 | 0.24 | 0.38 |  0.54  | 0.77 |
+| Memory (MiB) |  7.3 |  8.9 | 11.8 | 14.3 | 20.3 |  30.6  | 32.3 |
 
 One of the most difficult deals is this symmetric one, with four void suits and
-nobody holding consecutive ranks in any suit. It took the solver less than 3 seconds.
+nobody holding consecutive ranks in any suit. It took the solver less than 2.5 seconds.
 ```
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
-N  5  5  5  5  1.65 s 118.7 M
-S  4  4  8  7  1.93 s 119.5 M
-H  8  7  4  4  2.30 s 119.7 M
-D  4  4  7  8  2.62 s 120.0 M
-C  7  8  4  4  2.93 s 120.0 M
+N  5  5  5  5  1.02 s  82.5 M
+S  4  4  8  7  1.30 s  82.5 M
+H  8  7  4  4  1.65 s  82.5 M
+D  4  4  7  8  1.97 s  82.5 M
+C  7  8  4  4  2.26 s  82.5 M
 ```
 
 An even more freakish deal with each player holding only two suits made the solver
@@ -264,26 +273,26 @@ work hard for more than 10 seconds!
                           ♠ KJ9753 ♥ - ♦ AQT8642 ♣ -
   ♠ AQT8642 ♥ KJ9753 ♦ - ♣ -                       ♠ - ♥ - ♦ KJ9753 ♣ AQT8642
                           ♠ - ♥ AQT8642 ♦ - ♣ KJ9753
-N  7  7  7  7  5.81 s 106.9 M
-S  6  6  7  7  6.63 s 107.2 M
-H  7  7  6  6  7.73 s 107.7 M
-D  7  7  6  6  9.05 s 108.0 M
-C  6  6  7  7 10.07 s 108.3 M
+N  7  7  7  7  5.65 s 118.2 M
+S  6  6  7  7  6.43 s 118.2 M
+H  7  7  6  6  7.92 s 118.2 M
+D  7  7  6  6  9.70 s 118.5 M
+C  6  6  7  7 10.69 s 118.5 M
 ```
 
 A new champion has emerged when North and South switch hands in the symmetric
 three-suited deal above. This simple change surprisingly increases the solving
-time by more than 20x and the memory usage by nearly 14x, overwhelmingly just
+time by more than 20x and the memory usage by 20x, overwhelmingly just
 for NT contracts.
 ```
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
-N  7  7  7  7 60.94 s 1641.6 M
-S  4  4  7  7 61.27 s 1641.9 M
-H  7  7  4  4 61.54 s 1641.9 M
-D  4  4  7  7 61.79 s 1641.9 M
-C  7  7  4  4 62.10 s 1642.1 M
+N  7  7  7  7 49.88 s 1649.8 M
+S  4  4  7  7 50.19 s 1649.8 M
+H  7  7  4  4 50.45 s 1649.8 M
+D  4  4  7  7 50.68 s 1649.8 M
+C  7  7  4  4 50.97 s 1649.8 M
 ```
 
 ### Multi-core
@@ -293,8 +302,8 @@ The solver is single-threaded, so multiple instances of the solver are running i
 
 | # Cores   |    1 |    2 |    4 |    8 |   16 |
 |-----------|------|------|------|------|------|
-| Time (s)  | 85.0 | 48.5 | 25.8 | 16.1 | 13.1 |
-| Speed-up  |  1.0 |  1.8 |  3.3 |  5.3 |  6.5 |
+| Time (s)  | 80.0 | 46.6 | 24.6 | 15.4 | 12.6 |
+| Speed-up  |  1.0 |  1.7 |  3.3 |  5.2 |  6.3 |
 
 The scaling is decent up to 8 cores. 16 cores give small additional speed-up as the cores
 are SMT threads rather than physical cores.
@@ -316,8 +325,8 @@ wider than the gap between DDS and bcalc.
 
 ![5k.log](https://github.com/macroxue/bridge-solver/blob/master/comparison/5k_deals.log.png)
 
-**Sep 2026 update**: this solver has improved by 40% since the above
-comparison, so it's 1.9x faster than DDS 2.9 and 2.4x faster than bcalc now.
+**Sep 2026 update**: this solver has improved by 50% since the above
+comparison, so it's 2.0x faster than DDS 2.9 and 2.6x faster than bcalc now.
 Performance improvements seem to have stagnated with both DDS and bcalc.
 
 ## License
