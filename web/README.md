@@ -13,12 +13,17 @@ Emscripten is installed automatically into a repo-local `.emsdk/` (gitignored).
 
 Emscripten 6.0+ cannot build this tree: its clang and compiler-rt disagree on
 the LLVM profile data layout, so the PGO instrumentation step crashes. The
-makefile pins **5.0.7**, the last release whose clang and compiler-rt agree:
+`web/makefile` pins **5.0.7**, the last release whose clang and compiler-rt
+agree. From this directory (`web/`):
 ```
-make setup   # once: clones emsdk and installs 5.0.7 into ../.emsdk
+make setup   # once: target in web/makefile; installs into ../.emsdk
 make
 ```
-Or from the repo root: `make -C web setup && make web`.
+From the repo root (same targets, via `-C web`):
+```
+make -C web setup && make web
+```
+There is no `setup` target in the top-level makefile.
 
 Serve the directory over HTTP locally:
 ```
