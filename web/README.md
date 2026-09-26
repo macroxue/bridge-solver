@@ -8,11 +8,22 @@ Try it live at the [web demo](https://macroxue.github.io/bridge-solver/web/)
 or build it yourself with the following steps.
 
 ## Build the demo
-Requirement: [Emscripten](https://emscripten.org) and Python 3, in addition to
-the [solver's own requirement](../README.md#build-the-solver).
+Requirement: Python 3 and the [solver's own requirement](../README.md#build-the-solver).
+Emscripten is installed automatically into a repo-local `.emsdk/` (gitignored).
+
+Emscripten 6.0+ cannot build this tree: its clang and compiler-rt disagree on
+the LLVM profile data layout, so the PGO instrumentation step crashes. The
+`web/makefile` pins **5.0.7**, the last release whose clang and compiler-rt
+agree. From this directory (`web/`):
 ```
+make setup   # once: target in web/makefile; installs into ../.emsdk
 make
 ```
+From the repo root (same targets, via `-C web`):
+```
+make -C web setup && make web
+```
+There is no `setup` target in the top-level makefile.
 
 Serve the directory over HTTP locally:
 ```

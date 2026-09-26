@@ -1,33 +1,77 @@
-.PHONY: all clean
-all: solver.js solver.wasm solver-no-simd.wasm deals.js
+.PHONY: all clean check-emcc setup
+.DELETE_ON_ERROR:
+# check-emcc is phony so it runs on every `make`/`make web`, but that does
+# not force sibling targets like solver.js to rebuild when they are current.
+all: check-emcc solver.js solver.wasm solver-no-simd.wasm deals.js
 
-# emcc's own llvm-profdata, found next to it on PATH.
-EMSDK_BIN=$(dir $(shell which emcc))../bin
+# Emscripten 6.0+ ships a clang that emits raw profile v11 against a
+# compiler-rt still on v10, so -fprofile-instr-generate crashes at exit.
+# 5.0.7 is the last release whose clang and compiler-rt agree on the layout.
+EMSCRIPTEN_VERSION ?= 5.0.7
+# Repo-local emsdk (gitignored). Run `make setup` once to install the pinned
+# version. Override on the command line if needed: `make EMSDK=/path/to/emsdk`.
+# Environment EMSDK is ignored so a leftover ~/emsdk from `emsdk_env.sh`
+# cannot shadow the pin.
+ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
+EMSDK := $(ROOT)/.emsdk
+EMCC := $(or $(wildcard $(EMSDK)/upstream/emscripten/emcc),emcc)
+# emcc's own llvm-profdata, in the LLVM tree emcc is configured with.
+LLVM_PROFDATA := $(shell $(EMCC) --print-prog-name=llvm-profdata 2>/dev/null)
 # emsdk's own Node -- the system one here is too old to run wasm builds.
-NODE=$(or $(EMSDK_NODE),node)
+# Ignore EMSDK_NODE from a prior emsdk_env.sh for the same reason as EMSDK.
+NODE := $(or $(firstword $(wildcard $(EMSDK)/node/*/bin/node)),node)
+# Portable content hash: GNU md5sum when present, else BSD `md5 -q` (stock macOS).
+MD5_CMD := $(shell command -v md5sum 2>/dev/null || echo md5 -q)
+
+# Fail fast when the pinned toolchain isn't available. Also inlined into
+# recipes so `make solver.js` (bypassing `all`) still checks the pin.
+define require_emcc
+v=$$($(EMCC) --version 2>/dev/null | sed -n 's/.* \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1); \
+if [ "$$v" != "$(EMSCRIPTEN_VERSION)" ]; then \
+	echo "error: need Emscripten $(EMSCRIPTEN_VERSION) (got '$${v:-none}' from $(EMCC))" >&2; \
+	echo "  run: make -C web setup" >&2; \
+	exit 1; \
+fi
+endef
+check-emcc:
+	@$(require_emcc)
+
+# Clone emsdk into $(EMSDK) and install the pinned version. Idempotent.
+setup:
+	@if [ ! -x "$(EMSDK)/emsdk" ]; then \
+		git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$(EMSDK)"; \
+	fi
+	"$(EMSDK)/emsdk" install $(EMSCRIPTEN_VERSION)
+	"$(EMSDK)/emsdk" activate $(EMSCRIPTEN_VERSION)
 
 # Instrumented wasm run under Node to produce PGO data for the builds
 # below. -sNODERAWFS escapes Emscripten's in-memory FS so default.profraw
 # (LLVM_PROFILE_FILE isn't honored here) actually lands on disk.
 web.profdata: web-profile.cc web-bindings.cc ../solver.cc
-	emcc -std=c++17 -O3 -msimd128 -msse4.2 -fprofile-instr-generate \
+	@$(require_emcc)
+	$(EMCC) -std=c++17 -O3 -msimd128 -msse4.2 -fprofile-instr-generate \
 		-sNODERAWFS=1 -sEXIT_RUNTIME=1 -o web-profile.js web-profile.cc
 	rm -f default.profraw
 	$(NODE) web-profile.js > /dev/null
-	$(EMSDK_BIN)/llvm-profdata merge -o $@ default.profraw
+	"$(LLVM_PROFDATA)" merge -o $@ default.profraw
 	rm -f web-profile.js web-profile.wasm default.profraw
 solver.js: web-bindings.cc ../solver.cc solver-no-simd.wasm web.profdata
-	emcc -std=c++17 -O3 -msimd128 -msse4.2 \
+	@$(require_emcc)
+	$(EMCC) -std=c++17 -O3 -msimd128 -msse4.2 \
 		-fprofile-instr-use=web.profdata -o $@ web-bindings.cc \
 		--bind -s ALLOW_MEMORY_GROWTH
 	@# Cache-bust both wasm URLs with each binary's own content hash, to
-	@# avoid stale files being served after a new build.
-	simd_hash=$$(md5sum solver.wasm | cut -c1-8); \
-	nosimd_hash=$$(md5sum solver-no-simd.wasm | cut -c1-8); \
-	sed -i "s/\"solver.wasm\"/simd?\"solver.wasm?v=$$simd_hash\":\"solver-no-simd.wasm?v=$$nosimd_hash\"/" $@
+	@# avoid stale files being served after a new build. -i.bak rather than
+	@# -i: BSD sed (macOS) requires a backup suffix. MD5_CMD covers stock
+	@# macOS, which has `md5 -q` but not GNU `md5sum`.
+	simd_hash=$$($(MD5_CMD) solver.wasm | cut -c1-8); \
+	nosimd_hash=$$($(MD5_CMD) solver-no-simd.wasm | cut -c1-8); \
+	sed -i.bak "s/\"solver.wasm\"/simd?\"solver.wasm?v=$$simd_hash\":\"solver-no-simd.wasm?v=$$nosimd_hash\"/" $@
+	rm -f $@.bak
 solver.wasm: solver.js
 solver-no-simd.wasm: web-bindings.cc ../solver.cc web.profdata
-	emcc -std=c++17 -O3 -fprofile-instr-use=web.profdata \
+	@$(require_emcc)
+	$(EMCC) -std=c++17 -O3 -fprofile-instr-use=web.profdata \
 		-o solver-no-simd.js web-bindings.cc \
 		--bind -s ALLOW_MEMORY_GROWTH
 	rm solver-no-simd.js
@@ -45,4 +89,4 @@ deals.js: gen_deals.py $(wildcard ../deals/hard/deal.* ../deals/freak/deal.*)
 clean:
 	rm -f solver.js solver.wasm solver-no-simd.js solver-no-simd.wasm \
 		web-test web.profdata web-profile.js web-profile.wasm web-profile.profraw \
-		deals.js
+		default.profraw deals.js
