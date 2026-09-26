@@ -1,6 +1,8 @@
 .PHONY: all clean check-emcc setup
 .DELETE_ON_ERROR:
-all: solver.js solver.wasm solver-no-simd.wasm deals.js
+# check-emcc is phony so it runs on every `make`/`make web`, but that does
+# not force sibling targets like solver.js to rebuild when they are current.
+all: check-emcc solver.js solver.wasm solver-no-simd.wasm deals.js
 
 # Emscripten 6.0+ ships a clang that emits raw profile v11 against a
 # compiler-rt still on v10, so -fprofile-instr-generate crashes at exit.
@@ -18,9 +20,11 @@ LLVM_PROFDATA := $(shell $(EMCC) --print-prog-name=llvm-profdata 2>/dev/null)
 # emsdk's own Node -- the system one here is too old to run wasm builds.
 # Ignore EMSDK_NODE from a prior emsdk_env.sh for the same reason as EMSDK.
 NODE := $(or $(firstword $(wildcard $(EMSDK)/node/*/bin/node)),node)
+# Portable content hash: GNU md5sum when present, else BSD `md5 -q` (stock macOS).
+MD5_CMD := $(shell command -v md5sum 2>/dev/null || echo md5 -q)
 
-# Fail fast when the pinned toolchain isn't available. Inlined into recipes
-# (not a prerequisite) so a .PHONY check doesn't force rebuilds every time.
+# Fail fast when the pinned toolchain isn't available. Also inlined into
+# recipes so `make solver.js` (bypassing `all`) still checks the pin.
 define require_emcc
 v=$$($(EMCC) --version 2>/dev/null | sed -n 's/.* \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1); \
 if [ "$$v" != "$(EMSCRIPTEN_VERSION)" ]; then \
@@ -58,9 +62,10 @@ solver.js: web-bindings.cc ../solver.cc solver-no-simd.wasm web.profdata
 		--bind -s ALLOW_MEMORY_GROWTH
 	@# Cache-bust both wasm URLs with each binary's own content hash, to
 	@# avoid stale files being served after a new build. -i.bak rather than
-	@# -i: BSD sed (macOS) requires a backup suffix.
-	simd_hash=$$(md5sum solver.wasm | cut -c1-8); \
-	nosimd_hash=$$(md5sum solver-no-simd.wasm | cut -c1-8); \
+	@# -i: BSD sed (macOS) requires a backup suffix. MD5_CMD covers stock
+	@# macOS, which has `md5 -q` but not GNU `md5sum`.
+	simd_hash=$$($(MD5_CMD) solver.wasm | cut -c1-8); \
+	nosimd_hash=$$($(MD5_CMD) solver-no-simd.wasm | cut -c1-8); \
 	sed -i.bak "s/\"solver.wasm\"/simd?\"solver.wasm?v=$$simd_hash\":\"solver-no-simd.wasm?v=$$nosimd_hash\"/" $@
 	rm -f $@.bak
 solver.wasm: solver.js
