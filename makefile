@@ -56,5 +56,6 @@ solver.a: solver.cc
 	clang++ -std=c++17 -O3 -fsanitize=address -o $@ $^
 	./$@ -if deals/hard/deal.1
 clean:
-	rm -rf solver.p solver solver.g solver.m solver.a solver.gcda $(PGO_DIR)
+	rm -rf solver.p solver solver.g solver.m solver.a $(PGO_DIR)
+	rm -f solver.gcda solver.p-solver.gcda *.gcno
 	$(MAKE) -C web clean
