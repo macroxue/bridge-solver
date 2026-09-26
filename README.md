@@ -12,7 +12,10 @@ Requirement: a Linux machine with G++ compiler installed.
 make
 ```
 
-To build the web demo, [Emscripten](https://emscripten.org) is required.
+To build the web demo, [Emscripten](https://emscripten.org) **5.0.7**
+(via [emsdk](https://github.com/emscripten-core/emsdk)) is required — see
+[`web/README.md`](web/README.md) for the pin and install steps. Emscripten
+6.0+ cannot build this tree (broken PGO instrumentation).
 ```
 make web
 ```

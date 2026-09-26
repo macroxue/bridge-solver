@@ -1,25 +1,48 @@
-.PHONY: all clean
+.PHONY: all clean check-emcc
 .DELETE_ON_ERROR:
 all: solver.js solver.wasm solver-no-simd.wasm deals.js
 
-# emcc's own llvm-profdata, in the LLVM tree emcc is configured with (emsdk's
-# upstream/bin, Homebrew's libexec/llvm/bin) -- it's not on PATH in either.
-LLVM_PROFDATA ?= $(shell em-config LLVM_ROOT)/llvm-profdata
+# Emscripten 6.0+ ships a clang that emits raw profile v11 against a
+# compiler-rt still on v10, so -fprofile-instr-generate crashes at exit.
+# 5.0.7 is the last release whose clang and compiler-rt agree on the layout.
+EMSCRIPTEN_VERSION ?= 5.0.7
+# Prefer an activated emsdk tree (source emsdk_env.sh, or set EMSDK).
+EMCC ?= $(or $(wildcard $(EMSDK)/upstream/emscripten/emcc),emcc)
+# emcc's own llvm-profdata, in the LLVM tree emcc is configured with.
+LLVM_PROFDATA ?= $(shell $(EMCC) --print-prog-name=llvm-profdata 2>/dev/null)
 # emsdk's own Node -- the system one here is too old to run wasm builds.
 NODE=$(or $(EMSDK_NODE),node)
+
+# Fail fast with install instructions when PATH has the wrong emcc.
+# Inlined into recipes (not a prerequisite) so a .PHONY check doesn't
+# force every target to rebuild on each make.
+define require_emcc
+v=$$($(EMCC) --version 2>/dev/null | sed -n 's/.* \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1); \
+if [ "$$v" != "$(EMSCRIPTEN_VERSION)" ]; then \
+	echo "error: need Emscripten $(EMSCRIPTEN_VERSION) (got '$${v:-none}' from $(EMCC))" >&2; \
+	echo "  git clone https://github.com/emscripten-core/emsdk.git ~/emsdk && cd ~/emsdk && \\" >&2; \
+	echo "  ./emsdk install $(EMSCRIPTEN_VERSION) && ./emsdk activate $(EMSCRIPTEN_VERSION) && \\" >&2; \
+	echo "  source ./emsdk_env.sh" >&2; \
+	exit 1; \
+fi
+endef
+check-emcc:
+	@$(require_emcc)
 
 # Instrumented wasm run under Node to produce PGO data for the builds
 # below. -sNODERAWFS escapes Emscripten's in-memory FS so default.profraw
 # (LLVM_PROFILE_FILE isn't honored here) actually lands on disk.
 web.profdata: web-profile.cc web-bindings.cc ../solver.cc
-	emcc -std=c++17 -O3 -msimd128 -msse4.2 -fprofile-instr-generate \
+	@$(require_emcc)
+	$(EMCC) -std=c++17 -O3 -msimd128 -msse4.2 -fprofile-instr-generate \
 		-sNODERAWFS=1 -sEXIT_RUNTIME=1 -o web-profile.js web-profile.cc
 	rm -f default.profraw
 	$(NODE) web-profile.js > /dev/null
 	"$(LLVM_PROFDATA)" merge -o $@ default.profraw
 	rm -f web-profile.js web-profile.wasm default.profraw
 solver.js: web-bindings.cc ../solver.cc solver-no-simd.wasm web.profdata
-	emcc -std=c++17 -O3 -msimd128 -msse4.2 \
+	@$(require_emcc)
+	$(EMCC) -std=c++17 -O3 -msimd128 -msse4.2 \
 		-fprofile-instr-use=web.profdata -o $@ web-bindings.cc \
 		--bind -s ALLOW_MEMORY_GROWTH
 	@# Cache-bust both wasm URLs with each binary's own content hash, to
@@ -31,7 +54,8 @@ solver.js: web-bindings.cc ../solver.cc solver-no-simd.wasm web.profdata
 	rm -f $@.bak
 solver.wasm: solver.js
 solver-no-simd.wasm: web-bindings.cc ../solver.cc web.profdata
-	emcc -std=c++17 -O3 -fprofile-instr-use=web.profdata \
+	@$(require_emcc)
+	$(EMCC) -std=c++17 -O3 -fprofile-instr-use=web.profdata \
 		-o solver-no-simd.js web-bindings.cc \
 		--bind -s ALLOW_MEMORY_GROWTH
 	rm solver-no-simd.js
