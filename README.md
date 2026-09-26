@@ -237,12 +237,13 @@ to a single core for single-core runs.
 ### Single-core
 
 The solver fully analyzed 1000 random deals (under `deals/1k`) in just 85.0 seconds,
-averaging more than 11 deals per second. Below are time and memory distributions.
-The longest one (`deal.310`) took 0.83 seconds and consumed 32.7 MB of memory.
+averaging more than 11 deals per second. Below are time and memory distributions,
+with both maximums from `deal.310`.
 
-| Time  | <= 0.1s | <= 0.2s | <= 0.5s |  <= 1s  |
-|-------|---------|---------|---------|---------|
-| Count |    753  |    921  |    994  |   1000  |
+| Percentile   | 50th | 75th | 90th | 95th | 99th | 99.9th | Max  |
+|--------------|------|------|------|------|------|--------|------|
+| Time (s)     | 0.06 | 0.10 | 0.18 | 0.26 | 0.44 |  0.60  | 0.83 |
+| Memory (MiB) |  6.4 |  8.1 | 10.8 | 13.5 | 19.5 |  30.2  | 32.7 |
 
 One of the most difficult deals is this symmetric one, with four void suits and
 nobody holding consecutive ranks in any suit. It took the solver less than 3 seconds.
