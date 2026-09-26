@@ -1325,6 +1325,63 @@ class Play {
     return -1;
   }
 
+  // Plays out the trick with each follower's first-ordered card and moves leads whose next
+  // trick start cuts for the leader to the front.
+  void PromoteProbedLeads(int start, int beta) {
+    int hits[TOTAL_TRICKS], misses[TOTAL_TRICKS], num_hits = 0, num_misses = 0;
+    for (int i = start; i < ordered_cards.Size(); ++i) {
+      int card = ordered_cards.Card(i);
+      PlayCard(card);
+      int value = NextPlay().ProbeFollow(beta);
+      UnplayCard();
+      bool hit = value >= 0 && (NsToPlay() ? value >= beta : value < beta);
+      if (hit)
+        hits[num_hits++] = card;
+      else
+        misses[num_misses++] = card;
+    }
+    if (num_hits == 0) return;
+    ordered_cards.Truncate(start);
+    for (int i = 0; i < num_hits; ++i) ordered_cards.AddCard(hits[i]);
+    for (int i = 0; i < num_misses; ++i) ordered_cards.AddCard(misses[i]);
+  }
+
+  // Returns NS tricks if the greedy line reaches a trick start with a cutting pattern, else -1.
+  int ProbeFollow(int beta) {
+    if (!TrickStarting()) {
+      ns_tricks_won = PreviousPlay().ns_tricks_won;
+      seat_to_play = PreviousPlay().NextSeat();
+      auto playable_cards = GetPlayableCards();
+      int card = LookupCutoffCard(cutoff_cache.Hash(BuildCutoffIndex()));
+      if (!playable_cards.Include(card)) {
+        ordered_cards.Reset();
+        OrderCards(playable_cards, beta);
+        card = ordered_cards.Card(0);
+      }
+      PlayCard(card);
+      int value = NextPlay().ProbeFollow(beta);
+      UnplayCard();
+      return value;
+    }
+    // TODO: Share this trick-start setup with SearchWithCache() and SetupTrick().
+    ns_tricks_won = PreviousPlay().ns_tricks_won + PreviousPlay().NsWon();
+    seat_to_play = PreviousPlay().WinningSeat();
+    const int remaining_tricks = hands.num_tricks();
+    if (ns_tricks_won >= beta) return ns_tricks_won;
+    if (ns_tricks_won + remaining_tricks < beta) return ns_tricks_won + remaining_tricks;
+    trick->all_cards = hands.all_cards();
+    ComputeShape();
+    trick->ComputeRelativeHands(depth, hands);
+    if (auto* shape_entry =
+            common_bounds_cache.Lookup(common_bounds_cache.Hash(trick->shape.Value())))
+      if (auto pattern = Pattern::Lookup(shape_entry->patterns[seat_to_play], trick->relative_hands,
+                                         beta - ns_tricks_won)) {
+        int lower = pattern->bounds.lower + ns_tricks_won;
+        return lower >= beta ? lower : pattern->bounds.upper + ns_tricks_won;
+      }
+    return -1;
+  }
+
   Result EvaluatePlayableCards(int beta) {
     STATS(++stats[depth].num_visits);
     ordered_cards.Reset();
@@ -1339,7 +1396,7 @@ class Play {
       playable_cards.Remove(cutoff_card);
     } else {
       STATS(stats[depth].num_cutoff_collisions += (cutoff_card != CARD_END));
-      OrderCards(playable_cards);
+      OrderCards(playable_cards, beta);
       playable_cards = Cards();
     }
 
@@ -1387,7 +1444,7 @@ class Play {
       }
       tried_cards.Add(card);
       if (playable_cards) {
-        OrderCards(playable_cards);
+        OrderCards(playable_cards, beta);
         playable_cards = Cards();
       }
     }
@@ -1490,14 +1547,17 @@ class Play {
     ordered_cards.AddCards(playable_cards);
   }
 
-  void OrderCards(Cards playable_cards) {
+  void OrderCards(Cards playable_cards, int beta) {
     CHECK(playable_cards);
     if (playable_cards.Size() == 1) {
       ordered_cards.AddCard(playable_cards.Top());
       return;
     }
     if (TrickStarting()) {  // lead
-      return trump == NOTRUMP ? Lead<false>(playable_cards) : Lead<true>(playable_cards);
+      const int start = ordered_cards.Size();
+      trump == NOTRUMP ? Lead<false>(playable_cards) : Lead<true>(playable_cards);
+      if (hands.num_tricks() >= 12) PromoteProbedLeads(start, beta);
+      return;
     }
     int winning_seat = PreviousPlay().WinningSeat();
     int winning_card = PreviousPlay().WinningCard();
@@ -1597,6 +1657,7 @@ class Play {
 
     int Size() const { return num_ordered_cards; }
     int Card(int i) const { return ordered_cards[i]; }
+    void Truncate(int n) { num_ordered_cards = n; }
 
    private:
     short num_ordered_cards = 0;
