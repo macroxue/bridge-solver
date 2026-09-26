@@ -14,8 +14,9 @@ Requirement: Linux or macOS on x86-64 or ARM64, with G++ or Clang installed.
 make
 ```
 
-To build the [web app](web/README.md), run `make -C web setup` once (installs a pinned
-Emscripten 5.0.7 into a repo-local `.emsdk/`), then `make -C web`. See
+To build the [web app](web/README.md), use the `setup` target in [`web/makefile`](web/makefile)
+(not this top-level makefile): run `make -C web setup` once to install a pinned
+Emscripten 5.0.7 into a repo-local `.emsdk/`, then `make -C web`. See
 [`web/README.md`](web/README.md). Emscripten 6.0+ cannot build this tree
 (broken PGO instrumentation).
 ```
