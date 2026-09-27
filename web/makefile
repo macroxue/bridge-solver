@@ -4,12 +4,14 @@ all: solver.js solver.wasm solver-no-simd.wasm deals.js
 
 # Prefer an activated emsdk tree (source emsdk_env.sh, or set EMSDK).
 EMCC ?= $(or $(wildcard $(EMSDK)/upstream/emscripten/emcc),emcc)
+# Absolute path so $(dir ...) works when EMCC is the bare name `emcc`.
+EMCC_PATH := $(shell command -v $(EMCC) 2>/dev/null)
 # emcc's llvm-profdata. Newer emcc reports it via --print-prog-name; older
 # emsdk (incl. 5.0.7) leaves that empty, so fall back to the LLVM bin next to
 # emcc / under EMSDK, then Homebrew's em-config LLVM_ROOT.
 LLVM_PROFDATA ?= $(firstword \
 	$(wildcard $(shell $(EMCC) --print-prog-name=llvm-profdata 2>/dev/null)) \
-	$(wildcard $(dir $(EMCC))../bin/llvm-profdata) \
+	$(wildcard $(dir $(EMCC_PATH))../bin/llvm-profdata) \
 	$(wildcard $(EMSDK)/upstream/bin/llvm-profdata) \
 	$(wildcard $(shell em-config LLVM_ROOT 2>/dev/null)/llvm-profdata))
 # emsdk's own Node -- the system one here is too old to run wasm builds.
