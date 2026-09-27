@@ -587,14 +587,10 @@ function renderShuffleTable(data) {
 
   // Both declarers stay in one table, side by side in each cell as
   // "left/right", so they're still directly comparable at a glance -- but
-  // collapsed to one (averaged) number when they're within noise of each
-  // other (0.1 trick for averages, 1 percentage point for histogram cells),
-  // which also keeps cells narrow enough to fit phone widths without
-  // horizontal scrolling.
-  const pair = (left, right, threshold, decimals) =>
-    Math.abs(left - right) <= threshold + 1e-9
-      ? ((left + right) / 2).toFixed(decimals)
-      : `${left.toFixed(decimals)}/${right.toFixed(decimals)}`;
+  // collapsed to one number when they don't differ (common at the high/low
+  // ends of the trick range), which also keeps cells narrow enough to fit
+  // phone widths without horizontal scrolling.
+  const pair = (left, right) => (left === right ? `${left}` : `${left}/${right}`);
 
   function section(dir, title, result, leftKey, rightKey) {
     const folded = shuffleFolded[dir];
@@ -606,13 +602,13 @@ function renderShuffleTable(data) {
     for (const t of tricksList) html += `<th>${t}+</th>`;
     html += '</tr>';
     for (let row = 0; row < 5; ++row) {
-      const leftAvg = result.sums[leftKey][row] / rounds;
-      const rightAvg = result.sums[rightKey][row] / rounds;
-      html += `<tr><td>${STRAIN_LABELS[strains[row]]}</td><td>${pair(leftAvg, rightAvg, 0.1, 1)}</td>`;
+      const leftAvg = (result.sums[leftKey][row] / rounds).toFixed(1);
+      const rightAvg = (result.sums[rightKey][row] / rounds).toFixed(1);
+      html += `<tr><td>${STRAIN_LABELS[strains[row]]}</td><td>${pair(leftAvg, rightAvg)}</td>`;
       for (const t of tricksList) {
         const leftPct = Math.floor(result.histo[leftKey][row][t] * 100 / rounds);
         const rightPct = Math.floor(result.histo[rightKey][row][t] * 100 / rounds);
-        const cell = leftPct === 0 && rightPct === 0 ? '' : pair(leftPct, rightPct, 1, 0);
+        const cell = leftPct === 0 && rightPct === 0 ? '' : pair(leftPct, rightPct);
         html += `<td>${cell}</td>`;
       }
       html += '</tr>';
