@@ -71,6 +71,10 @@ Shuffle rounds run across a pool of Web Workers, up to half of the
   instance — `worker.js` and `shuffle-worker.js` — so the shuffle's
   approximation caches can never leak into the DD table's exact-precision
   ones.
+- Every JS file is loaded with a `?v=<hash>` suffix so browsers never mix a
+  stale cached file with fresh ones. `../.githooks/pre-commit` bumps the
+  suffixes for staged files, up through every file that references them;
+  enable it once per clone with `git config core.hooksPath .githooks`.
 - Some browsers (e.g. older Firefox) lack WASM SIMD support. `worker.js`
   feature-detects it against `solver.wasm` itself and falls back to
   `solver-no-simd.wasm` when it fails to validate.

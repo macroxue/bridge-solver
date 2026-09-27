@@ -13,7 +13,7 @@ Module = {
   },
 };
 
-importScripts('declarer-columns.js');
+importScripts('declarer-columns.js?v=0');
 // Maps DECLARER_COLUMNS' full seat names to the single-letter keys sums/histo
 // below use.
 const SEAT_LETTER = { south: 'S', north: 'N', west: 'W', east: 'E' };
@@ -102,5 +102,5 @@ fetch('solver.wasm')
   .then(response => response.arrayBuffer())
   .then(bytes => {
     simd = WebAssembly.validate(bytes);
-    importScripts('solver.js');
+    importScripts('solver.js?v=0');
   });
