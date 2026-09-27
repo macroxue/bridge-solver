@@ -103,9 +103,14 @@ used for the main README's benchmarks, solving single-threaded in Node came out
 | Wasm   | 14.0 s    | 41.2 s    | 151.9 s    |
 | Ratio  | 1.46x     | 1.47x     | 1.51x      |
 
-Note that the above numbers are measured without CPU binding with `taskset`.
+Note that the above numbers are measured without CPU binding or huge pages.
 In the browser itself, expect a bit more overhead on top of that from
 JS-to-WASM marshalling and the browser's own WASM JIT.
+
+The most difficult known deal `deals/freak/deal.3` (Freak 3 in the Sample deal
+menu) took 50 seconds natively and 90 seconds with WASM. A 2023
+[Pixel 7a](https://en.wikipedia.org/wiki/Pixel_7a) phone with 8GB of RAM solved
+it in 150 seconds, only 1.7x slower than WASM on the desktop.
 
 ## License
 
