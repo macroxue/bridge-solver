@@ -525,6 +525,12 @@ tableHintEl.addEventListener('click', () => {
 tableEl.addEventListener('click', (event) => {
   const cell = event.target.closest('td.pick');
   if (!cell) return;
+  // Leaving play would unlock deal entry, and a new deal would then get a
+  // running shuffle's results.
+  if (busy) {
+    statusEl.textContent = 'Wait for the current solve or shuffle to finish, then play.';
+    return;
+  }
   startPlay(cell.dataset.strain, cell.dataset.declarer, Number(cell.dataset.tricks));
 });
 
@@ -1156,10 +1162,9 @@ function setPlayModeUI(active) {
   document.getElementById('pasteBar').style.display = active ? 'none' : '';
   playHintEl.style.display = active ? 'block' : 'none';
   controlsEl.style.display = active ? 'none' : 'flex';
-  setHandsDisabled(active);
-  dealBtn.disabled = active;
+  // Deal entry also stays locked while a solve or shuffle is running.
+  setEntryDisabled(active || busy);
   updateSolveBtn();
-  sampleDealEl.disabled = active;
 }
 
 function exitPlay() {
