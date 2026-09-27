@@ -10,10 +10,11 @@ cd "$(git rev-parse --show-toplevel)"
 # excluded: solver.js already embeds a content hash for each of them at
 # build time.
 ASSETS=(web/deals.js web/deal-parser.js web/declarer-columns.js web/par-score.js
-        web/app.js web/worker.js web/shuffle-worker.js web/solver.js)
+        web/app.js web/shuffle.js web/play.js web/share-url.js web/startup.js
+        web/worker.js web/shuffle-worker.js web/solver.js)
 
 # Files that may contain references to the assets above.
-REFERENCING_FILES=(web/index.html web/app.js web/worker.js web/shuffle-worker.js)
+REFERENCING_FILES=(web/index.html web/startup.js web/worker.js web/shuffle-worker.js)
 
 staged=$(git diff --cached --name-only)
 is_staged() { grep -qx "$1" <<< "$staged"; }

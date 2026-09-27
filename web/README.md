@@ -89,6 +89,11 @@ Shuffle rounds run across a pool of Web Workers, up to half of the
 - `web-bindings.cc` is the Emscripten-facing glue around `../solver.cc`
   (`solve`, `solve_plays`, `shuffle_and_solve`); it's what actually gets
   compiled, not `solver.cc` directly.
+- The page's scripts, loaded in this order and sharing globals (no bundler):
+  `app.js` (deal entry, DD table, par), `shuffle.js` (single-dummy tables),
+  `play.js` (card play), `share-url.js` (links) and `startup.js`, which starts
+  the workers only once the rest has loaded. `deal-parser.js` and
+  `par-score.js` hold the logic that has Node unit tests.
 - The DD table (`solve`/`solve_plays`) and the shuffle feature
   (`shuffle_and_solve`) each run in their own Web Worker with its own WASM
   instance — `worker.js` and `shuffle-worker.js` — so the shuffle's
