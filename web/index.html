@@ -254,6 +254,11 @@
     /* Not clickable, so North's cards behind it (at narrow widths) stay clickable. */
     pointer-events: none;
   }
+  /* Wide enough that the text never overlaps North's cards (it does below
+     ~540px), so it can be selectable. */
+  @media (min-width: 600px) {
+    #playStatus > div { width: fit-content; pointer-events: auto; }
+  }
   td.pick { cursor: pointer; }
   td.pick:hover { background: #eef; }
   .controls {
@@ -444,6 +449,6 @@
   <script src="deal-parser.js?v=0"></script>
   <script src="declarer-columns.js?v=0"></script>
   <script src="par-score.js?v=e88ba8fb"></script>
-  <script src="app.js?v=3dd19971"></script>
+  <script src="app.js?v=b3eb7023"></script>
 </body>
 </html>

@@ -54,14 +54,20 @@ function growTablesColumnMinWidth() {
   });
 }
 
-// Matches shuffle.py's CLI default.
-const SHUFFLE_MIN_TRICKS = 7;
+// Tables show the top 7 trick counts: 7+ to 13+ for a full deal, matching
+// shuffle.py's CLI default, and e.g. 1+ to 6+ for a 6-card ending.
+const SHUFFLE_COLUMNS = 7;
 
 // Shuffle results accumulate across button presses (10 then 100 -> 110
 // total) as long as the hands being shuffled haven't changed since;
 // `shuffleHandsKey` is what detects that they have.
 let shuffleAccumulator = null;
 let shuffleHandsKey = null;
+
+// Cards per hand in the shuffled deal; shuffleHandsKey starts with West's.
+function shuffleHandLength() {
+  return shuffleHandsKey ? parseHandCards(shuffleHandsKey.split('|')[0]).length : 13;
+}
 
 function clearShuffleResults() {
   shuffleAccumulator = null;
@@ -305,14 +311,15 @@ function setEntryDisabled(disabled) {
 }
 
 // Basic client-side validation so obviously bad input (typos, duplicate
-// cards, wrong-size hands) is caught before it reaches solve(). The wasm
-// side aborts on bad characters or a duplicate card, but silently accepts
-// hands of unequal size -- Hands::num_tricks() just reads West's card
-// count, with no cross-check against the other three seats -- so a short
-// hand doesn't error, it just solves something other than the deal you
-// typed.
+// cards, uneven hands) is caught before it reaches solve(). Hands may be
+// shorter than 13 cards (endings), but must all be the same length: the
+// wasm side aborts on bad characters or a duplicate card, but silently
+// accepts uneven hands -- Hands::num_tricks() just reads West's card count,
+// with no cross-check against the other three seats -- so it would solve
+// something other than the deal you typed.
 function validateHands(hands) {
   const seen = new Set();
+  const counts = [];
   for (const seat of SEATS) {
     const Seat = seat[0].toUpperCase() + seat.slice(1);
     const value = hands[seat];
@@ -333,9 +340,21 @@ function validateHands(hands) {
         seen.add(card);
       }
     }
-    if (cardCount !== 13) return `${Seat}: has ${cardCount} card${cardCount === 1 ? '' : 's'}, expected 13.`;
+    if (cardCount === 0 || cardCount > 13) {
+      return `${Seat}: has ${cardCount} card${cardCount === 1 ? '' : 's'}, expected 1 to 13.`;
+    }
+    counts.push(cardCount);
+  }
+  if (counts.some(n => n !== counts[0])) {
+    return 'Hands differ in length: ' +
+      SEATS.map((seat, i) => `${seat[0].toUpperCase()}${seat.slice(1)} ${counts[i]}`).join(', ') + '.';
   }
   return null;
+}
+
+// Cards per hand of an already-validated deal.
+function handLength(hands) {
+  return parseHandCards(hands.west).length;
 }
 
 function showDdTable(result) {
@@ -351,16 +370,25 @@ function showDdTable(result) {
 // DECLARER_COLUMNS (declarer-columns.js) maps each DD-table column to its
 // declarer; matches solve()'s fixed column order in solver.cc (derived from
 // its lead_seats iteration), independent of trump.
+// For an ending, columns are the player on lead instead, with the tricks for
+// the side on lead: declarer is the leader's right-hand opponent.
 function renderTable(result) {
   const lines = result.split('\n').filter(Boolean);
-  let html = '<table><tr><th></th><th>South</th><th>North</th><th>West</th><th>East</th></tr>';
+  const n = ddHandLength();
+  const ending = n < 13;
+  let html = `<table><tr><th>${ending ? 'Lead' : ''}</th>` +
+    '<th>South</th><th>North</th><th>West</th><th>East</th></tr>';
   for (const line of lines) {
     const parts = line.trim().split(/\s+/);
     const strain = parts[0];
-    const tricks = parts.slice(1, 5);
+    const tricks = parts.slice(1, 5).map(Number);
     html += '<tr><td>' + (STRAIN_LABELS[strain] || strain) + '</td>' +
-      tricks.map((t, i) => `<td class="pick" data-strain="${strain}" ` +
-        `data-declarer="${DECLARER_COLUMNS[i]}" data-tricks="${t}">${t}</td>`).join('') +
+      DECLARER_COLUMNS.map((seat, i) => {
+        const declarer = ending ? prevSeat(seat) : seat;
+        const t = tricks[DECLARER_COLUMNS.indexOf(declarer)];
+        return `<td class="pick" data-strain="${strain}" data-declarer="${declarer}" ` +
+          `data-tricks="${t}">${ending ? n - t : t}</td>`;
+      }).join('') +
       '</tr>';
   }
   html += '</table>';
@@ -378,6 +406,10 @@ const ddParEl = document.getElementById('ddPar');
 let ddLines = [];
 // PBN of the deal ddLines belong to, so the URL only pairs them with it.
 let ddDeal = null;
+// Cards per hand in the solved deal (par only makes sense for 13).
+function ddHandLength() {
+  return ddDeal ? handLength(parsePBN(ddDeal)) : 13;
+}
 let vulnerability = 'None';
 const VULNERABILITIES = ['None', 'N-S', 'E-W', 'All'];
 
@@ -426,7 +458,8 @@ function singleDummyCounts(data) {
 function renderPar() {
   updateUrl();
   vulEl.value = vulnerability;
-  ddParEl.innerHTML = ddLines.length ? 'DD Par: ' + parText(computePar(ddLines, vulnerability)) : '';
+  ddParEl.innerHTML = ddLines.length && ddHandLength() === 13
+    ? 'DD Par: ' + parText(computePar(ddLines, vulnerability)) : '';
   const sdParEl = document.getElementById('sdPar');
   if (sdParEl && shuffleAccumulator)
     sdParEl.innerHTML = 'SD Par: ' +
@@ -459,10 +492,12 @@ const FOLD_ARROW = (folded) => (folded ? '▸' : '▾');
 // doesn't depend on fold state, so a plain display toggle is enough --
 // no need to re-render.
 const DD_HINT_TEXT = 'Double-dummy table: Click a cell to play out that contract.';
+const ENDING_DD_HINT_TEXT = 'Double-dummy table by player on lead: Click a cell to play it out.';
 let ddFolded = false;
 
 function updateTableHintText() {
-  tableHintEl.textContent = FOLD_ARROW(ddFolded) + ' ' + DD_HINT_TEXT;
+  tableHintEl.textContent = FOLD_ARROW(ddFolded) + ' ' +
+    (ddHandLength() < 13 ? ENDING_DD_HINT_TEXT : DD_HINT_TEXT);
 }
 
 tableHintEl.addEventListener('click', () => {
@@ -630,8 +665,21 @@ const shuffleFolded = { ew: false, ns: false };
 function renderShuffleTable(data) {
   const strains = ['N', 'S', 'H', 'D', 'C'];
   const tricksList = [];
-  for (let t = SHUFFLE_MIN_TRICKS; t <= 13; ++t) tricksList.push(t);
-  const counts = singleDummyCounts(data);
+  const n = shuffleHandLength();
+  const ending = n < 13;
+  for (let t = Math.max(1, n - SHUFFLE_COLUMNS + 1); t <= n; ++t) {
+    tricksList.push(t);
+  }
+  const counts = ending ? null : singleDummyCounts(data);
+  // As in the DD table, an ending's columns are the player on lead, with the
+  // side on lead's tricks, taken from its declarer (the leader's right-hand
+  // opponent) in the same shuffles.
+  const columnCounts = (dir, seat, strain) => {
+    if (!ending) return counts[seat][strain];
+    const declarer = prevSeat(SEAT_NAME_BY_LETTER[seat])[0].toUpperCase();
+    const c = data[dir].counts[declarer][strains.indexOf(strain)];
+    return c.map((_, t) => (t <= n ? c[n - t] : 0));
+  };
 
   // Both declarers stay in one table, side by side in each cell as
   // "left/right", so they're still directly comparable at a glance -- but
@@ -646,12 +694,12 @@ function renderShuffleTable(data) {
     let html = `<h3 data-dir="${dir}">${arrow} ${title}</h3>`;
     if (folded) return html;
 
-    html += `<table><tr><th>${leftKey}/${rightKey}</th><th>avg</th>`;
+    html += `<table><tr><th>${leftKey}/${rightKey}${ending ? ' lead' : ''}</th><th>avg</th>`;
     for (const t of tricksList) html += `<th>${t}+</th>`;
     html += '</tr>';
     for (const strain of strains) {
-      const left = trickStats(counts[leftKey][strain]);
-      const right = trickStats(counts[rightKey][strain]);
+      const left = trickStats(columnCounts(dir, leftKey, strain));
+      const right = trickStats(columnCounts(dir, rightKey, strain));
       html += `<tr><td>${STRAIN_LABELS[strain]}</td>` +
         `<td>${pair(left.avg.toFixed(1), right.avg.toFixed(1))}</td>`;
       for (const t of tricksList) {
@@ -667,7 +715,8 @@ function renderShuffleTable(data) {
   shuffleTableEl.innerHTML =
     section('ew', 'Single-dummy table: Shuffling East/West.', 'S', 'N') +
     section('ns', 'Single-dummy table: Shuffling North/South.', 'W', 'E') +
-    '<p class="par" id="sdPar"></p>';
+    // Par only makes sense for a full deal.
+    (!ending ? '<p class="par" id="sdPar"></p>' : '');
   renderPar();
 }
 
@@ -746,6 +795,9 @@ const playBarEl = document.getElementById('playBar');
 const playStatusEl = document.getElementById('playStatus');
 const entryHintEl = document.getElementById('entryHint');
 const playHintEl = document.getElementById('playHint');
+const PLAY_HINT_TEXT = playHintEl.textContent;
+const ENDING_PLAY_HINT_TEXT = 'Each card shows how the side on lead ends up against its target ' +
+  '(=, +N, \u2013N) if played and followed by best play.';
 const controlsEl = document.getElementById('controls');
 const undoBtn = document.getElementById('undo');
 const undoTrickBtn = document.getElementById('undoTrick');
@@ -759,6 +811,10 @@ let playRequestId = 0;
 
 function nextSeat(seat) {
   return SEATS[(SEATS.indexOf(seat) + 1) % 4];
+}
+
+function prevSeat(seat) {
+  return SEATS[(SEATS.indexOf(seat) + 3) % 4];
 }
 
 function displayRank(rank) {
@@ -775,7 +831,7 @@ function cardStr(card) {
   return card.suit + card.rank;
 }
 
-// Splits an already-validated hand string into its 13 {suit, rank} cards.
+// Splits an already-validated hand string into its {suit, rank} cards.
 function parseHandCards(value) {
   const suits = value.trim().length ? value.trim().split(/\s+/) : [];
   const cards = [];
@@ -985,13 +1041,29 @@ function renderPlay() {
   renderTrickCenter(state.trick);
 
   const declarerLabel = playState.declarer[0].toUpperCase() + playState.declarer.slice(1);
-  const done = playState.history.length === 52;
+  const done = playState.history.length === 4 * playState.numTricks;
+  // An ending has no contract; state it like a problem instead: trumps, who
+  // leads, and the tricks the side on lead can take.
+  const leadLabel = playState.leadSeat[0].toUpperCase() + playState.leadSeat.slice(1);
+  const trumpLabel = playState.strain === 'N' ? 'NT' : `${STRAIN_LABELS[playState.strain]} trump`;
+  const contract = playState.numTricks === 13
+    ? `${contractLabel(playState.level, playState.tricks, STRAIN_LABELS[playState.strain])} by ${declarerLabel}`
+    : `${trumpLabel}, ${leadLabel} to lead, ${playState.numTricks - playState.tricks} of ${playState.numTricks}`;
   playStatusEl.innerHTML =
-    `<div>${contractLabel(playState.level, playState.tricks, STRAIN_LABELS[playState.strain])} by ${declarerLabel}${done ? ' (final)' : ''}</div>` +
+    `<div>${contract}${done ? ' (final)' : ''}</div>` +
     `<div>NS ${state.nsTricks} &ndash; EW ${state.ewTricks}</div>`;
 
   undoBtn.disabled = !playState.history.some(p => !p.auto);
   undoTrickBtn.disabled = playState.history.length === 0;
+}
+
+// solve_plays() targets level + 6 N/S tricks when N/S declare, and at most
+// 7 - level when E/W do, as for 13 cards; pick a level that makes those
+// declarer's target tricks for an ending.
+function solvePlaysLevel() {
+  const { numTricks, tricks, level, declarer } = playState;
+  if (numTricks === 13) return level;
+  return declarer === 'north' || declarer === 'south' ? tricks - 6 : tricks + 7 - numTricks;
 }
 
 // Set when play starts (e.g. from a link) before the solver has loaded.
@@ -1003,7 +1075,7 @@ function requestPlays() {
   ++playRequestId;
   playState.requestId = playRequestId;
   const playedStr = playState.history.map(cardStr).join('');
-  worker.postMessage(['solve_plays', playState.handStrings, playState.level,
+  worker.postMessage(['solve_plays', playState.handStrings, solvePlaysLevel(),
     TRUMP_NUMBERS[playState.strain], SEATS.indexOf(playState.leadSeat), playedStr,
     playState.requestId]);
 }
@@ -1013,7 +1085,7 @@ function playCardInternal(seat, card, auto) {
   playState.pendingPlays = null;
   playState.autoPlay = true;
   renderPlay();
-  if (playState.history.length < 52) requestPlays();
+  if (playState.history.length < 4 * playState.numTricks) requestPlays();
 }
 
 function playCard(seat, card) {
@@ -1027,7 +1099,8 @@ function onSolvePlays(result, requestId) {
   for (const token of result.trim().split(/\s+/)) {
     if (!token) continue;
     const [card, diff] = token.split(':');
-    plays[card] = diff;
+    // An ending is scored for the side on lead, i.e. against declarer.
+    plays[card] = playState.numTricks === 13 ? diff : String(-Number(diff));
   }
   const cardStrs = Object.keys(plays);
   if (cardStrs.length === 0) return;
@@ -1106,6 +1179,12 @@ function startPlay(strain, declarer, tricks, cards = '') {
     statusEl.textContent = error;
     return;
   }
+  // The table's tricks (and, for an ending, its columns) belong to the deal
+  // it was solved for.
+  if (formatPBN(hands) !== ddDeal) {
+    statusEl.textContent = 'The hands changed since the table was solved. Solve again to play.';
+    return;
+  }
   // Card play needs concrete cards, so resolve any X wildcards first.
   const resolvedHands = SEATS.some(seat => /x/i.test(hands[seat])) ? resolveWildcards(hands) : hands;
 
@@ -1119,6 +1198,7 @@ function startPlay(strain, declarer, tricks, cards = '') {
     trumpLetter: strain === 'N' ? null : strain,
     level: Math.max(1, tricks - 6),
     tricks,
+    numTricks: handLength(resolvedHands),
     declarer,
     leadSeat: nextSeat(declarer),
     history: [],
@@ -1139,10 +1219,11 @@ function startPlay(strain, declarer, tricks, cards = '') {
   }
 
   handsEl.classList.add('playing');
+  playHintEl.textContent = playState.numTricks === 13 ? PLAY_HINT_TEXT : ENDING_PLAY_HINT_TEXT;
   setPlayModeUI(true);
 
   renderPlay();
-  if (playState.history.length < 52) requestPlays();
+  if (playState.history.length < 4 * playState.numTricks) requestPlays();
 }
 
 undoBtn.addEventListener('click', undo);
@@ -1166,9 +1247,10 @@ function encodeDd(lines) {
 }
 
 // Back to solve()'s "<strain> <S> <N> <W> <E>" lines, or null if malformed.
-function decodeDd(dd) {
+function decodeDd(dd, numTricks) {
   if (!/^[0-9a-d]{20}$/i.test(dd)) return null;
   const tricks = [...dd].map(c => parseInt(c, 16));
+  if (tricks.some(t => t > numTricks)) return null;
   return DD_STRAINS.map((strain, i) => `${strain} ${tricks.slice(i * 4, i * 4 + 4).join(' ')}`).join('\n');
 }
 
@@ -1232,7 +1314,7 @@ function loadFromUrl(hash = location.hash) {
     : null;
   applyPastedHands(hands);
   pasteBoxEl.value = formatPBN(hands);
-  const dd = decodeDd(params.get('dd') || '');
+  const dd = decodeDd(params.get('dd') || '', handLength(hands));
   if (!dd) {
     statusEl.textContent = pendingUrlPlay
       ? 'Loaded deal from link. Click Solve to continue its play.'

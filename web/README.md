@@ -36,9 +36,21 @@ Type each seat's cards directly, or use one of these controls.
 | Random deal | A fresh random deal, like `./solver -r`.                 |
 | Sample deal | One of the bundled `deals/freak` or `deals/hard` deals.  |
 
+Hands can have fewer than 13 cards, as long as all four have the same number,
+to solve, shuffle and play out endings. Par needs full hands.
+
 The page's URL keeps the deal, vulnerability, DD table and any play in
 progress, so it can be shared as a link to that position without solving
 again. `Solve` recomputes a linked table.
+
+Try these links:
+- [Freak 3](https://macroxue.github.io/bridge-solver/web/#deal=N:AJ962.KT74..Q853+Q853.AJ962.KT74.+.Q853.AJ962.KT74+KT74..Q853.AJ962&dd=77774477774444777744),
+  the most difficult known deal, shows its table at once instead of taking
+  a minute or more to solve.
+- [5♦ by North](https://macroxue.github.io/bridge-solver/web/#deal=N:A64.K54.AK982.QJ+QT97.A962.T.K652+5.873.QJ643.AT87+KJ832.QJT.75.943&vul=N-S&dd=994444885855ab228944&play=DN&cards=H2)
+  after East's ♥2 lead, where par is E/W's 5♠X sacrifice.
+- [A squeeze](https://macroxue.github.io/bridge-solver/web/#deal=N:.AJ.K86.7+.KT.JT2.K+53.4.A7.J+.Q76.Q95.&dd=55105510332244225511&play=SE)
+  in a 6-card ending: ♠ trump, South to lead and take all 6 tricks.
 
 ### 2. Solve
 `Solve` generates the full double-dummy table, the same one `./solver -r`
