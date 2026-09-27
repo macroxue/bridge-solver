@@ -112,7 +112,7 @@ for (const { dir, short } of DEAL_DIRS) {
 // discard_suit_bottom fast-solve caches can never be reused by
 // solve_plays()'s exact-precision cache), so a batch's rounds run across
 // the machine's cores in parallel instead of one at a time.
-const worker = new Worker('worker.js?v=c6919d5c');
+const worker = new Worker('worker.js?v=36be9e64');
 // hardwareConcurrency counts logical (SMT) threads; solving is CPU/cache-
 // bound, and README.md's own multi-core benchmark shows SMT buys almost
 // nothing for it (8 physical cores -> 16 SMT threads only takes the
@@ -126,7 +126,7 @@ const workersParam = parseInt(new URLSearchParams(location.search).get('workers'
 const SHUFFLE_WORKER_COUNT = workersParam > 0 ? workersParam
   : Math.max(1, Math.floor((navigator.hardwareConcurrency || 4) / 2));
 const shuffleWorkers =
-  Array.from({ length: SHUFFLE_WORKER_COUNT }, () => new Worker('shuffle-worker.js?v=4919d8b5'));
+  Array.from({ length: SHUFFLE_WORKER_COUNT }, () => new Worker('shuffle-worker.js?v=1ceb2a95'));
 
 // Solve and Shuffle share one busy/idle state: entering hands and running
 // either one are mutually exclusive, so this covers both directions.
@@ -1057,15 +1057,6 @@ function renderPlay() {
   undoTrickBtn.disabled = playState.history.length === 0;
 }
 
-// solve_plays() targets level + 6 N/S tricks when N/S declare, and at most
-// 7 - level when E/W do, as for 13 cards; pick a level that makes those
-// declarer's target tricks for an ending.
-function solvePlaysLevel() {
-  const { numTricks, tricks, level, declarer } = playState;
-  if (numTricks === 13) return level;
-  return declarer === 'north' || declarer === 'south' ? tricks - 6 : tricks + 7 - numTricks;
-}
-
 // Set when play starts (e.g. from a link) before the solver has loaded.
 let playsOnReady = false;
 
@@ -1075,7 +1066,7 @@ function requestPlays() {
   ++playRequestId;
   playState.requestId = playRequestId;
   const playedStr = playState.history.map(cardStr).join('');
-  worker.postMessage(['solve_plays', playState.handStrings, solvePlaysLevel(),
+  worker.postMessage(['solve_plays', playState.handStrings, playState.targetTricks,
     TRUMP_NUMBERS[playState.strain], SEATS.indexOf(playState.leadSeat), playedStr,
     playState.requestId]);
 }
@@ -1191,6 +1182,7 @@ function startPlay(strain, declarer, tricks, cards = '') {
   const parsedHands = {};
   for (const seat of SEATS) parsedHands[seat] = parseHandCards(resolvedHands[seat]);
 
+  const numTricks = handLength(resolvedHands);
   playState = {
     handStrings: resolvedHands,
     hands: parsedHands,
@@ -1198,7 +1190,10 @@ function startPlay(strain, declarer, tricks, cards = '') {
     trumpLetter: strain === 'N' ? null : strain,
     level: Math.max(1, tricks - 6),
     tricks,
-    numTricks: handLength(resolvedHands),
+    // Declarer's target for solve_plays(): the contract (at least 1-level,
+    // even when declarer falls short), or for an ending, its DD tricks.
+    targetTricks: numTricks === 13 ? Math.max(7, tricks) : tricks,
+    numTricks,
     declarer,
     leadSeat: nextSeat(declarer),
     history: [],

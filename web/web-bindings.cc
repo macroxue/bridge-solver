@@ -18,6 +18,8 @@ class WebPlay {
   typedef std::map<int, int> CardTricks;
 
   CardTricks EvaluatePlays(int ns_tricks, bool ns_contract) {
+    // Where the last trick starts: card 48 of a full deal, earlier in an ending.
+    const size_t last_trick = 4 * (num_tricks - 1);
     // Play all the cards from start.
     for (size_t p = 0; p <= played_cards.size(); ++p) {
       auto& play = min_max.play(p);
@@ -34,14 +36,14 @@ class WebPlay {
         play.seat_to_play = play.PreviousPlay().NextSeat();
       }
       // Leave the last trick for GetPlayableCards() below.
-      if (p < played_cards.size() && p < TOTAL_CARDS - 4) play.PlayCard(played_cards[p]);
+      if (p < played_cards.size() && p < last_trick) play.PlayCard(played_cards[p]);
     }
 
     auto& play = min_max.play(played_cards.size());
     CardTricks card_tricks;
-    if (played_cards.size() >= TOTAL_CARDS - 4) {
+    if (played_cards.size() >= last_trick) {
       // The last trick.
-      auto [new_ns_tricks, _] = min_max.play(TOTAL_CARDS - 4).CollectLastTrick();
+      auto [new_ns_tricks, _] = min_max.play(last_trick).CollectLastTrick();
       int trick_diff =
           ns_contract ? new_ns_tricks - target_ns_tricks : target_ns_tricks - new_ns_tricks;
       card_tricks[play.GetPlayableCards().Top()] = trick_diff;
@@ -132,10 +134,12 @@ std::string shuffle_and_solve(std::string west, std::string north, std::string e
 }
 
 std::string solve_plays(std::string west, std::string north, std::string east, std::string south,
-                        int level, int trump, int lead_seat, std::string played_cards) {
+                        int target_tricks, int trump, int lead_seat, std::string played_cards) {
   auto hands = CollectHands(west.c_str(), north.c_str(), east.c_str(), south.c_str());
   bool ns_contract = !IsNs(lead_seat);
-  int target_ns_tricks = ns_contract ? level + 6 : 7 - level;
+  // Declarer's target, e.g. 9 for 3NT, leaves the rest to N/S when E/W
+  // declare.
+  int target_ns_tricks = ns_contract ? target_tricks : hands.num_tricks() - target_tricks;
 
   std::vector<int> cards;
   cards.reserve(played_cards.size() / 2);

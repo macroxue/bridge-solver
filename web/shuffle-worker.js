@@ -93,5 +93,5 @@ fetch('solver.wasm')
   .then(response => response.arrayBuffer())
   .then(bytes => {
     simd = WebAssembly.validate(bytes);
-    importScripts('solver.js?v=0');
+    importScripts('solver.js?v=51e30dcb');
   });

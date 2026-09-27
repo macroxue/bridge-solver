@@ -19,10 +19,10 @@ onmessage = function(event) {
       const elapsedMs = performance.now() - start;
       postMessage(['solve', result.trim(), elapsedMs]);
     } else if (type === 'solve_plays') {
-      const [hands, level, trump, leadSeat, played, requestId] = args;
+      const [hands, targetTricks, trump, leadSeat, played, requestId] = args;
       const start = performance.now();
       const result = Module.solve_plays(hands.west, hands.north, hands.east, hands.south,
-        level, trump, leadSeat, played);
+        targetTricks, trump, leadSeat, played);
       const elapsedMs = performance.now() - start;
       postMessage(['solve_plays', result.trim(), elapsedMs, requestId]);
     }
@@ -41,5 +41,5 @@ fetch('solver.wasm')
   .then(response => response.arrayBuffer())
   .then(bytes => {
     simd = WebAssembly.validate(bytes);
-    importScripts('solver.js?v=0');
+    importScripts('solver.js?v=51e30dcb');
   });

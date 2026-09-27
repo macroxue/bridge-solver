@@ -22,27 +22,27 @@ void Test1() {
   assert(std::regex_match(dd_results, m, dd_results_re));
 
   // Opening plays.
-  auto plays = solve_plays(west, north, east, south, 3, NOTRUMP, SOUTH, "");
+  auto plays = solve_plays(west, north, east, south, 9, NOTRUMP, SOUTH, "");
   printf("South: %s\n", plays.c_str());
   assert(plays == "SQ:+1 S6:+1 S3:+1 HA:+0 H6:+1 DQ:+0 D3:+0 CK:+1 CJ:+0 C3:+0 ");
 
   // South played CJ.
-  plays = solve_plays(west, north, east, south, 3, NOTRUMP, SOUTH, "CJ");
+  plays = solve_plays(west, north, east, south, 9, NOTRUMP, SOUTH, "CJ");
   printf("West: %s\n", plays.c_str());
   assert(plays == "CA:+0 ");
 
   // West played CA.
-  plays = solve_plays(west, north, east, south, 3, NOTRUMP, SOUTH, "CJCA");
+  plays = solve_plays(west, north, east, south, 9, NOTRUMP, SOUTH, "CJCA");
   printf("North: %s\n", plays.c_str());
   assert(plays == "C6:+0 ");
 
   // North played C6.
-  plays = solve_plays(west, north, east, south, 3, NOTRUMP, SOUTH, "CJCAC6");
+  plays = solve_plays(west, north, east, south, 9, NOTRUMP, SOUTH, "CJCAC6");
   printf("East: %s\n", plays.c_str());
   assert(plays == "CQ:+0 C7:+0 C5:+0 C2:+0 ");
 
   // East played C2.
-  plays = solve_plays(west, north, east, south, 3, NOTRUMP, SOUTH, "CJCAC6C2");
+  plays = solve_plays(west, north, east, south, 9, NOTRUMP, SOUTH, "CJCAC6C2");
   printf("West: %s\n", plays.c_str());
   assert(plays == "S7:+0 HQ:+0 H7:+0 H5:+0 H2:+0 DJ:+0 D7:+0 D4:+0 ");
 
@@ -58,19 +58,19 @@ void Test1() {
                     "H6HQHKS4"   // 10
                     "S8SJSQH4"   // 11
                     "CKH2HTC4"); // 12
-  plays = solve_plays(west, north, east, south, 3, NOTRUMP, SOUTH, played);
+  plays = solve_plays(west, north, east, south, 9, NOTRUMP, SOUTH, played);
   printf("South: %s\n", plays.c_str());
   assert(plays == "C8:+0 ");
 
-  plays = solve_plays(west, north, east, south, 3, NOTRUMP, SOUTH, played + "C8");
+  plays = solve_plays(west, north, east, south, 9, NOTRUMP, SOUTH, played + "C8");
   printf("West: %s\n", plays.c_str());
   assert(plays == "HJ:+0 ");
 
-  plays = solve_plays(west, north, east, south, 3, NOTRUMP, SOUTH, played + "C8HJ");
+  plays = solve_plays(west, north, east, south, 9, NOTRUMP, SOUTH, played + "C8HJ");
   printf("North: %s\n", plays.c_str());
   assert(plays == "H8:+0 ");
 
-  plays = solve_plays(west, north, east, south, 3, NOTRUMP, SOUTH, played + "C8HJH8");
+  plays = solve_plays(west, north, east, south, 9, NOTRUMP, SOUTH, played + "C8HJH8");
   printf("East: %s\n", plays.c_str());
   assert(plays == "CQ:+0 ");
 }
@@ -93,7 +93,7 @@ void Test2() {
   assert(std::regex_match(dd_results, m, dd_results_re));
 
   // Opening plays.
-  auto plays = solve_plays(west, north, east, south, 3, HEART, WEST, "");
+  auto plays = solve_plays(west, north, east, south, 9, HEART, WEST, "");
   printf("West: %s\n", plays.c_str());
   assert(plays == "S4:-1 H8:-1 H2:-1 DA:-1 DQ:+0 DT:+0 D8:+0 D4:+0 CA:-1 CQ:-1 C6:-1 ");
 
@@ -110,19 +110,19 @@ void Test2() {
                     "C5CKC9C6"   // 10
                     "C7C8CACJ"   // 11
                     "CQCTC2H9"); // 12
-  plays = solve_plays(west, north, east, south, 3, HEART, WEST, played);
+  plays = solve_plays(west, north, east, south, 9, HEART, WEST, played);
   printf("South: %s\n", plays.c_str());
   assert(plays == "H3:-1 ");
 
-  plays = solve_plays(west, north, east, south, 3, HEART, WEST, played + "H3");
+  plays = solve_plays(west, north, east, south, 9, HEART, WEST, played + "H3");
   printf("West: %s\n", plays.c_str());
   assert(plays == "DT:-1 ");
 
-  plays = solve_plays(west, north, east, south, 3, HEART, WEST, played + "H3DT");
+  plays = solve_plays(west, north, east, south, 9, HEART, WEST, played + "H3DT");
   printf("North: %s\n", plays.c_str());
   assert(plays == "C4:-1 ");
 
-  plays = solve_plays(west, north, east, south, 3, HEART, WEST, played + "H3DTC4");
+  plays = solve_plays(west, north, east, south, 9, HEART, WEST, played + "H3DTC4");
   printf("East: %s\n", plays.c_str());
   assert(plays == "D5:-1 ");
 }
@@ -134,19 +134,68 @@ void TestDifferentContracts() {
   std::string south("Q6 T8 AK94 A7643 ");
 
   // Opening plays for 4S by East.
-  auto plays = solve_plays(west, north, east, south, 4, SPADE, SOUTH, "");
+  auto plays = solve_plays(west, north, east, south, 10, SPADE, SOUTH, "");
   printf("South: %s\n", plays.c_str());
   assert(plays == "SQ:-1 S6:-1 HT:-1 H8:-1 DA:-3 D9:-1 D4:-1 CA:-2 C7:-2 C4:-2 ");
 
   // Opening plays for 4H by North.
-  plays = solve_plays(west, north, east, south, 4, HEART, EAST, "");
+  plays = solve_plays(west, north, east, south, 10, HEART, EAST, "");
   printf("East: %s\n", plays.c_str());
   assert(plays == "SA:+0 ST:+0 S8:+0 S2:+0 HA:+0 H9:+1 H6:+1 DQ:+1 D8:+1 C9:+0 ");
+}
+
+// deals/old/squeeze.4, a 6-card ending: spades trump, South to lead, and N/S
+// take all 6 tricks only by leading a spade. With South on lead, East
+// "declares" with a target of 0 tricks.
+void TestEnding() {
+  std::string west("- Q76 Q95 - ");
+  std::string north("- AJ K86 7 ");
+  std::string east("- KT JT2 K ");
+  std::string south("53 4 A7 J ");
+
+  // Only a spade lead (S3 is equivalent to S5) keeps all 6 tricks.
+  auto plays = solve_plays(west, north, east, south, 0, SPADE, SOUTH, "");
+  printf("South: %s\n", plays.c_str());
+  assert(plays == "S5:+0 H4:+1 DA:+1 D7:+1 CJ:+1 ");
+
+  // After West discards HQ, North has to throw a low diamond or the club.
+  plays = solve_plays(west, north, east, south, 0, SPADE, SOUTH, "S5HQ");
+  printf("North: %s\n", plays.c_str());
+  assert(plays == "HA:+2 HJ:+1 DK:+1 D8:+0 D6:+0 C7:+0 ");
+
+  // Last trick, which starts at card 20 of this ending, not card 48.
+  std::string played("S5HQD8HK"   // 1
+                     "S3H7C7HT"   // 2
+                     "H4H6HADJ"   // 3
+                     "HJDTCJDQ"   // 4
+                     "DKD2D7D9"); // 5
+  plays = solve_plays(west, north, east, south, 0, SPADE, SOUTH, played);
+  printf("North: %s\n", plays.c_str());
+  assert(plays == "D6:+0 ");
+
+  plays = solve_plays(west, north, east, south, 0, SPADE, SOUTH, played + "D6");
+  printf("East: %s\n", plays.c_str());
+  assert(plays == "CK:+0 ");
+
+  plays = solve_plays(west, north, east, south, 0, SPADE, SOUTH, played + "D6CK");
+  printf("South: %s\n", plays.c_str());
+  assert(plays == "DA:+0 ");
+
+  plays = solve_plays(west, north, east, south, 0, SPADE, SOUTH, played + "D6CKDA");
+  printf("West: %s\n", plays.c_str());
+  assert(plays == "D5:+0 ");
+
+  // The same ending with East on lead: North declares with a target of 5
+  // tricks, and only the HK lead gives one more.
+  plays = solve_plays(west, north, east, south, 5, SPADE, EAST, "");
+  printf("East: %s\n", plays.c_str());
+  assert(plays == "HK:+1 HT:+0 DJ:+0 D2:+0 CK:+0 ");
 }
 
 int main(int argc, char *argv[]) {
   Test1();
   Test2();
   TestDifferentContracts();
+  TestEnding();
   return 0;
 }
