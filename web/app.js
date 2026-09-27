@@ -351,9 +351,53 @@ function renderTable(result) {
         `data-declarer="${DECLARER_COLUMNS[i]}" data-tricks="${t}">${t}</td>`).join('') +
       '</tr>';
   }
-  html += '</table>';
+  const options = VULNERABILITIES.map(v => `<option value="${v}">${v}</option>`).join('');
+  html += `</table><p id="par">Vul: <select id="vul">${options}</select> Par: <span id="parText"></span></p>`;
   tableEl.innerHTML = html;
+  ddLines = lines;
+  renderPar();
 }
+
+// Par depends only on the DD table and vulnerability, so changing the
+// latter re-renders par without re-solving.
+let ddLines = [];
+let vulnerability = 'None';
+const VULNERABILITIES = ['None', 'N-S', 'E-W', 'All'];
+
+// Updates only the select's value and the text, so a focused select keeps
+// focus across changes.
+function renderPar() {
+  const vulEl = document.getElementById('vul');
+  if (!vulEl) return;
+  vulEl.value = vulnerability;
+  const [nsFirst, ewFirst] = computePar(ddLines, vulnerability);
+  const strainLabel = s => STRAIN_LABELS[s];
+  const describe = list =>
+    `${formatParScore(list)}, ${list.map(c => formatParContract(c, strainLabel)).join(', ')}`;
+  let text;
+  if (!nsFirst.length && !ewFirst.length) text = '0';
+  else if (!nsFirst.length || !ewFirst.length) text = describe(nsFirst.length ? nsFirst : ewFirst);
+  else text = `${describe(nsFirst)} if N/S bid first; ${describe(ewFirst)} if E/W bid first`;
+  document.getElementById('parText').innerHTML = text;
+}
+
+tableEl.addEventListener('change', (event) => {
+  if (event.target.id !== 'vul') return;
+  vulnerability = event.target.value;
+  renderPar();
+});
+
+// Up/Down cycle with wrap-around; handled here since native selects stop at
+// the ends and open the popup instead on macOS.
+tableEl.addEventListener('keydown', (event) => {
+  if (event.target.id !== 'vul') return;
+  const step = { ArrowUp: -1, ArrowDown: 1 }[event.key];
+  if (!step) return;
+  event.preventDefault();
+  const n = VULNERABILITIES.length;
+  vulnerability = VULNERABILITIES[(VULNERABILITIES.indexOf(vulnerability) + step + n) % n];
+  renderPar();
+});
 
 // Shared by this table's fold toggle below and shuffleFolded's further down
 // -- the two use different render strategies (see each one's own comment
@@ -462,6 +506,7 @@ function commitPasteBox() {
   if (!value.trim()) return;
   const hands = parsePastedDeal(value);
   if (hands) {
+    vulnerability = parseVulnerability(value) || vulnerability;
     // Left as-is (not cleared) so the box keeps showing what was actually
     // pasted/typed, as confirmation -- rather than snapping back to the
     // placeholder as if nothing had happened.

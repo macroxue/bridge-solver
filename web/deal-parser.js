@@ -162,6 +162,18 @@ function formatPBN(hands) {
   return `N:${clockwiseFromNorth.map(hand).join(' ')}`;
 }
 
+// Vulnerability from a PBN `[Vulnerable "..."]` tag or a "Vul: ..." /
+// "Vulnerable: ..." line, as par-score.js's 'None'/'N-S'/'E-W'/'All'; null
+// if absent or unrecognized.
+function parseVulnerability(text) {
+  const match = text.match(/\bVul(?:nerable)?\b\s*"?:?\s*"?(None|Love|-|All|Both|N-?S|E-?W)(?![\w-])/i);
+  if (!match) return null;
+  const v = match[1].toUpperCase().replace('-', '');
+  if (v === 'NS' || v === 'EW') return v[0] + '-' + v[1];
+  if (v === 'ALL' || v === 'BOTH') return 'All';
+  return 'None';
+}
+
 // Tries every known deal format against pasted clipboard text, in order from
 // most to least specific. Returns null (not four fully-populated hands) if
 // nothing recognized it, so the caller can fall back to a normal paste.
@@ -174,5 +186,5 @@ function parsePastedDeal(text) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { SEATS, SEAT_NAME_BY_LETTER, parsePBN, parseDealFile, parsePastedDeal, formatPBN };
+  module.exports = { SEATS, SEAT_NAME_BY_LETTER, parsePBN, parseDealFile, parsePastedDeal, formatPBN, parseVulnerability };
 }

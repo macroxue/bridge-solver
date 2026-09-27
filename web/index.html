@@ -287,7 +287,7 @@
      but the default 0.8rem horizontal padding alone would be ~230px
      across all columns, more than a phone screen has to spare. */
   #shuffleTable th, #shuffleTable td { padding: 0.3rem 0.2rem; min-width: 2rem; }
-  #freakDealNum, #hardDealNum {
+  #freakDealNum, #hardDealNum, #vul {
     /* The arrow is a background image, not a real element, so it always
        floats over the box's own right-padding rather than sharing space
        with the text. */
@@ -330,6 +330,8 @@
      margin from collapsing with the table's own margin-top below it --
      so they'd otherwise stack instead of merging. */
   #tableHint { display: none; margin-bottom: 0; }
+  #par { margin: 0.5rem 0 0; }
+  #vul { padding: 0.1rem 1.2rem 0.1rem 0.4rem; font-size: 0.9rem; width: auto; }
   p.source {
     margin-top: 0;
     color: #999;
@@ -436,6 +438,7 @@
   <script src="deals.js"></script>
   <script src="deal-parser.js"></script>
   <script src="declarer-columns.js"></script>
+  <script src="par-score.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

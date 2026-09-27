@@ -46,6 +46,11 @@ then labeled with how the contract ends (`=`, `+N`, `-N`) if played, same as
 `./solver -p`'s interactive play mode. `Undo` and `Undo Trick` step back
 through the play; `Edit Hands` returns to the deal entry form.
 
+Below the table is the par score and contract(s) for the chosen
+vulnerability, taken from a pasted deal's `Vulnerable` tag if present. When
+par depends on which side bids first, both results are shown. `par-score.js`
+is ported from [bidding-practice](https://github.com/macroxue/bridge-bidding-practice).
+
 `Solve` itself is single-threaded, same as the native solver.
 
 ### 3. Shuffle 10 / Shuffle 100

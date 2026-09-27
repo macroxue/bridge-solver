@@ -6,7 +6,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { parsePBN, parseDealFile, parsePastedDeal, formatPBN } = require('./deal-parser.js');
+const { parsePBN, parseDealFile, parsePastedDeal, formatPBN, parseVulnerability } = require('./deal-parser.js');
 
 const readDeal = (name) => fs.readFileSync(path.join(__dirname, '..', 'deals', 'hard', name), 'utf8');
 
@@ -258,6 +258,29 @@ test('parsePastedDeal: recognizes a deal-file format PBN would not match', () =>
 
 test('parsePastedDeal: unrecognized text returns null', () => {
   assert.strictEqual(parsePastedDeal('just some random text'), null);
+});
+
+// --- parseVulnerability ---
+
+test('parseVulnerability: PBN tags', () => {
+  assert.strictEqual(parseVulnerability('[Vulnerable "NS"]'), 'N-S');
+  assert.strictEqual(parseVulnerability('[Vulnerable "EW"]'), 'E-W');
+  assert.strictEqual(parseVulnerability('[Vulnerable "All"]'), 'All');
+  assert.strictEqual(parseVulnerability('[Vulnerable "Both"]'), 'All');
+  assert.strictEqual(parseVulnerability('[Vulnerable "None"]'), 'None');
+  assert.strictEqual(parseVulnerability('[Vulnerable "Love"]'), 'None');
+  assert.strictEqual(parseVulnerability('[Vulnerable "-"]'), 'None');
+});
+
+test('parseVulnerability: text lines', () => {
+  assert.strictEqual(parseVulnerability('Dealer: N Vulnerable:E-W'), 'E-W');
+  assert.strictEqual(parseVulnerability('Vul: N-S'), 'N-S');
+  assert.strictEqual(parseVulnerability('vul all'), 'All');
+});
+
+test('parseVulnerability: absent', () => {
+  assert.strictEqual(parseVulnerability('N:42.AQT63.K52.T84 AJ65.42.J963.KQJ Q973..AT74.A9632 KT8.KJ9875.Q8.75'), null);
+  assert.strictEqual(parseVulnerability('Vulnerable: sometimes'), null);
 });
 
 let failed = 0;
