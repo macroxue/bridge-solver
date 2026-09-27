@@ -36,6 +36,10 @@ Type each seat's cards directly, or use one of these controls.
 | Random deal | A fresh random deal, like `./solver -r`.                 |
 | Sample deal | One of the bundled `deals/freak` or `deals/hard` deals.  |
 
+The page's URL keeps the deal, vulnerability, DD table and any play in
+progress, so it can be shared as a link to that position without solving
+again. `Solve` recomputes a linked table.
+
 ### 2. Solve
 `Solve` generates the full double-dummy table, the same one `./solver -r`
 prints on the terminal: one row per strain, tricks for each of the four

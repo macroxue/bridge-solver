@@ -137,7 +137,10 @@ let workerReady = false;
 let shuffleWorkersReadyCount = 0;
 function maybeReportReady() {
   const shuffleReady = shuffleWorkersReadyCount === shuffleWorkers.length;
-  if (workerReady && shuffleReady) statusEl.textContent = 'Ready.';
+  if (workerReady && shuffleReady) {
+    statusEl.textContent = pendingUrlPlay
+      ? 'Ready. Click Solve to continue the play from the link.' : 'Ready.';
+  }
 }
 
 worker.onmessage = (event) => {
@@ -147,6 +150,7 @@ worker.onmessage = (event) => {
       solveBtn.disabled = false;
       workerReady = true;
       maybeReportReady();
+      if (playsOnReady && playState) requestPlays();
       break;
     case 'abort':
       statusEl.textContent = 'Solver crashed: ' + rest[0];
@@ -160,15 +164,10 @@ worker.onmessage = (event) => {
     }
     case 'solve': {
       const [result, elapsedMs] = rest;
-      exitPlay();
-      renderTable(result);
-      ddFolded = false;
-      tableEl.style.display = '';
-      growTablesColumnMinWidth();
-      updateTableHintText();
-      tableHintEl.style.display = 'block';
+      showDdTable(result);
       statusEl.textContent = `Solved in ${elapsedMs.toFixed(0)} ms.`;
       setBusyState(false);
+      resumeUrlPlay();
       break;
     }
     case 'solve_plays': {
@@ -328,6 +327,16 @@ function validateHands(hands) {
   return null;
 }
 
+function showDdTable(result) {
+  exitPlay();
+  renderTable(result);
+  ddFolded = false;
+  tableEl.style.display = '';
+  growTablesColumnMinWidth();
+  updateTableHintText();
+  tableHintEl.style.display = 'block';
+}
+
 // DECLARER_COLUMNS (declarer-columns.js) maps each DD-table column to its
 // declarer; matches solve()'s fixed column order in solver.cc (derived from
 // its lead_seats iteration), independent of trump.
@@ -356,12 +365,15 @@ const vulEl = document.getElementById('vul');
 // the tables are folded.
 const ddParEl = document.getElementById('ddPar');
 let ddLines = [];
+// PBN of the deal ddLines belong to, so the URL only pairs them with it.
+let ddDeal = null;
 let vulnerability = 'None';
 const VULNERABILITIES = ['None', 'N-S', 'E-W', 'All'];
 
 function clearDdTable() {
   tableEl.innerHTML = '';
   ddLines = [];
+  ddDeal = null;
   renderPar();
 }
 
@@ -401,6 +413,7 @@ function singleDummyCounts(data) {
 }
 
 function renderPar() {
+  updateUrl();
   vulEl.value = vulnerability;
   ddParEl.innerHTML = ddLines.length ? 'DD Par: ' + parText(computePar(ddLines, vulnerability)) : '';
   const sdParEl = document.getElementById('sdPar');
@@ -588,6 +601,7 @@ solveBtn.addEventListener('click', () => {
   setBusyState(true);
   statusEl.textContent = 'Solving…';
   clearDdTable();
+  ddDeal = formatPBN(hands);
   tableHintEl.style.display = 'none';
   worker.postMessage(['solve', hands]);
 });
@@ -950,6 +964,7 @@ function positionSideLabel(seat) {
 }
 
 function renderPlay() {
+  updateUrl();
   const state = replayState();
   for (const seat of SEATS) {
     renderSeatCards(seat, seat === state.seat ? playState.pendingPlays : null);
@@ -968,7 +983,12 @@ function renderPlay() {
   undoTrickBtn.disabled = playState.history.length === 0;
 }
 
+// Set when play starts (e.g. from a link) before the solver has loaded.
+let playsOnReady = false;
+
 function requestPlays() {
+  playsOnReady = !workerReady;
+  if (playsOnReady) return;
   ++playRequestId;
   playState.requestId = playRequestId;
   const playedStr = playState.history.map(cardStr).join('');
@@ -1060,9 +1080,12 @@ function exitPlay() {
   seatLabelEls.west.style.transform = '';
   seatLabelEls.east.style.transform = '';
   setPlayModeUI(false);
+  updateUrl();
 }
 
-function startPlay(strain, declarer, tricks) {
+// `cards` (e.g. "CASQ", from a link) are played first, stopping at the first
+// one that isn't legal, so the solver is only asked about the position after.
+function startPlay(strain, declarer, tricks, cards = '') {
   const hands = {};
   for (const seat of SEATS) hands[seat] = getHandValue(seat);
 
@@ -1093,13 +1116,117 @@ function startPlay(strain, declarer, tricks) {
     requestId: 0,
   };
 
+  for (const card of cards.toUpperCase().match(/[SHDC][2-9TJQKA]/g) || []) {
+    const history = playState.history;
+    const { seat } = replayState();
+    const remaining = remainingCards(seat);
+    if (!remaining.some(c => cardStr(c) === card)) break;
+    const led = history.length % 4 ? history[history.length - history.length % 4].suit : null;
+    if (led && card[0] !== led && remaining.some(c => c.suit === led)) break;
+    history.push({ seat, suit: card[0], rank: card[1], auto: false });
+  }
+
   handsEl.classList.add('playing');
   setPlayModeUI(true);
 
   renderPlay();
-  requestPlays();
+  if (playState.history.length < 52) requestPlays();
 }
 
 undoBtn.addEventListener('click', undo);
 undoTrickBtn.addEventListener('click', undoTrick);
 editHandsBtn.addEventListener('click', exitPlay);
+
+// --- Shareable URL ---
+// The URL hash mirrors the deal, vulnerability, DD table and any play in
+// progress, e.g. #deal=<PBN>&vul=N-S&dd=<20 hex digits>&play=NE&cards=CASQ
+// (notrump by East, with CA and SQ played), so a copied link reopens the same
+// position. dd, the table's trick counts, lets a link show it without
+// re-solving; without it, loading a link fills in the deal and the next Solve
+// of that same deal resumes the play.
+let urlLoaded = false;
+let pendingUrlPlay = null;
+const DD_STRAINS = ['N', 'S', 'H', 'D', 'C'];
+
+function encodeDd(lines) {
+  return lines.map(line => line.trim().split(/\s+/).slice(1, 5)
+    .map(n => Number(n).toString(16)).join('')).join('');
+}
+
+// Back to solve()'s "<strain> <S> <N> <W> <E>" lines, or null if malformed.
+function decodeDd(dd) {
+  if (!/^[0-9a-d]{20}$/i.test(dd)) return null;
+  const tricks = [...dd].map(c => parseInt(c, 16));
+  return DD_STRAINS.map((strain, i) => `${strain} ${tricks.slice(i * 4, i * 4 + 4).join(' ')}`).join('\n');
+}
+
+function updateUrl() {
+  if (!urlLoaded) return;
+  const hands = {};
+  for (const seat of SEATS) hands[seat] = getHandValue(seat);
+  const params = new URLSearchParams();
+  const deal = validateHands(hands) ? null : formatPBN(hands);
+  if (deal) params.set('deal', deal);
+  if (vulnerability !== 'None') params.set('vul', vulnerability);
+  if (deal && ddLines.length && ddDeal === deal) params.set('dd', encodeDd(ddLines));
+  if (playState) {
+    params.set('play', playState.strain + playState.declarer[0].toUpperCase());
+    if (playState.history.length) params.set('cards', playState.history.map(cardStr).join(''));
+  } else if (pendingUrlPlay && pendingUrlPlay.deal === deal) {
+    params.set('play', pendingUrlPlay.play);
+    if (pendingUrlPlay.cards) params.set('cards', pendingUrlPlay.cards);
+  }
+  const hash = params.toString();
+  history.replaceState(null, '', hash ? '#' + hash : location.pathname + location.search);
+}
+
+function loadFromUrl() {
+  const params = new URLSearchParams(location.hash.slice(1));
+  urlLoaded = true;
+  const deal = params.get('deal');
+  if (!deal) return;
+  const hands = parsePBN(deal);
+  if (!hands || SEATS.some(seat => !hands[seat])) {
+    statusEl.textContent = "Couldn't read the deal in the link.";
+    return;
+  }
+  const vul = params.get('vul');
+  vulnerability = VULNERABILITIES.includes(vul) ? vul : 'None';
+  vulEl.value = vulnerability;
+  const play = params.get('play') || '';
+  pendingUrlPlay = /^[NSHDC][NSEW]$/.test(play)
+    ? { play, deal: formatPBN(hands), cards: params.get('cards') || '' }
+    : null;
+  applyPastedHands(hands);
+  pasteBoxEl.value = formatPBN(hands);
+  const dd = decodeDd(params.get('dd') || '');
+  if (!dd) {
+    statusEl.textContent = pendingUrlPlay
+      ? 'Loaded deal from link. Click Solve to continue its play.'
+      : 'Loaded deal from link.';
+    return;
+  }
+  // Shown as given; Solve recomputes it.
+  ddDeal = formatPBN(hands);
+  showDdTable(dd);
+  statusEl.textContent = 'Loaded deal and DD table from link.';
+  resumeUrlPlay();
+}
+
+// Once the link's deal has a DD table (and is unchanged), starts its contract
+// with its cards played.
+function resumeUrlPlay() {
+  const pending = pendingUrlPlay;
+  pendingUrlPlay = null;
+  if (!pending) return;
+  const hands = {};
+  for (const seat of SEATS) hands[seat] = getHandValue(seat);
+  if (formatPBN(hands) !== pending.deal) return;
+  const strain = pending.play[0], declarer = SEAT_NAME_BY_LETTER[pending.play[1]];
+  const cell = tableEl.querySelector(`td.pick[data-strain="${strain}"][data-declarer="${declarer}"]`);
+  if (!cell) return;
+  startPlay(strain, declarer, Number(cell.dataset.tricks), pending.cards);
+}
+
+window.addEventListener('hashchange', loadFromUrl);
+loadFromUrl();
