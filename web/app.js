@@ -980,6 +980,7 @@ function requestPlays() {
 function playCardInternal(seat, card, auto) {
   playState.history.push({ seat, suit: card.suit, rank: card.rank, auto });
   playState.pendingPlays = null;
+  playState.autoPlay = true;
   renderPlay();
   if (playState.history.length < 52) requestPlays();
 }
@@ -1000,8 +1001,9 @@ function onSolvePlays(result, requestId) {
   const cardStrs = Object.keys(plays);
   if (cardStrs.length === 0) return;
   const state = replayState();
-  if (cardStrs.length === 1) {
-    // Only one meaningful choice -- play it automatically.
+  if (cardStrs.length === 1 && playState.autoPlay) {
+    // Only one meaningful choice -- play it automatically, except right
+    // after an undo, which would otherwise just replay it.
     const c = cardStrs[0];
     playCardInternal(state.seat, { suit: c[0], rank: c[1] }, true);
   } else {
@@ -1018,6 +1020,7 @@ function undo() {
   }
   if (playState.history.length > 0) playState.history.pop();
   playState.pendingPlays = null;
+  playState.autoPlay = false;
   renderPlay();
   requestPlays();
 }
@@ -1030,6 +1033,7 @@ function undoTrick() {
   const trickStart = Math.floor((playState.history.length - 1) / 4) * 4;
   playState.history.length = trickStart;
   playState.pendingPlays = null;
+  playState.autoPlay = false;
   renderPlay();
   requestPlays();
 }
@@ -1084,6 +1088,8 @@ function startPlay(strain, declarer, tricks) {
     leadSeat: nextSeat(declarer),
     history: [],
     pendingPlays: null,
+    // Off for the first answer after an undo, so it doesn't just replay.
+    autoPlay: true,
     requestId: 0,
   };
 
