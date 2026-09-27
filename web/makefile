@@ -43,7 +43,7 @@ web.profdata: web-profile.cc web-bindings.cc ../solver.cc .emcc-id
 		echo "llvm-profdata not found (set EMSDK or ensure emcc's LLVM tools are on PATH)" >&2; \
 		exit 1; }; \
 	$(NODE) web-profile.js > /dev/null || { \
-		printf '\033[1mYou need emscripten v5.0.7 or earlier. See web/README.md\033[0m\n' >&2; \
+		printf '\033[1mYou need emscripten v5.0.7 or earlier. See repo root / web/README.md\033[0m\n' >&2; \
 		exit 1; }; \
 	"$(LLVM_PROFDATA)" merge -o $@ default.profraw || { \
 		echo "llvm-profdata merge failed (LLVM_PROFDATA=$(LLVM_PROFDATA))" >&2; \
