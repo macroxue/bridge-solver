@@ -26,6 +26,3 @@
 *.exe
 *.out
 *.app
-
-# Local Emscripten SDK installed by `make -C web setup` (pinned version).
-.emsdk
