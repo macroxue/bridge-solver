@@ -16,8 +16,10 @@ LLVM_PROFDATA ?= $(firstword \
 	$(wildcard $(shell em-config LLVM_ROOT 2>/dev/null)/llvm-profdata))
 # emsdk's own Node -- the system one here is too old to run wasm builds.
 NODE=$(or $(EMSDK_NODE),node)
-# Portable content hash: GNU md5sum when present, else BSD `md5 -q` (stock macOS).
-MD5_CMD := $(shell command -v md5sum 2>/dev/null || echo md5 -q)
+# Portable content hash: md5sum when on PATH, else absolute `md5 -q` (stock
+# macOS puts both under /sbin; a bare `md5` fails if /sbin is not on PATH).
+MD5_CMD := $(shell command -v md5sum 2>/dev/null || \
+	{ m=$$(command -v md5 2>/dev/null) && printf '%s -q\n' "$$m"; })
 
 # Instrumented wasm run under Node to produce PGO data for the builds
 # below. -sNODERAWFS escapes Emscripten's in-memory FS so default.profraw
@@ -42,6 +44,8 @@ solver.js: web-bindings.cc ../solver.cc solver-no-simd.wasm web.profdata
 	@# macOS, which has `md5 -q` but not GNU `md5sum`.
 	simd_hash=$$($(MD5_CMD) solver.wasm | cut -c1-8); \
 	nosimd_hash=$$($(MD5_CMD) solver-no-simd.wasm | cut -c1-8); \
+	test -n "$$simd_hash" && test -n "$$nosimd_hash" || { \
+		echo "cache-bust hash failed (MD5_CMD='$(MD5_CMD)')" >&2; exit 1; }; \
 	sed -i.bak "s/\"solver.wasm\"/simd?\"solver.wasm?v=$$simd_hash\":\"solver-no-simd.wasm?v=$$nosimd_hash\"/" $@
 	rm -f $@.bak
 solver.wasm: solver.js
