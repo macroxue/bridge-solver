@@ -134,12 +134,24 @@ let busy = false;
 // A link opened while a solve or shuffle is running would get that deal's
 // results, so it's applied once they're in; see the hashchange listener.
 let deferredUrlHash = null;
+const LINK_WAITING_NOTE = ' The new link opens when this finishes.';
+
+// Solve needs the solver loaded, and isn't offered while busy or playing.
+function updateSolveBtn() {
+  solveBtn.disabled = busy || !!playState || !workerReady;
+}
+
+// Shuffle needs every shuffle worker loaded, since a batch can use any.
+function updateShuffleBtns() {
+  const disabled = busy || shuffleWorkersReadyCount < shuffleWorkers.length;
+  shuffle10Btn.disabled = disabled;
+  shuffle100Btn.disabled = disabled;
+}
 
 function setBusyState(isBusy) {
   busy = isBusy;
-  solveBtn.disabled = busy;
-  shuffle10Btn.disabled = busy;
-  shuffle100Btn.disabled = busy;
+  updateSolveBtn();
+  updateShuffleBtns();
   setEntryDisabled(busy);
   if (!busy && deferredUrlHash !== null) {
     const hash = deferredUrlHash;
@@ -164,12 +176,16 @@ worker.onmessage = (event) => {
   const [type, ...rest] = event.data;
   switch (type) {
     case 'ready':
-      solveBtn.disabled = false;
       workerReady = true;
+      updateSolveBtn();
       maybeReportReady();
       if (playsOnReady && playState) requestPlays();
       break;
     case 'abort':
+      // The worker is dead: no more Solve or play, and a link waiting on this
+      // solve would hide the crash, so drop it.
+      workerReady = false;
+      deferredUrlHash = null;
       statusEl.textContent = 'Solver crashed: ' + rest[0];
       setBusyState(false);
       break;
@@ -184,7 +200,6 @@ worker.onmessage = (event) => {
       showDdTable(result);
       statusEl.textContent = `Solved in ${elapsedMs.toFixed(0)} ms.`;
       setBusyState(false);
-      resumeUrlPlay();
       break;
     }
     case 'solve_plays': {
@@ -215,13 +230,13 @@ shuffleWorkers.forEach((shuffleWorker, workerIndex) => {
     switch (type) {
       case 'ready':
         ++shuffleWorkersReadyCount;
-        if (shuffleWorkersReadyCount === shuffleWorkers.length) {
-          shuffle10Btn.disabled = false;
-          shuffle100Btn.disabled = false;
-        }
+        updateShuffleBtns();
         maybeReportReady();
         break;
       case 'abort':
+        // As for the solver: no more Shuffle, and no waiting link.
+        shuffleWorkersReadyCount = 0;
+        deferredUrlHash = null;
         statusEl.textContent = 'Solver crashed: ' + rest[0];
         pendingBatch = null;
         setBusyState(false);
@@ -238,7 +253,8 @@ shuffleWorkers.forEach((shuffleWorker, workerIndex) => {
         const [done] = rest;
         pendingBatch.doneByWorker[workerIndex] = done;
         const totalDone = pendingBatch.doneByWorker.reduce((a, b) => a + b, 0);
-        statusEl.textContent = `Shuffling… ${totalDone}/${pendingBatch.totalUnits}${workersLabel(pendingBatch.workers)}`;
+        statusEl.textContent = `Shuffling… ${totalDone}/${pendingBatch.totalUnits}${workersLabel(pendingBatch.workers)}` +
+          (deferredUrlHash !== null ? LINK_WAITING_NOTE : '');
         break;
       }
       case 'shuffle': {
@@ -1142,8 +1158,7 @@ function setPlayModeUI(active) {
   controlsEl.style.display = active ? 'none' : 'flex';
   setHandsDisabled(active);
   dealBtn.disabled = active;
-  // Play can start from a link before the solver has loaded.
-  solveBtn.disabled = active || !workerReady;
+  updateSolveBtn();
   sampleDealEl.disabled = active;
 }
 
@@ -1227,13 +1242,13 @@ editHandsBtn.addEventListener('click', exitPlay);
 
 // --- Shareable URL ---
 // The URL hash mirrors the deal, vulnerability, DD table and any play in
-// progress, e.g. #deal=<PBN>&vul=N-S&dd=<20 hex digits>&play=NE&cards=CASQ
+// progress, e.g.
+//   #deal=<PBN>&vul=N-S&dd=<20 hex digits>&play=NE&cards=CASQ&sum=<checksum>
 // (notrump by East, with CA and SQ played), so a copied link reopens the same
 // position. dd, the table's trick counts, lets a link show it without
-// re-solving; without it, loading a link fills in the deal and the next Solve
-// of that same deal resumes the play.
+// re-solving; play is only ever written with it. Links are made by the page,
+// not by hand: sum rejects edited or truncated ones.
 let urlLoaded = false;
-let pendingUrlPlay = null;
 const DD_STRAINS = ['N', 'S', 'H', 'D', 'C'];
 
 function encodeDd(lines) {
@@ -1259,21 +1274,24 @@ function updateUrl() {
 }
 
 function writeUrl() {
+  // Leave a link waiting on a solve or shuffle in the address bar.
+  if (deferredUrlHash !== null) return;
   const hands = {};
   for (const seat of SEATS) hands[seat] = getHandValue(seat);
   const params = new URLSearchParams();
+  // Without a valid deal there's nothing to link to.
   const deal = validateHands(hands) ? null : formatPBN(hands);
-  if (deal) params.set('deal', deal);
-  if (vulnerability !== 'None') params.set('vul', vulnerability);
-  if (deal && ddLines.length && ddDeal === deal) params.set('dd', encodeDd(ddLines));
-  if (playState) {
-    params.set('play', playState.strain + playState.declarer[0].toUpperCase());
-    if (playState.history.length) params.set('cards', playState.history.map(cardStr).join(''));
-  } else if (pendingUrlPlay && pendingUrlPlay.deal === deal) {
-    params.set('play', pendingUrlPlay.play);
-    if (pendingUrlPlay.cards) params.set('cards', pendingUrlPlay.cards);
+  if (deal) {
+    params.set('deal', deal);
+    if (vulnerability !== 'None') params.set('vul', vulnerability);
+    if (ddLines.length && ddDeal === deal) params.set('dd', encodeDd(ddLines));
+    if (playState) {
+      params.set('play', playState.strain + playState.declarer[0].toUpperCase());
+      if (playState.history.length) params.set('cards', playState.history.map(cardStr).join(''));
+    }
+    params.set('sum', urlChecksum(params));
   }
-  const hash = params.toString() ? '#' + params.toString() : '';
+  const hash = deal ? '#' + params.toString() : '';
   if (hash === location.hash) return;
   // Safari throws past ~100 calls per 30 s; the next update carries the full
   // state anyway.
@@ -1284,64 +1302,75 @@ function writeUrl() {
   }
 }
 
+// Checks a link's sum, so a damaged or hand-edited link is rejected instead
+// of loading part of it (e.g. a play without the DD table it needs).
 function loadFromUrl(hash = location.hash) {
-  const params = new URLSearchParams(hash.slice(1));
   urlLoaded = true;
-  pendingUrlPlay = null;
+  if (!hash) return;
+  // A rejected link leaves the page as it was, so the URL goes back to it.
+  const reject = (message) => {
+    statusEl.textContent = message;
+    updateUrl();
+  };
+  const params = new URLSearchParams(hash.slice(1));
   const deal = params.get('deal');
-  if (!deal) return;
-  const hands = parsePBN(deal);
-  if (!hands || SEATS.some(seat => !hands[seat])) {
-    statusEl.textContent = "Couldn't read the deal in the link.";
+  const hands = deal && parsePBN(deal);
+  if (params.get('sum') !== urlChecksum(params) || !hands || SEATS.some(seat => !hands[seat])) {
+    reject('This link is damaged or incomplete.');
     return;
   }
   const error = validateHands(hands);
   if (error) {
-    statusEl.textContent = `Couldn't use the deal in the link: ${error}`;
+    reject(`Couldn't use the deal in the link: ${error}`);
     return;
   }
   const vul = params.get('vul');
   vulnerability = VULNERABILITIES.includes(vul) ? vul : 'None';
-  vulEl.value = vulnerability;
-  const play = params.get('play') || '';
-  pendingUrlPlay = /^[NSHDC][NSEW]$/.test(play)
-    ? { play, deal: formatPBN(hands), cards: params.get('cards') || '' }
-    : null;
-  applyPastedHands(hands);
-  pasteBoxEl.value = formatPBN(hands);
+  const pbn = formatPBN(hands);
+  applyPastedHands(hands);  // Also shows the vulnerability.
+  pasteBoxEl.value = pbn;
   const dd = decodeDd(params.get('dd') || '', handLength(hands));
   if (!dd) {
-    statusEl.textContent = pendingUrlPlay
-      ? 'Loaded deal from link. Click Solve to continue its play.'
-      : 'Loaded deal from link.';
+    statusEl.textContent = 'Loaded deal from link.';
     return;
   }
   // Shown as given; Solve recomputes it.
-  ddDeal = formatPBN(hands);
+  ddDeal = pbn;
   showDdTable(dd);
   statusEl.textContent = 'Loaded deal and DD table from link.';
-  resumeUrlPlay();
+  const play = params.get('play') || '';
+  if (/^[NSHDC][NSEW]$/.test(play)) resumeUrlPlay(play, params.get('cards') || '');
 }
 
-// Once the link's deal has a DD table (and is unchanged), starts its contract
-// with its cards played.
-function resumeUrlPlay() {
-  const pending = pendingUrlPlay;
-  pendingUrlPlay = null;
-  if (!pending) return;
-  const hands = {};
-  for (const seat of SEATS) hands[seat] = getHandValue(seat);
-  if (formatPBN(hands) !== pending.deal) return;
-  const strain = pending.play[0], declarer = SEAT_NAME_BY_LETTER[pending.play[1]];
+// 32-bit FNV-1a in base 36 of the params other than sum: catches typos and
+// truncation, not tampering. Over decoded values, so a link survives apps
+// that re-encode it (e.g. %3A back to ':').
+function urlChecksum(params) {
+  const text = [...params].filter(([key]) => key !== 'sum').map(([key, value]) => `${key}=${value}`).join('&');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; ++i) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(36);
+}
+
+// Starts the link's contract (e.g. play "DN" for diamonds by North) from its
+// DD table, with its cards played.
+function resumeUrlPlay(play, cards) {
+  const strain = play[0], declarer = SEAT_NAME_BY_LETTER[play[1]];
   const cell = tableEl.querySelector(`td.pick[data-strain="${strain}"][data-declarer="${declarer}"]`);
   if (!cell) return;
-  startPlay(strain, declarer, Number(cell.dataset.tricks), pending.cards);
+  startPlay(strain, declarer, Number(cell.dataset.tricks), cards);
 }
 
 window.addEventListener('hashchange', () => {
-  if (busy) {
+  if (!location.hash) {
+    // Cleared by hand: put back the link to what the page shows.
+    updateUrl();
+  } else if (busy) {
     deferredUrlHash = location.hash;
-    statusEl.textContent += ' The new link opens when this finishes.';
+    if (!statusEl.textContent.endsWith(LINK_WAITING_NOTE)) statusEl.textContent += LINK_WAITING_NOTE;
   } else {
     loadFromUrl();
   }
