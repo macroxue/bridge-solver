@@ -14,8 +14,8 @@ Module = {
 };
 
 importScripts('declarer-columns.js?v=0');
-// Maps DECLARER_COLUMNS' full seat names to the single-letter keys sums/histo
-// below use.
+// Maps DECLARER_COLUMNS' full seat names to the single-letter keys counts
+// below uses.
 const SEAT_LETTER = { south: 'S', north: 'N', west: 'W', east: 'E' };
 
 // Parses solve()'s "<strain> <S> <N> <W> <E> <time> s" lines, using the same
@@ -31,11 +31,11 @@ function parseSolveResult(result) {
 }
 
 // Runs `rounds` shuffled solves for each of {shuffle E/W, shuffle N/S},
-// holding the other pair's hands fixed, and returns per-strain sums and
-// making-N-or-more histograms for each declarer -- the same aggregation
-// shuffle.py does over many `solver -s ... -d` subprocess calls, just
+// holding the other pair's hands fixed, and returns counts[d][row][t]: how
+// many rounds declarer d took exactly t tricks in strain row -- the data
+// shuffle.py aggregates over many `solver -s ... -d` subprocess calls, just
 // in-process and sequential (one shuffle_and_solve() call at a time here).
-function runShuffle(hands, rounds, minTricks, onProgress) {
+function runShuffle(hands, rounds, onProgress) {
   const start = performance.now();
   const directions = [
     { key: 'ew', seats: 'WE' },
@@ -46,15 +46,9 @@ function runShuffle(hands, rounds, minTricks, onProgress) {
 
   const results = {};
   for (const { key, seats } of directions) {
-    const sums = { S: [0, 0, 0, 0, 0], N: [0, 0, 0, 0, 0], W: [0, 0, 0, 0, 0], E: [0, 0, 0, 0, 0] };
-    const histo = {};
-    for (const d of ['S', 'N', 'W', 'E']) {
-      histo[d] = [];
-      for (let row = 0; row < 5; ++row) {
-        histo[d][row] = {};
-        for (let t = minTricks; t <= 13; ++t) histo[d][row][t] = 0;
-      }
-    }
+    const counts = {};
+    for (const d of ['S', 'N', 'W', 'E'])
+      counts[d] = Array.from({ length: 5 }, () => new Array(14).fill(0));
     for (let round = 0; round < rounds; ++round) {
       // A single bad round (rare edge-case hand, transient wasm error)
       // shouldn't discard every round already completed in this batch --
@@ -63,28 +57,25 @@ function runShuffle(hands, rounds, minTricks, onProgress) {
         const result = Module.shuffle_and_solve(
           hands.west, hands.north, hands.east, hands.south, seats, /*discard_suit_bottom=*/true);
         parseSolveResult(result).forEach((row, r) => {
-          for (const d of ['S', 'N', 'W', 'E']) {
-            sums[d][r] += row[d];
-            for (let t = minTricks; t <= 13; ++t) if (row[d] >= t) ++histo[d][r][t];
-          }
+          for (const d of ['S', 'N', 'W', 'E']) ++counts[d][r][row[d]];
         });
       } catch (e) {
         console.error('[shuffle] round failed, skipping:', e);
       }
       if (onProgress && (++done % 5 === 0 || done === total)) onProgress(done, total);
     }
-    results[key] = { sums, histo };
+    results[key] = { counts };
   }
   const elapsedMs = performance.now() - start;
-  return { rounds, minTricks, elapsedMs, ew: results.ew, ns: results.ns };
+  return { rounds, elapsedMs, ew: results.ew, ns: results.ns };
 }
 
 onmessage = function(event) {
   const [type, ...args] = event.data;
   try {
     if (type === 'shuffle') {
-      const [hands, rounds, minTricks] = args;
-      const data = runShuffle(hands, rounds, minTricks,
+      const [hands, rounds] = args;
+      const data = runShuffle(hands, rounds,
         (done, total) => postMessage(['shuffle_progress', done, total]));
       postMessage(['shuffle', data]);
     }

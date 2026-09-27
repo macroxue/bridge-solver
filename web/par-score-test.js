@@ -3,7 +3,7 @@
 'use strict';
 
 const assert = require('assert');
-const { computePar, formatParContract, formatParScore } = require('./par-score.js');
+const { computePar, computeSingleDummyPar, formatParContract, formatParScore } = require('./par-score.js');
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -55,6 +55,44 @@ for (const [ddLines, vulnerability, expected] of cases) {
     assert.deepStrictEqual(parLines(ddLines, vulnerability), expected);
   });
 }
+
+// --- single dummy ---
+
+// counts[declarer][strain]: every shuffle taking the DD table's tricks.
+function pointCounts(ddLines) {
+  const counts = { S: {}, N: {}, W: {}, E: {} };
+  for (const line of ddLines) {
+    const [strain, ...tricks] = line.split(' ');
+    ['S', 'N', 'W', 'E'].forEach((d, i) => {
+      counts[d][strain] = new Array(14).fill(0);
+      counts[d][strain][Number(tricks[i])] = 10;
+    });
+  }
+  return counts;
+}
+
+const contractNames = ([nsFirst, ewFirst]) => [nsFirst, ewFirst].map(list =>
+  list.map(c => `${c.level}${c.strain}${c.doubled ? 'X' : ''} ${c.declarers} ${c.nsScore}`));
+
+for (const [ddLines, vulnerability, expected] of cases) {
+  test(`single dummy with certain tricks matches DD: ${expected[0]} (vul ${vulnerability})`, () => {
+    assert.deepStrictEqual(
+      contractNames(computeSingleDummyPar(pointCounts(ddLines), vulnerability)),
+      contractNames(computePar(ddLines, vulnerability)));
+  });
+}
+
+test('single dummy expected score: 4S makes half the time', () => {
+  // N/S: 10 or 9 spade tricks (5 shuffles each), 6 elsewhere; E/W: 3 tricks.
+  const counts = pointCounts(['N 6 6 3 3', 'S 10 10 3 3', 'H 6 6 3 3', 'D 6 6 3 3', 'C 6 6 3 3']);
+  for (const d of ['S', 'N']) counts[d].S = Object.assign(new Array(14).fill(0), { 9: 5, 10: 5 });
+  // Undertricks are scored doubled, as in DD par, so
+  // 4S: (420 - 100) / 2 = 160 beats 3S: (170 + 140) / 2 = 155.
+  const par = computeSingleDummyPar(counts, 'None');
+  assert.deepStrictEqual(par[1], []);
+  assert.deepStrictEqual(['Par: ' + formatParScore(par[0]), ...par[0].map(c => formatParContract(c))],
+                         ['Par: NS +160', '4S by NS (50%)']);
+});
 
 let failed = 0;
 for (const { name, fn } of tests) {

@@ -287,7 +287,7 @@
      but the default 0.8rem horizontal padding alone would be ~230px
      across all columns, more than a phone screen has to spare. */
   #shuffleTable th, #shuffleTable td { padding: 0.3rem 0.2rem; min-width: 2rem; }
-  #freakDealNum, #hardDealNum, #vul {
+  #sampleDeal, #vul {
     /* The arrow is a background image, not a real element, so it always
        floats over the box's own right-padding rather than sharing space
        with the text. */
@@ -299,19 +299,20 @@
     padding: 0.4rem 1.4rem 0.4rem 0.7rem;
     /* Fixed, not auto: Chrome sizes an unstyled select to its *selected*
        option, but Firefox sizes it to the *widest* option in the list --
-       here, the placeholder ("Freak deal"/"Hard deal") is wider than any
-       shortened numbered option ("Hard 19"), so Firefox would otherwise
+       here, the placeholder ("Sample deal") is wider than any shortened
+       numbered option ("Hard 19"), so Firefox would otherwise
        always render at placeholder width regardless of what's picked.
        Fixed width sidesteps that divergence; sized with margin above the
        placeholder text's own width so nothing here ever needs to ellipsize. */
     width: 7rem;
   }
-  /* These three are just locked out while a solve is pending, not truly
+  /* These two are just locked out while a solve is pending, not truly
      unavailable -- stay full-opacity instead of the general dimming above.
      (Relies on the flat, non-native button/select style above: browsers
      alpha-blend color/background/border on a *native* control's :disabled
      state regardless of opacity, so this override wouldn't fully cancel it.) */
-  #deal:disabled, #freakDealNum:disabled, #hardDealNum:disabled { opacity: 1; }
+  #sampleDeal { width: 8rem; }
+  #deal:disabled, #sampleDeal:disabled { opacity: 1; }
   #status { margin: 0.75rem 0; color: #555; }
   #table, #shuffleTable { overflow-x: auto; }
   table { border-collapse: collapse; margin-top: 0.5rem; }
@@ -330,8 +331,8 @@
      margin from collapsing with the table's own margin-top below it --
      so they'd otherwise stack instead of merging. */
   #tableHint { display: none; margin-bottom: 0; }
-  #par { margin: 0.5rem 0 0; }
-  #vul { padding: 0.1rem 1.2rem 0.1rem 0.4rem; font-size: 0.9rem; width: auto; }
+  p.par { margin: 0.5rem 0 0; }
+  p.par:empty { display: none; }
   p.source {
     margin-top: 0;
     color: #999;
@@ -408,16 +409,19 @@
   </div>
 
   <div class="controls" id="controls">
-    <select id="freakDealNum">
-      <option value="" selected disabled>Freak deal</option>
-    </select>
-    <select id="hardDealNum">
-      <option value="" selected disabled>Hard deal</option>
+    <select id="sampleDeal">
+      <option value="" selected disabled>Sample deal</option>
     </select>
     <button id="deal">Random deal</button>
     <button id="solve" disabled>Solve</button>
     <button id="shuffle10" disabled>Shuffle 10</button>
     <button id="shuffle100" disabled>Shuffle 100</button>
+    <select id="vul" title="Vulnerability">
+      <option value="None">Vul: None</option>
+      <option value="N-S">Vul: N-S</option>
+      <option value="E-W">Vul: E-W</option>
+      <option value="All">Vul: All</option>
+    </select>
   </div>
   <div id="playBar">
     <button id="editHands">Edit Hands</button>
@@ -431,6 +435,7 @@
   <div class="tables-column" id="tablesColumn">
   <p class="hint" id="tableHint">Double-dummy table: Click a cell to play out that contract.</p>
   <div id="table"></div>
+  <p class="par" id="ddPar"></p>
   <div id="shuffleTable"></div>
   </div>
   </div>
@@ -438,7 +443,7 @@
   <script src="deals.js?v=0"></script>
   <script src="deal-parser.js?v=0"></script>
   <script src="declarer-columns.js?v=0"></script>
-  <script src="par-score.js?v=0"></script>
-  <script src="app.js?v=d451f5e7"></script>
+  <script src="par-score.js?v=e88ba8fb"></script>
+  <script src="app.js?v=ef5953bb"></script>
 </body>
 </html>

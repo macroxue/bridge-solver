@@ -16,24 +16,50 @@ function isVulnerable(seat, vulnerability) {
 // means par is 0. Each contract has {level, strain, doubled, declarers,
 // overtricks, nsScore}.
 function computePar(ddLines, vulnerability) {
-  const [ns, ew] = computeParContracts(computeDoubleDummyPercentage(ddLines), vulnerability);
+  return describePar(computeDoubleDummyPercentage(ddLines), vulnerability, false);
+}
+
+// Like computePar(), but from single-dummy trick distributions:
+// counts[declarer][strain][t] is how many shuffles took exactly t tricks.
+// nsScore is then an expected score, and each contract has makePercent
+// instead of overtricks.
+function computeSingleDummyPar(counts, vulnerability) {
+  const percentage = {};
+  for (const declarer of PAR_DECLARERS) {
+    percentage[declarer] = {};
+    for (const strain of PAR_STRAINS) {
+      const c = counts[declarer][strain];
+      const total = c.reduce((a, b) => a + b, 0);
+      percentage[declarer][strain] = c.map(n => n * 100 / total);
+    }
+  }
+  return describePar(percentage, vulnerability, true);
+}
+
+function describePar(percentage, vulnerability, singleDummy) {
+  const [ns, ew] = computeParContracts(percentage, vulnerability);
   const describe = c => ({
     level: c.tricks - 6,
     strain: c.strain,
     doubled: c.score < 0,
     declarers: c.declarer + c.extraDeclarer,
-    overtricks: mostTricks(c.percentage) - c.tricks,
+    ...(singleDummy
+      // Rounded down like the shuffle table's cells, so 100% means every shuffle.
+      ? { makePercent: Math.floor(c.percentage.slice(c.tricks).reduce((a, b) => a + b, 0) + 1e-9) }
+      : { overtricks: mostTricks(c.percentage) - c.tricks }),
     nsScore: ['N', 'S'].includes(c.declarer) ? c.score : -c.score,
   });
   return [ns.map(describe), ew.map(describe)];
 }
 
-// E.g. "4H= by N", "5DX-2 by NS"; strainLabel maps a strain letter to its
-// display form.
+// E.g. "4H= by N", "5DX-2 by NS", or "4H by N (62%)" for single dummy;
+// strainLabel maps a strain letter to its display form.
 function formatParContract(c, strainLabel = s => s) {
+  const declarers = [...c.declarers].sort((a, b) => 'NSEW'.indexOf(a) - 'NSEW'.indexOf(b)).join('');
+  const contract = `${c.level}${strainLabel(c.strain)}${c.doubled ? 'X' : ''}`;
+  if (c.makePercent !== undefined) return `${contract} by ${declarers} (${c.makePercent}%)`;
   const result = c.overtricks == 0 ? '=' : (c.overtricks > 0 ? '+' : '') + c.overtricks;
-  const declarers = [...c.declarers].sort((a, b) => 'NSEW'.indexOf(a) - 'NSEW'.indexOf(b));
-  return `${c.level}${strainLabel(c.strain)}${c.doubled ? 'X' : ''}${result} by ${declarers.join('')}`;
+  return `${contract}${result} by ${declarers}`;
 }
 
 // E.g. "NS +620", "EW -100", "0"; from the side whose contract it is.
@@ -270,5 +296,5 @@ class ProbContract {
 };
 
 if (typeof module !== 'undefined') {
-  module.exports = { computePar, formatParContract, formatParScore };
+  module.exports = { computePar, computeSingleDummyPar, formatParContract, formatParScore };
 }

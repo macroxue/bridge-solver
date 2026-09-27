@@ -28,13 +28,13 @@ by `worker.js` and `shuffle-worker.js` to communicate with the WASM solver.
 ## Features
 
 ### 1. Enter or generate a deal
-Type each seat's cards directly, or use one of the controls next to Solve.
+Type each seat's cards directly, or use one of these controls.
 
-| Control     | Meaning                                  |
-|-------------|------------------------------------------|
-| Random deal | A fresh random deal, like `./solver -r`. |
-| Freak deal  | One of the bundled `deals/freak` deals.  |
-| Hard deal   | One of the bundled `deals/hard` deals.   |
+| Control     | Meaning                                                  |
+|-------------|----------------------------------------------------------|
+| Paste bar   | A deal in PBN, `deals/` or vugraph format, with its Vul. |
+| Random deal | A fresh random deal, like `./solver -r`.                 |
+| Sample deal | One of the bundled `deals/freak` or `deals/hard` deals.  |
 
 ### 2. Solve
 `Solve` generates the full double-dummy table, the same one `./solver -r`
@@ -58,6 +58,12 @@ A single-dummy approximation in the browser, mirroring `./shuffle.py`: holds
 one side's hands fixed and reshuffles the other side's cards over the given
 number of rounds, reporting average tricks and making-percentage histograms
 per strain and declarer.
+
+Below the tables is the single-dummy par: the same par logic, but on
+expected scores from each declarer's trick distribution over the shuffles
+(N/S declarers from shuffling E/W and vice versa), each par contract
+followed by how often it makes. Few rounds make it noisy; Shuffle 100 is
+more reliable.
 
 Shuffle rounds run across a pool of Web Workers, up to half of the
 `navigator.hardwareConcurrency` reported by the browser.
