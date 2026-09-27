@@ -124,11 +124,22 @@ const shuffleWorkers =
 
 // Solve and Shuffle share one busy/idle state: entering hands and running
 // either one are mutually exclusive, so this covers both directions.
-function setBusyState(busy) {
+let busy = false;
+// A link opened while a solve or shuffle is running would get that deal's
+// results, so it's applied once they're in; see the hashchange listener.
+let deferredUrlHash = null;
+
+function setBusyState(isBusy) {
+  busy = isBusy;
   solveBtn.disabled = busy;
   shuffle10Btn.disabled = busy;
   shuffle100Btn.disabled = busy;
   setEntryDisabled(busy);
+  if (!busy && deferredUrlHash !== null) {
+    const hash = deferredUrlHash;
+    deferredUrlHash = null;
+    loadFromUrl(hash);
+  }
 }
 
 // Every worker loads its own wasm module independently; only report ready
@@ -137,9 +148,9 @@ let workerReady = false;
 let shuffleWorkersReadyCount = 0;
 function maybeReportReady() {
   const shuffleReady = shuffleWorkersReadyCount === shuffleWorkers.length;
-  if (workerReady && shuffleReady) {
-    statusEl.textContent = pendingUrlPlay
-      ? 'Ready. Click Solve to continue the play from the link.' : 'Ready.';
+  // Only replaces the loading message, not one about a link loaded meanwhile.
+  if (workerReady && shuffleReady && statusEl.textContent === 'Loading solver…') {
+    statusEl.textContent = 'Ready.';
   }
 }
 
@@ -1067,7 +1078,8 @@ function setPlayModeUI(active) {
   controlsEl.style.display = active ? 'none' : 'flex';
   setHandsDisabled(active);
   dealBtn.disabled = active;
-  solveBtn.disabled = active;
+  // Play can start from a link before the solver has loaded.
+  solveBtn.disabled = active || !workerReady;
   sampleDealEl.disabled = active;
 }
 
@@ -1160,8 +1172,16 @@ function decodeDd(dd) {
   return DD_STRAINS.map((strain, i) => `${strain} ${tricks.slice(i * 4, i * 4 + 4).join(' ')}`).join('\n');
 }
 
+// Debounced, as some actions call it many times (e.g. holding Up/Down on the
+// Vul select, or typing a hand) and browsers throttle replaceState.
+let urlTimer = null;
 function updateUrl() {
   if (!urlLoaded) return;
+  clearTimeout(urlTimer);
+  urlTimer = setTimeout(writeUrl, 200);
+}
+
+function writeUrl() {
   const hands = {};
   for (const seat of SEATS) hands[seat] = getHandValue(seat);
   const params = new URLSearchParams();
@@ -1176,18 +1196,31 @@ function updateUrl() {
     params.set('play', pendingUrlPlay.play);
     if (pendingUrlPlay.cards) params.set('cards', pendingUrlPlay.cards);
   }
-  const hash = params.toString();
-  history.replaceState(null, '', hash ? '#' + hash : location.pathname + location.search);
+  const hash = params.toString() ? '#' + params.toString() : '';
+  if (hash === location.hash) return;
+  // Safari throws past ~100 calls per 30 s; the next update carries the full
+  // state anyway.
+  try {
+    history.replaceState(null, '', hash || location.pathname + location.search);
+  } catch (e) {
+    console.warn('URL not updated:', e);
+  }
 }
 
-function loadFromUrl() {
-  const params = new URLSearchParams(location.hash.slice(1));
+function loadFromUrl(hash = location.hash) {
+  const params = new URLSearchParams(hash.slice(1));
   urlLoaded = true;
+  pendingUrlPlay = null;
   const deal = params.get('deal');
   if (!deal) return;
   const hands = parsePBN(deal);
   if (!hands || SEATS.some(seat => !hands[seat])) {
     statusEl.textContent = "Couldn't read the deal in the link.";
+    return;
+  }
+  const error = validateHands(hands);
+  if (error) {
+    statusEl.textContent = `Couldn't use the deal in the link: ${error}`;
     return;
   }
   const vul = params.get('vul');
@@ -1228,5 +1261,20 @@ function resumeUrlPlay() {
   startPlay(strain, declarer, Number(cell.dataset.tricks), pending.cards);
 }
 
-window.addEventListener('hashchange', loadFromUrl);
+window.addEventListener('hashchange', () => {
+  if (busy) {
+    deferredUrlHash = location.hash;
+    statusEl.textContent += ' The new link opens when this finishes.';
+  } else {
+    loadFromUrl();
+  }
+});
+
+// Typed edits don't go through updateUrl() otherwise.
+for (const seat of SEATS) {
+  for (const suit of SUIT_LETTERS) {
+    document.getElementById(seat + '-' + suit).addEventListener('input', updateUrl);
+  }
+}
+
 loadFromUrl();
