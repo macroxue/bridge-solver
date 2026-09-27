@@ -28,11 +28,10 @@ web.profdata: web-profile.cc web-bindings.cc ../solver.cc
 	$(EMCC) -std=c++17 -O3 -msimd128 -msse4.2 -fprofile-instr-generate \
 		-sNODERAWFS=1 -sEXIT_RUNTIME=1 -o web-profile.js web-profile.cc
 	rm -f default.profraw
-	$(NODE) web-profile.js > /dev/null || { \
-		printf '\033[1mYou need emscripten v5.0.7 or earlier. See web/README.md\033[0m\n' >&2; \
-		exit 1; \
-	}
-	"$(LLVM_PROFDATA)" merge -o $@ default.profraw
+	@hint(){ printf '\033[1mYou need emscripten v5.0.7 or earlier. See web/README.md\033[0m\n' >&2; exit 1; }; \
+	test -n "$(LLVM_PROFDATA)" || hint; \
+	$(NODE) web-profile.js > /dev/null || hint; \
+	"$(LLVM_PROFDATA)" merge -o $@ default.profraw || hint
 	rm -f web-profile.js web-profile.wasm default.profraw
 solver.js: web-bindings.cc ../solver.cc solver-no-simd.wasm web.profdata
 	$(EMCC) -std=c++17 -O3 -msimd128 -msse4.2 \
