@@ -1,4 +1,4 @@
-.PHONY: all clean test
+.PHONY: all clean test refresh-emcc-id
 .DELETE_ON_ERROR:
 all: solver.js solver.wasm solver-no-simd.wasm deals.js
 
@@ -6,6 +6,9 @@ all: solver.js solver.wasm solver-no-simd.wasm deals.js
 EMCC ?= $(or $(wildcard $(EMSDK)/upstream/emscripten/emcc),emcc)
 # Absolute path so $(dir ...) works when EMCC is the bare name `emcc`.
 EMCC_PATH := $(shell command -v $(EMCC) 2>/dev/null)
+# Stamp contents: first line of emcc --version. Changing toolchains (e.g.
+# 5.0.7 -> 6.x) updates .emcc-id so web.profdata and wasm rebuild.
+EMCC_ID := $(shell $(EMCC) --version 2>/dev/null | head -n1)
 # emcc's llvm-profdata. Newer emcc reports it via --print-prog-name; older
 # emsdk (incl. 5.0.7) leaves that empty, so fall back to the LLVM bin next to
 # emcc / under EMSDK, then Homebrew's em-config LLVM_ROOT.
@@ -21,10 +24,18 @@ NODE=$(or $(EMSDK_NODE),node)
 MD5_CMD := $(shell command -v md5sum 2>/dev/null || \
 	{ m=$$(command -v md5 2>/dev/null) && printf '%s -q\n' "$$m"; })
 
+# Refresh stamp every make; only rewrite .emcc-id when the identity changes.
+refresh-emcc-id:
+	@printf '%s\n' "$(EMCC_ID)" > .emcc-id.new
+	@if ! cmp -s .emcc-id.new .emcc-id 2>/dev/null; then mv .emcc-id.new .emcc-id; else rm -f .emcc-id.new; fi
+
+.emcc-id: refresh-emcc-id
+	@test -f $@ || printf '%s\n' "$(EMCC_ID)" > $@
+
 # Instrumented wasm run under Node to produce PGO data for the builds
 # below. -sNODERAWFS escapes Emscripten's in-memory FS so default.profraw
 # (LLVM_PROFILE_FILE isn't honored here) actually lands on disk.
-web.profdata: web-profile.cc web-bindings.cc ../solver.cc
+web.profdata: web-profile.cc web-bindings.cc ../solver.cc .emcc-id
 	$(EMCC) -std=c++17 -O3 -msimd128 -msse4.2 -fprofile-instr-generate \
 		-sNODERAWFS=1 -sEXIT_RUNTIME=1 -o web-profile.js web-profile.cc
 	rm -f default.profraw
@@ -84,4 +95,4 @@ deals.js: gen_deals.py $(wildcard ../deals/hard/deal.* ../deals/freak/deal.*)
 clean:
 	rm -f solver.js solver.wasm solver-no-simd.js solver-no-simd.wasm \
 		web-test web.profdata web-profile.js web-profile.wasm web-profile.profraw \
-		default.profraw deals.js
+		default.profraw deals.js .emcc-id .emcc-id.new
