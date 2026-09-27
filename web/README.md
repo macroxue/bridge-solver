@@ -21,6 +21,11 @@ python3 -m http.server
 
 Then point your browser to `localhost:8000`.
 
+To run the tests, which need Node 14+ (e.g. Emscripten's, via `EMSDK_NODE`):
+```
+make test
+```
+
 Among the produced objects, `solver.js`, `solver.wasm` and `solver-no-simd.wasm`
 can be used by another web app, as long as it follows the protocol demonstrated
 by `worker.js` and `shuffle-worker.js` to communicate with the WASM solver.

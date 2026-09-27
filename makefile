@@ -1,10 +1,8 @@
-.PHONY: all sanitizer web clean test perf
+.PHONY: all sanitizer clean test perf
 # Don't leave a half-built solver.p that later makes look up to date.
 .DELETE_ON_ERROR:
 all: solver.p solver
 sanitizer: solver.m solver.a
-web:
-	$(MAKE) -C web
 
 # Fast correctness checks of the solver and its CLI (see tests/test.sh), ~5 s.
 test: solver
@@ -68,4 +66,3 @@ solver.a: solver.cc
 	./$@ -if deals/hard/deal.1
 clean:
 	rm -rf solver.p solver solver.g solver.m solver.a solver.gcda $(PGO_DIR)
-	$(MAKE) -C web clean

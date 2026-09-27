@@ -16,14 +16,13 @@ make
 
 To build the [web app](web/README.md), [Emscripten](https://emscripten.org) is required.
 ```
-make web
+make -C web
 ```
 
-To check correctness in a few seconds: the solver against deal sets with
-known results, and each CLI mode against expected output (see
-`tests/test.sh`).
+To check correctness in a few seconds:
 ```
 make test
+make -C web test
 ```
 
 ## Solve a deal
@@ -238,9 +237,8 @@ To solve random deals instead of deals in a directory:
 ./parallel_run_random.sh [COUNT] [THREADS]
 ```
 
-`make perf` runs a benchmark suite with the setup below (see `tests/perf.sh`),
-taking a few minutes: `PERF_CPU` picks the CPU to pin to and `PERF_SETS` the
-directories.
+`make perf` runs a benchmark suite with the setup below, taking a few minutes.
+`PERF_CPU` picks the CPU to pin to and `PERF_SETS` the directories.
 
 Benchmarks below run on [AMD Ryzen 7 5800H](https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen/ryzen-5000-series/amd-ryzen-7-5800h.html)
 with 8 physical cores at 3.2GHz base clock and 4.4GHz boost clock. To get stable performance
