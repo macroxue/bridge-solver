@@ -1,10 +1,21 @@
-.PHONY: all sanitizer web clean
+.PHONY: all sanitizer web clean test perf
 # Don't leave a half-built solver.p that later makes look up to date.
 .DELETE_ON_ERROR:
 all: solver.p solver
 sanitizer: solver.m solver.a
 web:
 	$(MAKE) -C web
+
+# Fast correctness checks of the solver and its CLI (see tests/test.sh), ~5 s.
+test: solver
+	tests/test.sh
+
+# Benchmarks, pinned to PERF_CPU with huge pages (see tests/perf.sh); minutes.
+# PERF_SETS overrides the deal sets, e.g. PERF_SETS=deals/1k.
+PERF_CPU ?= 0
+PERF_SETS ?=
+perf: solver
+	tests/perf.sh $(PERF_CPU) $(PERF_SETS)
 
 CXX ?= g++
 
