@@ -92,8 +92,10 @@ Shuffle rounds run across a pool of Web Workers, up to half of the
 - The page's scripts, loaded in this order and sharing globals (no bundler):
   `app.js` (deal entry, DD table, par), `shuffle.js` (single-dummy tables),
   `play.js` (card play), `share-url.js` (links) and `startup.js`, which starts
-  the workers only once the rest has loaded. `deal-parser.js` and
-  `par-score.js` hold the logic that has Node unit tests.
+  the workers only once the rest has loaded.
+- Each script has a `*-test.js` of unit tests, run by `make test`.
+  `test-env.js` loads the scripts into Node with a minimal fake browser
+  (elements, URL, timers and workers), so they're tested unchanged.
 - The DD table (`solve`/`solve_plays`) and the shuffle feature
   (`shuffle_and_solve`) each run in their own Web Worker with its own WASM
   instance — `worker.js` and `shuffle-worker.js` — so the shuffle's

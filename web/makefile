@@ -1,4 +1,4 @@
-.PHONY: all clean
+.PHONY: all clean test
 all: solver.js solver.wasm solver-no-simd.wasm deals.js
 
 # emcc's own llvm-profdata, found next to it on PATH.
@@ -37,6 +37,18 @@ ARCH_OPTS := $(if $(filter 1,$(IS_AARCH64)),,-march=native)
 web-test: web-test.cc web-bindings.cc ../solver.cc
 	g++ -std=c++17 -Wall -Wno-missing-profile $(ARCH_OPTS) -O3 -o $@ web-test.cc
 	./$@
+
+# The C++ binding tests, then every *-test.js. Those need Node 14+ (for
+# par-score.js's private class methods), e.g. emsdk's via EMSDK_NODE.
+JS_TESTS = $(sort $(wildcard *-test.js))
+test: web-test
+	./web-test > /dev/null && echo "web-test: ok"
+	@$(NODE) -e 'process.exit(parseInt(process.versions.node) < 14 ? 1 : 0)' || \
+		{ echo "Node 14+ is needed for the JS tests; set EMSDK_NODE or put it on PATH." >&2; exit 1; }
+	@for t in $(JS_TESTS); do \
+		out=$$($(NODE) $$t 2>&1) || { echo "$$out"; echo "$$t: FAILED" >&2; exit 1; }; \
+		echo "$$t: $$(echo "$$out" | tail -1)"; \
+	done
 # Embeds deals/hard/ and deals/freak/ text directly into the app so it
 # doesn't depend on symlinks or runtime fetches (GitHub Pages deployments
 # reject symlinks outright).
