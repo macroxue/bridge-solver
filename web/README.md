@@ -1,13 +1,13 @@
-# Bridge double dummy solver — web demo
+# Bridge double dummy solver — web app
 
 This is a browser front end for the [double dummy solver](../README.md),
 compiled to WebAssembly (WASM). It runs entirely client-side: once the
 page loads, no server is involved in solving.
 
-Try it live at the [web demo](https://macroxue.github.io/bridge-solver/web/)
+Try it live at the [web app](https://macroxue.github.io/bridge-solver/web/)
 or build it yourself with the following steps.
 
-## Build the demo
+## Build the app
 Requirement: [Emscripten](https://emscripten.org) and Python 3, in addition to
 the [solver's own requirement](../README.md#build-the-solver).
 ```

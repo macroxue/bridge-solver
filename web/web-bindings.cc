@@ -1,4 +1,4 @@
-// The web demo's Emscripten-exported API: the C++ solver.cc engine plus
+// The web app's Emscripten-exported API: the C++ solver.cc engine plus
 // this file's WASM/JS-facing glue (WebPlay, CollectHands, solve,
 // shuffle_and_solve, solve_plays, and the EMSCRIPTEN_BINDINGS below). Kept
 // separate from solver.cc for separation of concerns; this file, not
@@ -118,7 +118,7 @@ std::string solve(std::string west, std::string north, std::string east, std::st
 
 // Like solve(), but first redeals the given seats' pooled cards among
 // themselves (matching the CLI's `-s <seats>` flag) and, when
-// discard_suit_bottom is set, solves with that speedup -- the web demo's
+// discard_suit_bottom is set, solves with that speedup -- the web app's
 // Shuffle feature passes true, mirroring shuffle.py's own `-s ... -d`
 // usage. Runs in its own worker/wasm instance, separate from
 // solve()/solve_plays()'s exact-precision caches.

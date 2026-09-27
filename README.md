@@ -3,8 +3,10 @@
 This is a fairly simple and yet effective double dummy solver for the card
 game of bridge. It's written in C++ and terminal based.
 
-Try the [web demo](https://macroxue.github.io/bridge-solver/web/), which
-runs the same solver compiled to WebAssembly.
+Try the [web app](https://macroxue.github.io/bridge-solver/web/), which
+runs the same solver compiled to WebAssembly. Its [README](web/README.md)
+covers its features, from DD tables, par and single-dummy shuffles to
+playing out deals and endings, and shareable links.
 
 ## Build the solver
 Requirement: Linux or macOS on x86-64 or ARM64, with G++ or Clang installed.
@@ -12,7 +14,7 @@ Requirement: Linux or macOS on x86-64 or ARM64, with G++ or Clang installed.
 make
 ```
 
-To build the web demo, [Emscripten](https://emscripten.org) is required.
+To build the [web app](web/README.md), [Emscripten](https://emscripten.org) is required.
 ```
 make web
 ```
