@@ -14,7 +14,8 @@ Requirement: Linux or macOS on x86-64 or ARM64, with G++ or Clang installed.
 make
 ```
 
-To build the [web app](web/README.md), [Emscripten](https://emscripten.org) is required. See web/README.md for version requirements.
+To build the [web app](web/README.md), [Emscripten](https://emscripten.org) is required.
+See web/README.md for version requirements.
 ```
 make -C web
 ```

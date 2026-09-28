@@ -11,9 +11,10 @@ or build it yourself with the following steps.
 Requirement: [Emscripten](https://emscripten.org) and Python 3, in addition to
 the [solver's own requirement](../README.md#build-the-solver).
 
-Emscripten 6.0+ cannot build this tree due to broken PGO instrumentation.
-Emscripten 5.0.7 or earlier is required until the Emscripten 6.x bug is fixed.
-To install 5.0.7 with [emsdk](https://emscripten.org/docs/getting_started/downloads.html):
+Known good: Emscripten 4.0.13 and 5.0.7. Emscripten 6.0.5–6.0.10 fail at the
+PGO profile step: their clang and compiler-rt disagree on the raw profile
+format (an upstream bug). To install 5.0.7 with
+[emsdk](https://emscripten.org/docs/getting_started/downloads.html):
 ```
 git clone https://github.com/emscripten-core/emsdk.git
 cd emsdk
