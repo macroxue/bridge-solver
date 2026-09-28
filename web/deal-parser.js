@@ -149,6 +149,34 @@ function parsePBN(text) {
   return hands;
 }
 
+// Parses the solver's unique deal code (its -c argument, printed by -m1 as
+// "# W,N,E"): three hex numbers, each a hand packed into the bits of the
+// cards not yet dealt, West then North then East; South gets the rest. Card
+// bits run A..2 within each suit, suits S,H,D,C.
+function parseCode(text) {
+  const match = text.match(/^\s*#?\s*([0-9a-f]+)\s*,\s*([0-9a-f]+)\s*,\s*([0-9a-f]+)\s*$/i);
+  if (!match) return null;
+  const ranks = 'AKQJT98765432';
+  let remaining = [];
+  for (let suit = 0; suit < 4; ++suit)
+    for (let r = 0; r < 13; ++r) remaining.push([suit, ranks[r]]);
+  const hands = {};
+  for (const [i, seat] of ['west', 'north', 'east', 'south'].entries()) {
+    let bits = i < 3 ? BigInt('0x' + match[i + 1]) : (1n << 13n) - 1n;
+    const bySuit = [[], [], [], []];
+    const rest = [];
+    for (const card of remaining) {
+      if (bits & 1n) bySuit[card[0]].push(card[1]);
+      else rest.push(card);
+      bits >>= 1n;
+    }
+    if (bits || rest.length !== remaining.length - 13) return null;
+    remaining = rest;
+    hands[seat] = bySuit.map(r => r.join('') || '-').join(' ');
+  }
+  return hands;
+}
+
 // Formats a hands object (as produced by randomDeal()/the parsers above,
 // {seat: "S H D C"} with '-' for void) as a PBN Deal field, starting from
 // North and listing the rest clockwise (N,E,S,W) -- the inverse of
@@ -178,7 +206,7 @@ function parseVulnerability(text) {
 // most to least specific. Returns null (not four fully-populated hands) if
 // nothing recognized it, so the caller can fall back to a normal paste.
 function parsePastedDeal(text) {
-  for (const parser of [parsePBN, parseDealFile]) {
+  for (const parser of [parseCode, parsePBN, parseDealFile]) {
     const hands = parser(text);
     if (hands && SEATS.every(seat => hands[seat])) return hands;
   }
@@ -186,5 +214,5 @@ function parsePastedDeal(text) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { SEATS, SEAT_NAME_BY_LETTER, parsePBN, parseDealFile, parsePastedDeal, formatPBN, parseVulnerability };
+  module.exports = { SEATS, SEAT_NAME_BY_LETTER, parseCode, parsePBN, parseDealFile, parsePastedDeal, formatPBN, parseVulnerability };
 }

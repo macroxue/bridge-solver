@@ -48,11 +48,11 @@ by `worker.js` and `shuffle-worker.js` to communicate with the WASM solver.
 ### 1. Enter or generate a deal
 Type each seat's cards directly, or use one of these controls.
 
-| Control     | Meaning                                                  |
-|-------------|----------------------------------------------------------|
-| Paste bar   | A deal in PBN, `deals/` or vugraph format, with its Vul. |
-| Random deal | A fresh random deal, like `./solver -r`.                 |
-| Sample deal | One of the bundled `deals/freak` or `deals/hard` deals.  |
+| Control     | Meaning                                                    |
+|-------------|------------------------------------------------------------|
+| Paste bar   | A deal in PBN, vugraph, `deals/`, `-c` code; Vul if given. |
+| Random deal | A fresh random deal, like `./solver -r`.                   |
+| Sample deal | One of the bundled `deals/freak` or `deals/hard` deals.    |
 
 Hands can have fewer than 13 cards, as long as all four have the same number,
 to solve, shuffle and play out endings. Par needs full hands.

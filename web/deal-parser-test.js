@@ -6,7 +6,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { parsePBN, parseDealFile, parsePastedDeal, formatPBN, parseVulnerability } = require('./deal-parser.js');
+const { parseCode, parsePBN, parseDealFile, parsePastedDeal, formatPBN, parseVulnerability } = require('./deal-parser.js');
 
 const readDeal = (name) => fs.readFileSync(path.join(__dirname, '..', 'deals', 'hard', name), 'utf8');
 
@@ -245,7 +245,35 @@ test('parseDealFile: unrecognized text returns no hands', () => {
   assert.deepStrictEqual(parseDealFile('just some random text'), {});
 });
 
-// --- parsePastedDeal: tries PBN, then parseDealFile ---
+// --- parseCode: the solver's -c code ---
+
+// deals/hard/deal.17's code, as `solver -f deals/hard/deal.17 -m1` prints it.
+const DEAL17_HANDS = {
+  north: 'A87 KJ54 A8753 4',
+  west: 'K52 A83 T AJ9653',
+  east: 'Q964 QT2 KQJ942 -',
+  south: 'JT3 976 6 KQT872',
+};
+
+test('parseCode: as the solver prints it', () => {
+  assert.deepStrictEqual(parseCode('# 5948041083202,2056161461,DF1B9'), DEAL17_HANDS);
+});
+
+test('parseCode: bare, lowercase, spaced', () => {
+  assert.deepStrictEqual(parseCode(' 5948041083202, 2056161461 ,df1b9 '), DEAL17_HANDS);
+});
+
+test('parseCode: wrong card counts rejected', () => {
+  assert.strictEqual(parseCode('1,2,3'), null);
+  assert.strictEqual(parseCode('5948041083202,2056161461,DF1B9F'), null);
+});
+
+// --- parsePastedDeal: tries the code, PBN, then parseDealFile ---
+
+test('parsePastedDeal: recognizes the solver code', () => {
+  assert.deepStrictEqual(parsePastedDeal('# 5948041083202,2056161461,DF1B9'), DEAL17_HANDS);
+});
+
 
 test('parsePastedDeal: recognizes PBN', () => {
   const pbn = 'N:42.AQT63.K52.T84 AJ65.42.J963.KQJ Q973..AT74.A9632 KT8.KJ9875.Q8.75';
