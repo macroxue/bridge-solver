@@ -3,3 +3,6 @@
 .emcc-id.new
 web.profdata
 default.profraw
+
+# Native unit-test binary (built by make test).
+web-test
