@@ -66,7 +66,11 @@ function writeUrl() {
 // of loading part of it (e.g. a play without the DD table it needs).
 function loadFromUrl(hash = location.hash) {
   urlLoaded = true;
-  if (!hash) return;
+  // A plain URL gets the link to the page's default deal.
+  if (!hash) {
+    updateUrl();
+    return;
+  }
   // A rejected link leaves the page as it was, so the URL goes back to it.
   const reject = (message) => {
     statusEl.textContent = message;

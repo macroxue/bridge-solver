@@ -180,11 +180,11 @@ test('hashchange: clearing the URL puts back the page\'s link', () => {
   assert.strictEqual(page.location.hash, hash);
 });
 
-test('a fresh visit without a link keeps the URL clean', () => {
+test('a fresh visit without a link shows the default deal\'s link', () => {
   const page = loadPage();
   page.timers.flush();
-  assert.strictEqual(page.location.hash, '');
-  assert.strictEqual(page.replaceStateCalls.length, 0);
+  assert.strictEqual(page.location.hash, linkFor(FULL));
+  assert.strictEqual(page.replaceStateCalls.length, 1);
 });
 
 runTests();
