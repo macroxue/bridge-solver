@@ -26,3 +26,18 @@
 *.exe
 *.out
 *.app
+
+# Native build products (see Makefile)
+/solver
+/solver.p
+/solver.g
+/solver.m
+/solver.a
+/pgo-data/
+/solver.gcda
+/solver.p-solver.gcda
+*.gcno
+
+# Local run logs from run.sh / web/run.sh / parallel_run*.sh
+/results.*
+/web/results.*
