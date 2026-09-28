@@ -15,6 +15,7 @@ make
 ```
 
 To build the [web app](web/README.md), [Emscripten](https://emscripten.org) is required.
+See web/README.md for version requirements.
 ```
 make -C web
 ```

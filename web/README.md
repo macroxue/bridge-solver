@@ -10,6 +10,19 @@ or build it yourself with the following steps.
 ## Build the app
 Requirement: [Emscripten](https://emscripten.org) and Python 3, in addition to
 the [solver's own requirement](../README.md#build-the-solver).
+
+Known good: Emscripten 4.0.13 and 5.0.7. Emscripten 6.0.5–6.0.10 fail at the
+PGO profile step: their clang and compiler-rt disagree on the raw profile
+format (an upstream bug). To install 5.0.7 with
+[emsdk](https://emscripten.org/docs/getting_started/downloads.html):
+```
+git clone https://github.com/emscripten-core/emsdk.git
+cd emsdk
+./emsdk install 5.0.7
+./emsdk activate 5.0.7
+source ./emsdk_env.sh
+```
+Then from this directory (`web/`):
 ```
 make
 ```
