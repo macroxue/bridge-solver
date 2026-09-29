@@ -28,4 +28,17 @@ shuffleWorkers.forEach((shuffleWorker, workerIndex) => {
   shuffleWorker.onmessage = (event) => onShuffleWorkerMessage(workerIndex, event);
 });
 
+// Leaving the page frees the workers' wasm memories now. Firefox otherwise
+// holds a left page's memories for a while, and a few quick visits ran a
+// 32-bit tablet out of address space for new ones.
+window.addEventListener('pagehide', () => {
+  worker.terminate();
+  shuffleWorkers.forEach(shuffleWorker => shuffleWorker.terminate());
+});
+// Back to a page kept in the back/forward cache: its workers are gone, so
+// load it afresh (from its link).
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) location.reload();
+});
+
 loadFromUrl();

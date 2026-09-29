@@ -51,8 +51,9 @@ function makeTimers() {
 }
 
 class FakeWorker {
-  constructor(url) { this.url = url; this.messages = []; this.onmessage = null; }
+  constructor(url) { this.url = url; this.messages = []; this.onmessage = null; this.terminated = false; }
   postMessage(message) { this.messages.push(message); }
+  terminate() { this.terminated = true; }
   // Delivers a message from the worker to the page.
   send(...data) { this.onmessage({ data }); }
 }
@@ -79,7 +80,8 @@ function loadPage({ search = '', hash = '', hardwareConcurrency = 8 } = {}) {
   byId('playHint').textContent = 'Each card shows how the contract ends (=, +N, –N) if played.';
   byId('status').textContent = 'Loading solver…';
   const timers = makeTimers();
-  const location = { search, hash, pathname: '/index.html' };
+  const location = { search, hash, pathname: '/index.html', reloads: 0 };
+  location.reload = () => { ++location.reloads; };
   const replaceStateCalls = [];
   const windowListeners = {};
   const sandbox = {
@@ -119,6 +121,10 @@ function loadPage({ search = '', hash = '', hardwareConcurrency = 8 } = {}) {
     changeHash(newHash) {
       location.hash = newHash;
       for (const fn of windowListeners.hashchange || []) fn();
+    },
+    // Fires a window event, e.g. pagehide.
+    fireWindow(type, event = {}) {
+      for (const fn of windowListeners[type] || []) fn(event);
     },
     // Fires a listener registered on an element, e.g. click on #solve.
     fire(id, type, event = {}) {

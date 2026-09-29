@@ -37,6 +37,21 @@ test('Solve and Shuffle enable as their workers report ready', () => {
   assert.strictEqual(page.byId('status').textContent, 'Ready.');
 });
 
+test('leaving the page terminates every worker', () => {
+  const page = loadPage({ hardwareConcurrency: 4 });
+  page.fireWindow('pagehide');
+  assert.strictEqual(page.run('worker').terminated, true);
+  for (const w of page.run('shuffleWorkers')) assert.strictEqual(w.terminated, true);
+});
+
+test('coming back to a cached page reloads it, a fresh load doesn\'t', () => {
+  const page = loadPage();
+  page.fireWindow('pageshow', { persisted: false });
+  assert.strictEqual(page.location.reloads, 0);
+  page.fireWindow('pageshow', { persisted: true });
+  assert.strictEqual(page.location.reloads, 1);
+});
+
 test('a link loaded before the workers keeps its message', () => {
   const page = loadPage();
   page.byId('status').textContent = 'Loaded deal from link.';
