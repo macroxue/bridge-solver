@@ -1,4 +1,4 @@
-.PHONY: all sanitizer clean test perf
+.PHONY: all clean clobber distclean expunge perf sanitizer test
 # Don't leave a half-built solver.p that later makes look up to date.
 .DELETE_ON_ERROR:
 all: solver.p solver
@@ -67,3 +67,8 @@ solver.a: solver.cc
 clean:
 	rm -rf solver.p solver solver.g solver.m solver.a $(PGO_DIR)
 	rm -f solver.gcda solver.p-solver.gcda *.gcno
+
+# Also drop local run logs from run.sh / web/run.sh / parallel_run*.sh.
+distclean: clean
+	rm -f results.* web/results.*
+expunge clobber: distclean
