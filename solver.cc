@@ -1423,6 +1423,19 @@ class Play {
     auto playable_cards = GetPlayableCards();
     VERBOSE(printf("%2d: all %lx playable %lx\n", depth, hands.all_cards().Value(),
                    playable_cards.Value()));
+    // One choice (a single card, or equivalent cards in one suit): skip the cutoff cache.
+    int top = playable_cards.Top(), bottom = playable_cards.Bottom();
+    if (SuitOf(top) == SuitOf(bottom) &&
+        trick->all_cards.Slice(top, bottom + 1) == playable_cards) {
+      STATS(++stats[depth].num_branches);
+      PlayCard(top);
+      VERBOSE(ShowTricks(beta, 0, true));
+      auto [ns_tricks, rank_winners] = NextPlay().Search(beta);
+      if (TrickEnding()) rank_winners.Add(GetTrickRankWinner());
+      VERBOSE(ShowTricks(beta, ns_tricks, false));
+      UnplayCard();
+      return {ns_tricks, rank_winners};
+    }
     const auto cutoff_hash = cutoff_cache.Hash(BuildCutoffIndex());
     int cutoff_card = LookupCutoffCard(cutoff_hash);
     if (playable_cards.Include(cutoff_card)) {
