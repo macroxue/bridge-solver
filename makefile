@@ -22,7 +22,9 @@ CXX ?= g++
 # baseline-mandatory there regardless of arch flags.
 IS_AARCH64 := $(shell echo | $(CXX) -E -dM -x c++ - 2>/dev/null | grep -q __aarch64__ && echo 1)
 ARCH_OPTS := $(if $(filter 1,$(IS_AARCH64)),,-march=native)
-OPTS=-std=c++17 -Wall $(if $(IS_CLANG),,-Wno-missing-profile) $(ARCH_OPTS)
+# Distro compilers (e.g. Ubuntu GCC) enable the stack protector by default; its
+# canary check in every search prologue costs ~0.7% on deals/hard.
+OPTS=-std=c++17 -Wall $(if $(IS_CLANG),,-Wno-missing-profile) $(ARCH_OPTS) -fno-stack-protector
 
 # CXX may be Clang directly or Apple Clang aliased as g++ on stock macOS.
 # Its PGO format (.profraw + llvm-profdata) differs from GCC's (.gcda), and

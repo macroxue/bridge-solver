@@ -52,7 +52,7 @@ class WebPlay {
     for (int card : play.trick->FilterEquivalent(play.GetPlayableCards())) {
       auto search = [&play, card](int beta) {
         play.PlayCard(card);
-        auto [ns_tricks, _] = play.NextPlay().SearchWithCache(beta);
+        auto [ns_tricks, _] = play.NextPlay().Search(beta);
         play.UnplayCard();
         return ns_tricks;
       };
