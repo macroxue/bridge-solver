@@ -7,7 +7,7 @@
 // discard_suit_bottom fast-solve caches can never be reused by
 // solve_plays()'s exact-precision cache), so a batch's rounds run across
 // the machine's cores in parallel instead of one at a time.
-const worker = new Worker('worker.js?v=36be9e64');
+const worker = new Worker('worker.js?v=38beaae6');
 // hardwareConcurrency counts logical (SMT) threads; solving is CPU/cache-
 // bound, and README.md's own multi-core benchmark shows SMT buys almost
 // nothing for it (8 physical cores -> 16 SMT threads only takes the
@@ -21,7 +21,7 @@ const workersParam = parseInt(new URLSearchParams(location.search).get('workers'
 const SHUFFLE_WORKER_COUNT = workersParam > 0 ? workersParam
   : Math.max(1, Math.floor((navigator.hardwareConcurrency || 4) / 2));
 const shuffleWorkers =
-  Array.from({ length: SHUFFLE_WORKER_COUNT }, () => new Worker('shuffle-worker.js?v=1ceb2a95'));
+  Array.from({ length: SHUFFLE_WORKER_COUNT }, () => new Worker('shuffle-worker.js?v=eaceb076'));
 
 worker.onmessage = onSolverMessage;
 shuffleWorkers.forEach((shuffleWorker, workerIndex) => {
