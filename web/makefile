@@ -35,9 +35,15 @@ refresh-emcc-id:
 # Instrumented wasm run under Node to produce PGO data for the builds
 # below. -sNODERAWFS escapes Emscripten's in-memory FS so default.profraw
 # (LLVM_PROFILE_FILE isn't honored here) actually lands on disk.
-web.profdata: web-profile.cc web-bindings.cc ../solver.cc .emcc-id
-	$(EMCC) -std=c++17 -O3 -msimd128 -msse4.2 -fprofile-instr-generate \
-		-sNODERAWFS=1 -sEXIT_RUNTIME=1 -o web-profile.js web-profile.cc
+# Solver engine is a separate TU (-D_WEB drops CLI main); glue includes solver.h only.
+SOLVER_CC = ../solver.cc
+# -flto restores cross-TU inlining between web-bindings and solver.cc that the
+# old unity #include of solver.cc got for free.
+WEB_CXXFLAGS = -std=c++17 -O3 -D_WEB -flto
+
+web.profdata: web-profile.cc web-bindings.cc $(SOLVER_CC) ../solver.h .emcc-id
+	$(EMCC) $(WEB_CXXFLAGS) -msimd128 -msse4.2 -fprofile-instr-generate \
+		-sNODERAWFS=1 -sEXIT_RUNTIME=1 -o web-profile.js web-profile.cc $(SOLVER_CC)
 	rm -f default.profraw
 	@test -n "$(LLVM_PROFDATA)" || { \
 		echo "llvm-profdata not found (set EMSDK or ensure emcc's LLVM tools are on PATH)" >&2; \
@@ -49,9 +55,9 @@ web.profdata: web-profile.cc web-bindings.cc ../solver.cc .emcc-id
 		echo "llvm-profdata merge failed (LLVM_PROFDATA=$(LLVM_PROFDATA))" >&2; \
 		exit 1; }
 	rm -f web-profile.js web-profile.wasm default.profraw
-solver.js: web-bindings.cc ../solver.cc solver-no-simd.wasm web.profdata
-	$(EMCC) -std=c++17 -O3 -msimd128 -msse4.2 \
-		-fprofile-instr-use=web.profdata -o $@ web-bindings.cc \
+solver.js: web-bindings.cc $(SOLVER_CC) ../solver.h solver-no-simd.wasm web.profdata
+	$(EMCC) $(WEB_CXXFLAGS) -msimd128 -msse4.2 \
+		-fprofile-instr-use=web.profdata -o $@ web-bindings.cc $(SOLVER_CC) \
 		--bind -s ALLOW_MEMORY_GROWTH
 	@# Cache-bust both wasm URLs with each binary's own content hash, to
 	@# avoid stale files being served after a new build. -i.bak rather than
@@ -64,16 +70,16 @@ solver.js: web-bindings.cc ../solver.cc solver-no-simd.wasm web.profdata
 	sed -i.bak "s/\"solver.wasm\"/simd?\"solver.wasm?v=$$simd_hash\":\"solver-no-simd.wasm?v=$$nosimd_hash\"/" $@
 	rm -f $@.bak
 solver.wasm: solver.js
-solver-no-simd.wasm: web-bindings.cc ../solver.cc web.profdata
-	$(EMCC) -std=c++17 -O3 -fprofile-instr-use=web.profdata \
-		-o solver-no-simd.js web-bindings.cc \
+solver-no-simd.wasm: web-bindings.cc $(SOLVER_CC) ../solver.h web.profdata
+	$(EMCC) $(WEB_CXXFLAGS) -fprofile-instr-use=web.profdata \
+		-o solver-no-simd.js web-bindings.cc $(SOLVER_CC) \
 		--bind -s ALLOW_MEMORY_GROWTH
 	rm solver-no-simd.js
 # -march=native is unsafe on AArch64 -- see ../makefile's IS_AARCH64 comment.
 IS_AARCH64 := $(shell echo | g++ -E -dM -x c++ - 2>/dev/null | grep -q __aarch64__ && echo 1)
 ARCH_OPTS := $(if $(filter 1,$(IS_AARCH64)),,-march=native)
-web-test: web-test.cc web-bindings.cc ../solver.cc
-	g++ -std=c++17 -Wall -Wno-missing-profile $(ARCH_OPTS) -O3 -o $@ web-test.cc
+web-test: web-test.cc web-bindings.cc $(SOLVER_CC) ../solver.h
+	g++ $(WEB_CXXFLAGS) -Wall -Wno-missing-profile $(ARCH_OPTS) -o $@ web-test.cc $(SOLVER_CC)
 	./$@
 
 # The C++ binding tests, then every *-test.js. Those need Node 14+ (for

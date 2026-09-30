@@ -33,38 +33,40 @@ OPTS=-std=c++17 -Wall $(if $(IS_CLANG),,-Wno-missing-profile) $(ARCH_OPTS) -fno-
 IS_CLANG := $(shell echo | $(CXX) -E -dM -x c++ - 2>/dev/null | grep -q __clang__ && echo 1)
 PGO_DIR = pgo-data
 
+SOLVER_SRC = solver.cc solver.h
+
 ifeq ($(IS_CLANG),1)
 # Prefer the llvm-profdata next to CXX so profile versions match (e.g. Homebrew
 # LLVM alongside Xcode); Apple Clang's lives in the Xcode toolchain, off PATH.
 LLVM_PROFDATA := $(shell p=$$($(CXX) -print-prog-name=llvm-profdata); \
 	[ -x "$$p" ] && echo "$$p" || xcrun --find llvm-profdata 2>/dev/null || command -v llvm-profdata)
-solver.p: solver.cc
+solver.p: $(SOLVER_SRC)
 	@test -n "$(LLVM_PROFDATA)" || { echo "llvm-profdata not found (install Xcode CLT or LLVM)" >&2; exit 1; }
 	rm -rf $(PGO_DIR)
 	mkdir $(PGO_DIR)
-	$(CXX) $(OPTS) -O3 -fprofile-generate=$(PGO_DIR) -o $@ $^
+	$(CXX) $(OPTS) -O3 -fprofile-generate=$(PGO_DIR) -o $@ solver.cc
 	./$@ -if deals/hard/deal.8 | tail
 	"$(LLVM_PROFDATA)" merge -o $(PGO_DIR)/default.profdata $(PGO_DIR)/*.profraw
-solver: solver.cc solver.p
+solver: $(SOLVER_SRC) solver.p
 	$(CXX) $(OPTS) -O3 -fprofile-use=$(PGO_DIR) -o $@ solver.cc
 	./$@ -if deals/hard/deal.8 | tail
 else
-solver.p: solver.cc
+solver.p: $(SOLVER_SRC)
 	rm -f solver.gcda
-	$(CXX) $(OPTS) -O3 -fprofile-generate -o $@ $^
+	$(CXX) $(OPTS) -O3 -fprofile-generate -o $@ solver.cc
 	./$@ -if deals/hard/deal.8 | tail
 	mv solver.p-solver.gcda solver.gcda
-solver: solver.cc
-	$(CXX) $(OPTS) -O3 -fprofile-use -o $@ $^
+solver: $(SOLVER_SRC)
+	$(CXX) $(OPTS) -O3 -fprofile-use -o $@ solver.cc
 	./$@ -if deals/hard/deal.8 | tail
 endif
-solver.g: solver.cc
-	$(CXX) $(OPTS) -D_DEBUG -Og -g -o $@ $^
-solver.m: solver.cc
-	clang++ -std=c++17 -O3 -fsanitize=memory -o $@ $^
+solver.g: $(SOLVER_SRC)
+	$(CXX) $(OPTS) -D_DEBUG -Og -g -o $@ solver.cc
+solver.m: $(SOLVER_SRC)
+	clang++ -std=c++17 -O3 -fsanitize=memory -o $@ solver.cc
 	./$@ -if deals/hard/deal.1
-solver.a: solver.cc
-	clang++ -std=c++17 -O3 -fsanitize=address -o $@ $^
+solver.a: $(SOLVER_SRC)
+	clang++ -std=c++17 -O3 -fsanitize=address -o $@ solver.cc
 	./$@ -if deals/hard/deal.1
 clean:
 	rm -rf solver.p solver solver.g solver.m solver.a $(PGO_DIR)

@@ -1,0 +1,2064 @@
+// Shared solver types and inline helpers / hot free functions. Globals and
+// CLI-only code (display helpers, file/interactive play, main) live in
+// solver.cc so the web build can compile that translation unit separately and
+// still inline Solve/ParseHand/etc. into the glue via this header (plus -flto).
+#ifndef BRIDGE_SOLVER_H_
+#define BRIDGE_SOLVER_H_
+
+#include <assert.h>
+#include <ctype.h>
+#if defined(__BMI2__) || defined(__SSE4_1__)
+#include <immintrin.h>
+#elif defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
+#include <inttypes.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/time.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <functional>
+#include <map>
+#include <memory>
+#include <random>
+#include <set>
+#include <vector>
+
+// clang-format off
+#ifdef _DEBUG
+#define CHECK(statement) assert(statement)
+#define VERBOSE(statement) if (depth <= options.displaying_depth) statement
+#define STATS(statement) statement
+#else
+#define CHECK(statement)
+#define VERBOSE(statement)
+#define STATS(statement)
+#endif
+// clang-format on
+
+enum { SPADE, HEART, DIAMOND, CLUB, NUM_SUITS, NOTRUMP = NUM_SUITS };
+enum { TWO, TEN = 8, JACK, QUEEN, KING, ACE, NUM_RANKS };
+enum { WEST, NORTH, EAST, SOUTH, NUM_SEATS };
+
+const int TOTAL_TRICKS = NUM_RANKS;
+const int TOTAL_CARDS = NUM_RANKS * NUM_SUITS;
+
+inline const char* SeatName(int seat) {
+  static const char* seat_names[] = {"West", "North", "East", "South"};
+  return seat_names[seat];
+}
+inline char SeatLetter(int seat) { return SeatName(seat)[0]; }
+inline bool IsNs(int seat) { return seat & 1; }
+
+inline const char* SuitName(int suit) {
+  static const char* suit_names[] = {"Spade", "Heart", "Diamond", "Club", "NoTrump"};
+  return suit_names[suit];
+}
+
+const char* SuitSign(int suit);
+
+inline const char RankName(int rank) {
+  static const char rank_names[] = "23456789TJQKA";
+  return rank_names[rank];
+}
+
+inline int CharToSuit(char c) {
+  for (int suit = SPADE; suit <= NOTRUMP; ++suit)
+    if (toupper(c) == SuitName(suit)[0]) return suit;
+  fprintf(stderr, "Unknown suit: %c\n", c);
+  exit(-1);
+}
+
+inline int CharToRank(char c) {
+  if (c == '1') return TEN;
+  for (int rank = TWO; rank <= ACE; ++rank)
+    if (toupper(c) == RankName(rank)) return rank;
+  fprintf(stderr, "Unknown rank: %c\n", c);
+  exit(-1);
+}
+
+inline int CharToSeat(char c) {
+  for (int seat = WEST; seat <= SOUTH; ++seat)
+    if (toupper(c) == SeatLetter(seat)) return seat;
+  fprintf(stderr, "Unknown seat: %c\n", c);
+  exit(-1);
+}
+
+// Number of bits in a suit, in the range of [13, 16]. Pick 16 to avoid divisions.
+const int SUIT_SPAN = 16;
+// The bit right after the highest valid card bit, also indicating an invalid card.
+const int CARD_END = (NUM_SUITS - 1) * SUIT_SPAN + NUM_RANKS;
+
+extern char suit_of[CARD_END];
+extern char rank_of[CARD_END];
+extern char card_of[NUM_SUITS][16];
+extern char name_of[CARD_END][4];
+
+inline int SuitOf(int card) { return SUIT_SPAN == 16 ? card / SUIT_SPAN : suit_of[card]; }
+inline int RankOf(int card) { return rank_of[card]; }
+inline int CardOf(int suit, int rank) { return card_of[suit][rank]; }
+inline uint64_t MaskOf(int suit) { return 0x1fffULL << (suit * SUIT_SPAN); }
+inline const char* NameOf(int card) { return name_of[card]; }
+
+const auto DECK_MASK = MaskOf(SPADE) + MaskOf(HEART) + MaskOf(DIAMOND) + MaskOf(CLUB);
+
+inline bool LowerRank(int card1, int card2) { return card1 > card2; }
+inline bool HigherRank(int card1, int card2) { return card1 < card2; }
+
+
+struct Options {
+  char* code = nullptr;
+  char* input_file = nullptr;
+  char* shuffle_seats = nullptr;
+  int trump = -1;
+  int guess_tricks = -1;
+  int displaying_depth = -1;
+  int stats_level = 0;
+  int show_hands_mask = 2;
+  bool deal_only = false;
+  bool discard_suit_bottom = false;
+  bool randomize = false;
+  bool ignore_trump_and_lead = false;
+  bool play_interactively = false;
+
+  void Read(int argc, char* argv[]);
+  void ShowUsage(const char* name);
+};
+extern Options options;
+
+inline double Now() {
+  timeval now;
+  gettimeofday(&now, nullptr);
+  return now.tv_sec + now.tv_usec * 1e-6;
+}
+
+template <class T>
+int BitSize(T v) {
+  return sizeof(v) * 8;
+}
+
+template <int STAGES = 6>
+uint64_t PackBits(uint64_t source, uint64_t mask) {
+#ifdef __BMI2__
+  return _pext_u64(source, mask);
+#elif defined(__EMSCRIPTEN__) && !defined(__wasm_simd128__)
+  // Bit-at-a-time loop: measured faster than the branchless version below on
+  // weak/narrow cores (older phones/tablets without wasm SIMD) -- its cost
+  // scales with popcount(mask) (avg ~5.4 for suit-local masks), cheaper
+  // there than paying the branchless version's larger fixed op count when
+  // branches are cheap and there's no spare execution width to hide it.
+  if (source == 0) return 0;
+  uint64_t packed = 0;
+  for (uint64_t bit = 1; mask; bit <<= 1, mask &= mask - 1)
+    if (source & mask & -mask) packed |= bit;
+  return packed;
+#else
+  // Branchless bit compress (Hacker's Delight 7-4). 4 stages covers a
+  // suit-local mask (SUIT_SPAN <= 16), 6 the full 64-bit deck.
+  source &= mask;
+  uint64_t mk = ~mask << 1;
+  for (int i = 0; i < STAGES; ++i) {
+    uint64_t mp = mk ^ (mk << 1);
+    mp ^= mp << 2;
+    mp ^= mp << 4;
+    mp ^= mp << 8;
+    if constexpr (STAGES > 4) {
+      mp ^= mp << 16;
+      mp ^= mp << 32;
+    }
+    uint64_t mv = mp & mask;
+    mask = (mask ^ mv) | (mv >> (1 << i));
+    uint64_t t = source & mv;
+    source = (source ^ t) | (t >> (1 << i));
+    mk &= ~mp;
+  }
+  return source;
+#endif
+}
+
+template <int STAGES = 6>
+uint64_t UnpackBits(uint64_t source, uint64_t mask) {
+#ifdef __BMI2__
+  return _pdep_u64(source, mask);
+#elif defined(__EMSCRIPTEN__) && !defined(__wasm_simd128__)
+  // Bit-at-a-time loop -- see PackBits's comment for why this beats the
+  // branchless version on weak/narrow cores.
+  if (source == 0) return 0;
+  uint64_t unpacked = 0;
+  for (uint64_t bit = 1; source; bit <<= 1, mask &= mask - 1)
+    if (source & bit) {
+      unpacked |= mask & -mask;
+      source &= ~bit;
+    }
+  return unpacked;
+#else
+  uint64_t mv[STAGES], mask0 = mask, mk = ~mask << 1;
+  for (int i = 0; i < STAGES; ++i) {
+    uint64_t mp = mk ^ (mk << 1);
+    mp ^= mp << 2;
+    mp ^= mp << 4;
+    mp ^= mp << 8;
+    if constexpr (STAGES > 4) {
+      mp ^= mp << 16;
+      mp ^= mp << 32;
+    }
+    mv[i] = mp & mask;
+    mask = (mask ^ mv[i]) | (mv[i] >> (1 << i));
+    mk &= ~mp;
+  }
+  for (int i = STAGES - 1; i >= 0; --i) {  // undo in reverse order
+    uint64_t t = source << (1 << i);
+    source = (source & ~mv[i]) | (t & mv[i]);
+  }
+  return source & mask0;
+#endif
+}
+
+// True where PackBits/UnpackBits don't care about a mask's absolute
+// position (pext/pdep, and the wasm bit-loop fallback) -- so callers can
+// skip the shift-to-suit-local-range dance the branchless STAGES<6 path
+// needs.
+#if defined(__BMI2__) || (defined(__EMSCRIPTEN__) && !defined(__wasm_simd128__))
+#define POSITION_INDEPENDENT_BITS 1
+#endif
+
+// True where PackBits is a single instruction (pext). Elsewhere it is costly
+// enough to be worth skipping when possible.
+#ifdef __BMI2__
+#define CHEAP_PACK_BITS 1
+#endif
+
+class Cards {
+ public:
+  Cards() : bits(0) {}
+  Cards(uint64_t b) : bits(b) {}
+  uint64_t Value() const { return bits; }
+  uint64_t PackedValue() const {
+    if (SUIT_SPAN == NUM_RANKS) return bits;
+#ifdef __BMI2__
+    return PackBits(bits, DECK_MASK);
+#else
+    return Suit(0).Value() + (Suit(1).Value() >> (SUIT_SPAN - NUM_RANKS)) +
+           (Suit(2).Value() >> (SUIT_SPAN * 2 - NUM_RANKS * 2)) +
+           (Suit(3).Value() >> (SUIT_SPAN * 3 - NUM_RANKS * 3));
+#endif
+  }
+
+  int Size() const { return __builtin_popcountll(bits); }
+  bool operator==(const Cards& c) const { return bits == c.bits; }
+  bool operator!=(const Cards& c) const { return bits != c.bits; }
+  operator bool() const { return bits != 0; }
+
+  Cards Slice(int begin, int end) const { return bits & (Bit(end) - Bit(begin)); }
+  Cards Suit(int suit) const { return bits & MaskOf(suit); }
+  int Top() const { return __builtin_ctzll(bits); }
+  int Bottom() const { return BitSize(bits) - 1 - __builtin_clzll(bits); }
+
+  Cards Union(const Cards& c) const { return bits | c.bits; }
+  Cards Intersect(const Cards& c) const { return bits & c.bits; }
+  Cards Different(const Cards& c) const { return bits & ~c.bits; }
+  Cards Complement() const { return DECK_MASK ^ bits; }
+  bool Include(int card) const { return bits & Bit(card); }
+  bool Include(const Cards& c) const { return Intersect(c) == c; }
+  bool StrictlyInclude(const Cards& c) const { return Include(c) && bits != c.bits; }
+
+  Cards Add(int card) { return bits |= Bit(card); }
+  Cards Remove(int card) { return bits &= ~Bit(card); }
+
+  Cards Add(const Cards& c) { return bits |= c.bits; }
+  Cards Remove(const Cards& c) { return bits &= ~c.bits; }
+  Cards ClearSuit(int suit) { return bits &= ~MaskOf(suit); }
+
+  uint64_t ShapeParity() const {
+    uint64_t parity = 0;
+    for (int suit = 0; suit < NUM_SUITS; ++suit) parity += (Suit(suit).Size() % 2) << suit;
+    return parity;
+  }
+
+  int Points() const {
+    int points = 0;
+    for (int card : *this)
+      if (RankOf(card) > TEN) points += RankOf(card) - TEN;
+    return points;
+  }
+
+  void Show() const;
+  void ShowSuit(int suit) const;
+
+  class Iterator {
+   public:
+    Iterator(uint64_t bits) : bits(bits) {}
+    void operator++() { bits &= bits - 1; }
+    bool operator!=(const Iterator& it) const { return bits != it.bits; }
+    int operator*() const { return __builtin_ctzll(bits); }
+
+   private:
+    uint64_t bits;
+  };
+
+  Iterator begin() const { return Iterator(bits); }
+  Iterator end() const { return Iterator(0); }
+
+ private:
+  static uint64_t Bit(int index) { return uint64_t(1) << index; }
+
+  uint64_t bits;
+};
+
+// Expands suit-local relative bits back to real card positions in all_cards.
+inline Cards UnpackSuitBits(Cards relative_bits, Cards all_cards, int suit) {
+  int shift = suit * SUIT_SPAN;
+  auto packed = relative_bits.Suit(suit).Value() >> shift;
+#ifdef POSITION_INDEPENDENT_BITS
+  return Cards(UnpackBits(packed, all_cards.Suit(suit).Value()));
+#else
+  // Shift the mask down too and the result back up, so UnpackBits<4> applies.
+  auto suit_mask = all_cards.Suit(suit).Value() >> shift;
+  return Cards(UnpackBits<4>(packed, suit_mask) << shift);
+#endif
+}
+
+class Hands {
+ public:
+  void Randomize() {
+    for (int seat = 0; seat < NUM_SEATS; ++seat)
+      for (int i = 0; i < NUM_RANKS; ++i) hands[seat].Add(CardOf(seat, i));
+    Shuffle("NEWS");
+  }
+
+  void Shuffle(const char* shuffle_seats) {
+    std::vector<int> seats;
+    for (auto* s = shuffle_seats; *s; ++s) seats.push_back(CharToSeat(*s));
+    Cards cards;
+    for (int seat : seats) {
+      cards.Add(hands[seat]);
+      hands[seat] = Cards();
+    }
+    Deal(cards, seats);
+  }
+
+  void Deal(Cards cards, const std::vector<int>& seats) {
+    // Seed with multiple random_device draws as each one is only 32-bit.
+    static std::mt19937 random = [] {
+      std::random_device rd;
+      std::seed_seq seed{rd(), rd(), rd(), rd()};
+      return std::mt19937(seed);
+    }();
+    std::vector<int> deck;
+    for (int card : cards) deck.push_back(card);
+    std::shuffle(deck.begin(), deck.end(), random);
+    int tricks = deck.size() / seats.size();
+    for (int seat : seats) {
+      for (int i = 0; i < tricks; ++i) {
+        hands[seat].Add(deck.back());
+        deck.pop_back();
+      }
+    }
+  }
+
+  void Decode(const char* code) {
+    uint64_t values[3];
+    int num_values =
+        sscanf(code, "%" SCNx64 ",%" SCNx64 ",%" SCNx64, values, values + 1, values + 2);
+    assert(num_values == 3);
+    auto mask = DECK_MASK;
+    for (int seat = 0; seat < NUM_SEATS - 1; ++seat) {
+      hands[seat] = UnpackBits(values[seat], mask);
+      mask &= ~hands[seat].Value();
+    }
+    hands[NUM_SEATS - 1] = UnpackBits((1ULL << TOTAL_TRICKS) - 1, mask);
+    assert(hands[0].Size() == hands[1].Size() && hands[1].Size() == hands[2].Size() &&
+           hands[2].Size() == hands[3].Size());
+  }
+
+  Cards all_cards() const {
+    return hands[WEST].Union(hands[NORTH]).Union(hands[EAST]).Union(hands[SOUTH]);
+  }
+  const Cards& operator[](int seat) const { return hands[seat]; }
+  Cards& operator[](int seat) { return hands[seat]; }
+
+  // Whether every seat's hand in `other` is a subset of the hand here.
+  // Pack two adjacent hands into one 128-bit PTESTs.
+  bool Include(const Hands& other) const {
+#ifdef __AVX2__
+    __m256i a = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hands));
+    __m256i b = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(other.hands));
+    return _mm256_testc_si256(a, b);
+#elif defined(__SSE4_1__)
+    __m128i a0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&hands[WEST]));
+    __m128i b0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&other.hands[WEST]));
+    __m128i a1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&hands[EAST]));
+    __m128i b1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&other.hands[EAST]));
+    __m128i missing = _mm_or_si128(_mm_andnot_si128(a0, b0), _mm_andnot_si128(a1, b1));
+    return _mm_testz_si128(missing, missing);
+#elif defined(__ARM_NEON)
+    uint64x2_t a0 = vld1q_u64(reinterpret_cast<const uint64_t*>(&hands[WEST]));
+    uint64x2_t b0 = vld1q_u64(reinterpret_cast<const uint64_t*>(&other.hands[WEST]));
+    uint64x2_t a1 = vld1q_u64(reinterpret_cast<const uint64_t*>(&hands[EAST]));
+    uint64x2_t b1 = vld1q_u64(reinterpret_cast<const uint64_t*>(&other.hands[EAST]));
+    uint64x2_t missing = vorrq_u64(vbicq_u64(b0, a0), vbicq_u64(b1, a1));
+    return (vgetq_lane_u64(missing, 0) | vgetq_lane_u64(missing, 1)) == 0;
+#else
+    return hands[WEST].Include(other.hands[WEST]) & hands[NORTH].Include(other.hands[NORTH]) &
+           hands[EAST].Include(other.hands[EAST]) & hands[SOUTH].Include(other.hands[SOUTH]);
+#endif
+  }
+
+  bool Equals(const Hands& other) const {
+#ifdef __AVX2__
+    __m256i a = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hands));
+    __m256i b = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(other.hands));
+    __m256i diff = _mm256_xor_si256(a, b);
+    return _mm256_testz_si256(diff, diff);
+#elif defined(__SSE4_1__)
+    __m128i a0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&hands[WEST]));
+    __m128i b0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&other.hands[WEST]));
+    __m128i a1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&hands[EAST]));
+    __m128i b1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&other.hands[EAST]));
+    __m128i diff = _mm_or_si128(_mm_xor_si128(a0, b0), _mm_xor_si128(a1, b1));
+    return _mm_testz_si128(diff, diff);
+#elif defined(__ARM_NEON)
+    uint64x2_t a0 = vld1q_u64(reinterpret_cast<const uint64_t*>(&hands[WEST]));
+    uint64x2_t b0 = vld1q_u64(reinterpret_cast<const uint64_t*>(&other.hands[WEST]));
+    uint64x2_t a1 = vld1q_u64(reinterpret_cast<const uint64_t*>(&hands[EAST]));
+    uint64x2_t b1 = vld1q_u64(reinterpret_cast<const uint64_t*>(&other.hands[EAST]));
+    uint64x2_t diff = vorrq_u64(veorq_u64(a0, b0), veorq_u64(a1, b1));
+    return (vgetq_lane_u64(diff, 0) | vgetq_lane_u64(diff, 1)) == 0;
+#else
+    return (hands[WEST] == other.hands[WEST]) & (hands[NORTH] == other.hands[NORTH]) &
+           (hands[EAST] == other.hands[EAST]) & (hands[SOUTH] == other.hands[SOUTH]);
+#endif
+  }
+
+  int num_tricks() const { return hands[WEST].Size(); }
+
+  int num_voids() const {
+    int voids = 0;
+    for (int seat = 0; seat < NUM_SEATS; ++seat)
+      for (int suit = 0; suit < NUM_SUITS; ++suit)
+        if (hands[seat].Suit(suit).Size() == 0) ++voids;
+    return voids;
+  }
+
+  void Show() const;
+  void ShowCode() const;
+  void ShowCompact(int rotation = 0) const;
+  void ShowDetailed(int rotation = 0) const;
+
+ private:
+  void ShowHandInfo(Cards hand, int seat, int suit, int gap) const;
+
+  Cards hands[NUM_SEATS];
+};
+
+extern Hands empty_hands;
+
+template <class Entry>
+class Cache {
+ public:
+  // The hash is stored in Entry and can vary in size.
+  using HashT = decltype(Entry::hash);
+
+  Cache(const char* name, int bits)
+      : cache_name(name), bits(bits), size(1 << bits), entries(new Entry[size]) {
+    Reset();
+  }
+
+  void Reset() {
+    load_count = lookups = lookup_probes = hits = updates = update_probes = overwrites = 0;
+    for (int i = 0; i < size; ++i) entries[i].Reset(0);
+  }
+
+  void ShowStatistics() const {
+    printf("--- %s Statistics ---\n", cache_name);
+    printf("lookups: %8d   probes: %8d (%.2f/lookup)         hits: %8d (%5.2f%%)\n", lookups,
+           lookup_probes, lookup_probes * 1.0 / lookups, hits, hits * 100.0 / lookups);
+    printf("updates: %8d   probes: %8d (%.2f/update)   overwrites: %8d (%5.2f%%)\n", updates,
+           update_probes, update_probes * 1.0 / updates, overwrites, overwrites * 100.0 / updates);
+    printf("entries: %8d   loaded: %8d (%5.2f%%)\n", size, load_count, load_count * 100.0 / size);
+
+    int recursive_load = 0;
+    for (int i = 0; i < size; ++i)
+      if (entries[i].hash != 0) {
+        recursive_load += entries[i].Size();
+        STATS(if (options.stats_level > 1) entries[i].Show());
+      }
+    if (recursive_load > load_count) printf("recursive load: %8d\n", recursive_load);
+  }
+
+  // Callers compute the hash once and pass it to both Lookup() and, on a miss,
+  // Update() so a single key is never hashed twice.
+  HashT Hash(uint64_t value) const {
+    // When HashT is narrower than 64 bits, keep the high-entropy top bits.
+    return HashT((value * 0x9b8b4567327b23c7ULL) >> (64 - BitSize(HashT(0))));
+  }
+
+  const Entry* Lookup(HashT hash) const {
+    STATS(++lookups);
+    uint64_t index = hash >> (BitSize(hash) - bits);
+
+    // Linear probing benefits from hardware prefetch.
+    for (int d = 0;; ++d) {
+      const Entry& entry = entries[(index + d) & (size - 1)];
+      if (entry.hash == hash) {
+        STATS(++hits);
+        return &entry;
+      }
+      if (entry.hash == 0) break;
+      STATS(++lookup_probes);
+    }
+    return nullptr;
+  }
+
+  Entry* Update(HashT hash) {
+    if (load_count >= size * 3 / 4) Resize();
+
+    STATS(++updates);
+    uint64_t index = hash >> (BitSize(hash) - bits);
+
+    for (int d = 0;; ++d) {
+      Entry& entry = entries[(index + d) & (size - 1)];
+      if (entry.hash == hash) {
+        STATS(++overwrites);
+        return &entry;
+      }
+      if (entry.hash == 0) {
+        ++load_count;
+        entry.Reset(hash);
+        return &entry;
+      }
+      STATS(++update_probes);
+    }
+  }
+
+ private:
+  void Resize() {
+    auto old_entries = std::move(entries);
+    int old_size = size;
+
+    // Double cache size.
+    size = 1 << ++bits;
+    entries.reset(new Entry[size]);
+    CHECK(entries.get());
+    for (int i = 0; i < size; ++i) entries[i].hash = 0;
+
+    // Move entries in the old cache to the new cache.
+    load_count = 0;
+    for (int i = 0; i < old_size; ++i) {
+      auto hash = old_entries[i].hash;
+      if (hash == 0) continue;
+      uint64_t index = hash >> (BitSize(hash) - bits);
+      for (int d = 0;; ++d) {
+        Entry& entry = entries[(index + d) & (size - 1)];
+        if (entry.hash == 0) {
+          old_entries[i].MoveTo(entry);
+          ++load_count;
+          break;
+        }
+      }
+    }
+  }
+
+  const char* cache_name;
+  int bits;
+  int size;
+  std::unique_ptr<Entry[]> entries;
+
+  mutable int load_count;
+  mutable int lookups, lookup_probes, hits;
+  mutable int updates, update_probes, overwrites;
+};
+
+#pragma pack(push, 4)
+struct Bounds {
+  char lower;
+  char upper;
+
+  bool Empty() const { return upper < lower; }
+  Bounds Intersect(Bounds b) const { return {std::max(lower, b.lower), std::min(upper, b.upper)}; }
+  bool Include(Bounds b) const { return Intersect(b) == b; }
+  bool operator==(Bounds b) const { return b.lower == lower && b.upper == upper; }
+  bool operator!=(Bounds b) const { return !(*this == b); }
+  bool Cutoff(int beta) const { return lower >= beta || upper < beta; }
+};
+
+class Shape {
+ public:
+  Shape() : value(0) {}
+  Shape(uint64_t value) : value(value) {}
+  Shape(const Hands& hands) : value(0) {
+    for (int seat = 0; seat < NUM_SEATS; ++seat)
+      for (int suit = 0; suit < NUM_SUITS; ++suit)
+        value += uint64_t(hands[seat].Suit(suit).Size()) << Offset(seat, suit);
+  }
+
+  void PlayCards(int seat, int c1, int c2, int c3, int c4) {
+    value -= 1ULL << Offset(seat, SuitOf(c1));
+    value -= 1ULL << Offset((seat + 1) % NUM_SEATS, SuitOf(c2));
+    value -= 1ULL << Offset((seat + 2) % NUM_SEATS, SuitOf(c3));
+    value -= 1ULL << Offset((seat + 3) % NUM_SEATS, SuitOf(c4));
+  }
+
+  int SuitLength(int seat, int suit) const { return (value >> Offset(seat, suit)) & 0xf; }
+
+  uint64_t Value() const { return value; }
+
+  bool operator==(const Shape& s) const { return value == s.value; }
+
+ private:
+  static int Offset(int seat, int suit) { return 60 - (seat * NUM_SUITS + suit) * 4; }
+
+  uint64_t value;
+};
+
+// Free-list pool for Vector<T>'s backing storage: one LIFO list per
+// power-of-two capacity, refilled in SLAB_SIZE slabs and never freed.
+template <class T>
+class VectorPool {
+ public:
+  static char* Allocate(int size_class) {
+    STATS(++alloc_calls[size_class]);
+    char*& head = free_lists[size_class];
+    if (!head) {
+      STATS(++miss_calls[size_class]);
+      Refill(size_class);
+    }
+    char* block = head;
+    head = *reinterpret_cast<char**>(block);
+    return block;
+  }
+
+  static void Deallocate(char* block, int size_class) {
+    char*& head = free_lists[size_class];
+    *reinterpret_cast<char**>(block) = head;
+    head = block;
+  }
+
+  static void ShowStatistics() {
+    printf("--- VectorPool<T> Statistics (block = %zu bytes) ---\n", sizeof(T));
+    uint64_t total_allocs = 0;
+    for (int i = 0; i < 16; ++i) total_allocs += alloc_calls[i];
+    for (int i = 0; i < 16; ++i) {
+      if (!alloc_calls[i]) continue;
+      printf("class %2d (cap %6zu): allocs %10" PRIu64 " (%5.2f%%)   misses %8" PRIu64
+             " (%6.2f%% of allocs)\n",
+             i, size_t{1} << i, alloc_calls[i], alloc_calls[i] * 100.0 / total_allocs,
+             miss_calls[i], miss_calls[i] * 100.0 / alloc_calls[i]);
+    }
+  }
+
+ private:
+  static constexpr size_t SLAB_SIZE = 8192;
+
+  // One allocation for a full slab, amortizing the malloc call across all of them.
+  static void Refill(int size_class) {
+    size_t block_bytes = (1ULL << size_class) * sizeof(T);
+    size_t num_blocks = SLAB_SIZE / block_bytes;
+    if (num_blocks == 0) num_blocks = 1;
+    char* slab = new char[num_blocks * block_bytes];
+    char*& head = free_lists[size_class];
+    for (size_t i = 0; i < num_blocks; ++i) {
+      char* block = slab + i * block_bytes;
+      *reinterpret_cast<char**>(block) = head;
+      head = block;
+    }
+  }
+
+  static inline uint64_t alloc_calls[16] = {};
+  static inline uint64_t miss_calls[16] = {};
+  static inline char* free_lists[16] = {};
+};
+
+template <class T>
+class Vector {
+ public:
+  ~Vector() { clear(); }
+
+  void clear() {
+    for (size_t i = 0; i < count; ++i) (*this)[i].~T();
+    // Guard on capacity, not items: __builtin_ctz(0) is UB, and a null-items
+    // guard could get optimized away since items==nullptr iff capacity==0.
+    if (capacity) VectorPool<T>::Deallocate(items, __builtin_ctz(capacity));
+    count = capacity = 0;
+    items = nullptr;
+  }
+
+  void resize(size_t new_size) {
+    if (capacity < new_size) {
+      int size_class = new_size <= 1 ? 0 : 32 - __builtin_clz((unsigned)new_size - 1);
+      char* new_items = VectorPool<T>::Allocate(size_class);
+      memcpy(new_items, items, count * sizeof(T));
+      if (capacity) VectorPool<T>::Deallocate(items, __builtin_ctz(capacity));
+      items = new_items;
+      capacity = 1 << size_class;
+    }
+    memset(items + count * sizeof(T), 0, (new_size - count) * sizeof(T));
+    count = new_size;
+  }
+
+  size_t size() const { return count; }
+
+  T& operator[](size_t i) { return reinterpret_cast<T*>(items)[i]; }
+  const T& operator[](size_t i) const { return reinterpret_cast<T*>(items)[i]; }
+
+  T& back() { return (*this)[count - 1]; }
+  const T& back() const { return (*this)[count - 1]; }
+
+  void pop_back() {
+    back().~T();
+    --count;
+  }
+
+  void swap(Vector<T>& v) {
+    std::swap(count, v.count);
+    std::swap(capacity, v.capacity);
+    std::swap(items, v.items);
+  }
+
+ private:
+  uint16_t count = 0;
+  uint16_t capacity = 0;
+  char* items = nullptr;
+};
+
+struct Pattern {
+  Hands hands;
+  Bounds bounds;
+  uint16_t order;
+  Vector<Pattern> patterns;
+#ifdef _DEBUG
+  mutable uint16_t hits, cuts;
+#endif
+
+  Pattern(const Hands& hands = Hands(), Bounds bounds = Bounds())
+      : hands(hands), bounds(bounds), order(hands.all_cards().Size()) {
+    STATS(hits = cuts = 0);
+  }
+
+  // Takes over p, leaving it with no subpatterns. Any subpatterns this pattern
+  // owns are overwritten, not freed.
+  void MoveFrom(Pattern& p) {
+    memcpy((void*)this, (void*)&p, sizeof(Pattern));
+    new (&p.patterns) Vector<Pattern>();
+  }
+
+  void swap(Pattern& p) {
+    std::swap(hands, p.hands);
+    std::swap(bounds, p.bounds);
+    std::swap(order, p.order);
+    patterns.swap(p.patterns);
+    STATS(std::swap(hits, p.hits));
+    STATS(std::swap(cuts, p.cuts));
+  }
+
+  static const Pattern* Lookup(const Vector<Pattern>& patterns, const Hands& hands, int beta) {
+    const Pattern* best = nullptr;
+    Lookup(patterns, hands, beta, best);
+    return best;
+  }
+
+  static void Lookup(const Vector<Pattern>& patterns, const Hands& hands, int beta,
+                     const Pattern*& best) {
+    for (size_t i = 0; i < patterns.size(); ++i) {
+      auto& pattern = patterns[i];
+      if (!hands.Include(pattern.hands)) continue;
+      STATS(++pattern.hits);
+      if (pattern.bounds.Cutoff(beta)) {
+        STATS(++pattern.cuts);
+        best = &pattern;
+        return;
+      }
+      Lookup(pattern.patterns, hands, beta, best);
+      if (best) return;
+    }
+  }
+
+  // Patterns are sorted by order, most generic first.
+  static void Update(Vector<Pattern>& patterns, Pattern& new_pattern) {
+    size_t n = patterns.size(), pos = 0;
+    // Local copies: the compiler can't prove new_pattern is disjoint from
+    // patterns, so it would reload these on every comparison.
+    const Hands new_hands = new_pattern.hands;
+    const uint16_t new_order = new_pattern.order;
+    const Bounds new_bounds = new_pattern.bounds;
+    // Go under the most generic pattern including the new one.
+    for (; pos < n && patterns[pos].order <= new_order; ++pos) {
+      auto& pattern = patterns[pos];
+      if (!new_hands.Include(pattern.hands)) continue;
+      if (new_hands.Equals(pattern.hands))
+        pattern.bounds = pattern.bounds.Intersect(new_bounds);
+      else
+        Update(pattern.patterns, new_pattern);
+      return;
+    }
+    // Adopt more specific patterns, dropping those with no tighter bounds but
+    // keeping their subpatterns. The rest are kept in patterns[pos, kept).
+    bool sorted = true;
+    size_t kept = pos;
+    for (size_t i = pos; i < n; ++i) {
+      auto& pattern = patterns[i];
+      if (!pattern.hands.Include(new_hands)) {
+        if (kept != i) patterns[kept].MoveFrom(pattern);
+        ++kept;
+      } else if (pattern.bounds.Include(new_bounds)) {
+        sorted &= pattern.patterns.size() == 0;
+        Append(new_pattern.patterns, pattern.patterns);
+        pattern.patterns.clear();
+      } else {
+        Append(new_pattern.patterns, pattern);
+      }
+    }
+    if (!sorted) Sort(new_pattern.patterns);
+    // Shift the kept patterns one slot back and put the new pattern at pos.
+    // Slot kept owns nothing, so memmove is safe like the relocation in Vector::resize().
+    if (kept == n) patterns.resize(n + 1);
+    memmove((void*)&patterns[pos + 1], (void*)&patterns[pos], (kept - pos) * sizeof(Pattern));
+    patterns[pos].MoveFrom(new_pattern);
+    while (patterns.size() > kept + 1) patterns.pop_back();
+  }
+
+  static void Sort(Vector<Pattern>& patterns) {
+    for (size_t i = 1; i < patterns.size(); ++i)
+      for (size_t j = i; j > 0 && patterns[j - 1].order > patterns[j].order; --j)
+        patterns[j].swap(patterns[j - 1]);
+  }
+
+  static void Append(Vector<Pattern>& patterns, Pattern& new_pattern) {
+    patterns.resize(patterns.size() + 1);
+    patterns.back().MoveFrom(new_pattern);
+  }
+
+  static void Append(Vector<Pattern>& patterns, Vector<Pattern>& new_patterns) {
+    auto new_size = new_patterns.size();
+    if (new_size == 0) return;
+    auto size = patterns.size();
+    patterns.resize(size + new_size);
+    for (size_t i = 0; i < new_size; ++i) patterns[size + i].MoveFrom(new_patterns[i]);
+  }
+
+  Cards GetRankWinners(Cards all_cards) const {
+    Cards relative_rank_winners = hands.all_cards();
+    Cards rank_winners;
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      if (!relative_rank_winners.Suit(suit)) continue;
+      rank_winners.Add(UnpackSuitBits(relative_rank_winners, all_cards, suit));
+    }
+    return rank_winners;
+  }
+
+  int Size() const {
+    int sum = 1;
+    for (size_t i = 0; i < patterns.size(); ++i) sum += patterns[i].Size();
+    return sum;
+  }
+
+  void Show(Shape shape, int level = 1, Bounds parent_bounds = {0, TOTAL_TRICKS}) const {
+    if (level > 0) {
+      printf("%*d: (%d %d) ", level * 2, level, bounds.lower, bounds.upper);
+      for (int seat = 0; seat < NUM_SEATS; ++seat) {
+        for (int suit = 0; suit < NUM_SUITS; ++suit) {
+          auto suit_length = shape.SuitLength(seat, suit);
+          if (suit_length == 0)
+            putchar('-');
+          else {
+            auto rank_winners = hands[seat].Suit(suit);
+            for (int card : rank_winners) printf("%c", RankName(RankOf(card)));
+            for (int i = rank_winners.Size(); i < suit_length; ++i) putchar('x');
+          }
+          putchar(' ');
+        }
+        if (seat < NUM_SEATS - 1) printf(", ");
+      }
+      printf(" %2d", order);
+      STATS(printf(" hits %d cuts %d", hits, cuts));
+      puts(level > 1 && bounds.Include(parent_bounds) ? " dup" : "");
+    }
+    for (size_t i = 0; i < patterns.size(); ++i) patterns[i].Show(shape, level + 1, bounds);
+  }
+};
+
+struct ShapeEntry {
+  uint64_t hash;
+  Vector<Pattern> patterns[NUM_SEATS];
+#ifdef _DEBUG
+  Shape shape;
+
+  void Show() const {
+    for (int s = 0; s < NUM_SEATS; ++s) {
+      if (patterns[s].size() == 0) continue;
+      printf("hash %016lx shape %016lx seat %c size %ld total size %d\n", hash, shape.Value(),
+             SeatLetter(s), patterns[s].size(), Size(s));
+      for (size_t i = 0; i < patterns[s].size(); ++i) patterns[s][i].Show(shape);
+    }
+  }
+#endif
+
+  int Size(int s) const {
+    int total = 0;
+    for (size_t i = 0; i < patterns[s].size(); ++i) total += patterns[s][i].Size();
+    return total;
+  }
+
+  int Size() const {
+    int total = 0;
+    for (int s = 0; s < NUM_SEATS; ++s) total += Size(s);
+    return total;
+  }
+
+  void Reset(uint64_t hash_in) {
+    hash = hash_in;
+    for (int s = 0; s < NUM_SEATS; ++s) patterns[s].clear();
+#ifdef _DEBUG
+    shape = Shape();
+#endif
+  }
+
+  void MoveTo(ShapeEntry& to) {
+    to.hash = hash;
+    for (int s = 0; s < NUM_SEATS; ++s) to.patterns[s].swap(patterns[s]);
+#ifdef _DEBUG
+    to.shape = shape;
+#endif
+  }
+};
+
+struct CutoffEntry {
+  // Using 32-bit instead of 64-bit hash is safe because cut-off cards are
+  // move-ordering hints and collisions impact performance, not correctness.
+  uint32_t hash;
+  // Cut-off card depending on the seat to play.
+  char card[NUM_SEATS];
+
+  int Size() const { return 1; }
+
+  void Show() const {}
+
+  void Reset(uint64_t hash_in) {
+    hash = hash_in;
+    memset(card, CARD_END, sizeof(card));
+  }
+
+  void MoveTo(CutoffEntry& to) { memcpy(&to, this, sizeof(*this)); }
+};
+#pragma pack(pop)
+
+extern Cache<ShapeEntry> common_bounds_cache;
+extern Cache<CutoffEntry> cutoff_cache;
+
+struct Trick {
+  Shape shape;
+  Cards all_cards;
+  Hands relative_hands;
+  int lead_suit;
+
+  // A relative hand contains relative cards.
+  void ComputeRelativeHands(int depth, const Hands& hands) {
+    if (depth == 0) {
+      for (int suit = 0; suit < NUM_SUITS; ++suit)
+        ConvertToRelativeSuit(hands, suit, all_cards.Suit(suit));
+    } else {
+      // Recompute the relative cards for suits changed by the last trick.
+      auto prev_trick = this - 1;
+      auto prev_trick_cards = prev_trick->all_cards.Different(all_cards);
+      relative_hands = prev_trick->relative_hands;
+      while (prev_trick_cards) {
+        auto suit = SuitOf(prev_trick_cards.Top());
+#ifndef CHEAP_PACK_BITS
+        uint64_t removed = prev_trick_cards.Suit(suit).Value();
+#endif
+        prev_trick_cards.ClearSuit(suit);
+#ifndef CHEAP_PACK_BITS
+        // If every survivor outranks every played card (`removed & -removed`
+        // is the highest played), survivors keep relative positions 0..k-1,
+        // so just drop the positions above them and skip the PackBits calls.
+        uint64_t remaining = all_cards.Suit(suit).Value();
+        if (remaining < (removed & -removed)) {
+          uint64_t keep = ((1ULL << __builtin_popcountll(remaining)) - 1) << (suit * SUIT_SPAN);
+          Cards stale(MaskOf(suit) & ~keep);
+          for (int seat = 0; seat < NUM_SEATS; ++seat) relative_hands[seat].Remove(stale);
+          continue;
+        }
+#endif
+        ConvertToRelativeSuit(hands, suit, all_cards.Suit(suit));
+      }
+    }
+  }
+
+  // Whether a card is equivalent to one of the tried cards.
+  bool IsEquivalent(int card, Cards tried_suit_cards, Cards hand) const {
+    if (!tried_suit_cards) return false;
+    if (auto above = tried_suit_cards.Slice(0, card))
+      if (all_cards.Slice(above.Bottom(), card) == hand.Slice(above.Bottom(), card)) return true;
+    if (auto below = tried_suit_cards.Slice(card + 1, CARD_END))
+      if (all_cards.Slice(card, below.Top()) == hand.Slice(card, below.Top())) return true;
+    return false;
+  }
+
+  Cards FilterEquivalent(Cards playable_cards) const {
+    Cards filtered_cards;
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      auto suit_cards = playable_cards.Suit(suit);
+      if (!suit_cards) continue;
+      int prev_card = suit_cards.Top();
+      filtered_cards.Add(prev_card);
+      suit_cards.Remove(prev_card);
+      for (int card : suit_cards) {
+        if (RelativeRank(prev_card, suit) != RelativeRank(card, suit) + 1) filtered_cards.Add(card);
+        prev_card = card;
+      }
+    }
+    return filtered_cards;
+  }
+
+  // A pattern hand contains relative cards and rank-irrelevant cards.
+  std::pair<Hands, Cards> ComputePatternHands(Cards rank_winners) const {
+    Cards relative_rank_winners, extended_rank_winners;
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      if (!rank_winners.Suit(suit)) continue;
+
+      int bottom_rank_winner = RelativeCard(rank_winners.Suit(suit).Bottom(), suit);
+      for (int seat = 0; seat < NUM_SEATS; ++seat) {
+        if (!relative_hands[seat].Include(bottom_rank_winner)) continue;
+        auto suit_cards = relative_hands[seat].Suit(suit);
+        // Extend bottom rank winner to its lowest equivalent card.
+        bottom_rank_winner += __builtin_ctzll(~(suit_cards.Value() >> (bottom_rank_winner + 1)));
+        // Suit bottom can't win by rank. Compensate the inaccuracy of fast tricks.
+        if (bottom_rank_winner == relative_hands.all_cards().Suit(suit).Bottom())
+          // Extend bottom rank winner to its highest equivalent card and go one rank higher.
+          bottom_rank_winner -= __builtin_clzll(~(suit_cards.Value() << (63 - bottom_rank_winner)));
+        break;
+      }
+      relative_rank_winners.Add(Cards(MaskOf(suit)).Slice(0, bottom_rank_winner + 1));
+      extended_rank_winners.Add(UnpackSuitBits(relative_rank_winners, all_cards, suit));
+    }
+
+    Hands pattern_hands;
+    for (int seat = 0; seat < NUM_SEATS; ++seat)
+      pattern_hands[seat] = relative_hands[seat].Intersect(relative_rank_winners);
+    return {pattern_hands, extended_rank_winners};
+  }
+
+ private:
+  void ConvertToRelativeSuit(const Hands& hands, int suit, Cards all_suit_cards) {
+#ifdef POSITION_INDEPENDENT_BITS
+    for (int seat = 0; seat < NUM_SEATS; ++seat) {
+      auto packed = PackBits(hands[seat].Suit(suit).Value(), all_suit_cards.Value());
+      relative_hands[seat].ClearSuit(suit);
+      relative_hands[seat].Add(Cards(packed << (suit * SUIT_SPAN)));
+    }
+#else
+    // Pre-shift into the suit's own bit range so PackBits<4> applies.
+    int shift = suit * SUIT_SPAN;
+    auto suit_mask = all_suit_cards.Value() >> shift;
+    for (int seat = 0; seat < NUM_SEATS; ++seat) {
+      auto packed = PackBits<4>(hands[seat].Suit(suit).Value() >> shift, suit_mask);
+      relative_hands[seat].ClearSuit(suit);
+      relative_hands[seat].Add(Cards(packed << shift));
+    }
+#endif
+  }
+
+  int RelativeRank(int card, int suit) const {
+    return ACE - all_cards.Suit(suit).Slice(0, card).Size();
+  }
+
+  int RelativeCard(int card, int suit) const { return CardOf(suit, RelativeRank(card, suit)); }
+};
+
+struct Stat {
+  int num_visits = 0;
+  int num_branches = 0;
+  int num_cutoff_collisions = 0;
+  int num_cuts = 0;
+  int num_cached_cuts = 0;
+  int num_new_cuts = 0;
+  int num_missed_cuts = 0;
+
+  void Show(int depth) const {
+    if (num_visits)
+      printf("%2d: %7d * %.2f  Cutoff collisions %d  cuts %7d  cached %7d  new %5d  missed %5d\n",
+             depth, num_visits, double(num_branches) / num_visits, num_cutoff_collisions, num_cuts,
+             num_cached_cuts, num_new_cuts, num_missed_cuts);
+  }
+};
+extern Stat stats[TOTAL_CARDS];
+
+class Play {
+ public:
+  Play() {}
+  Play(Play* plays, Trick* trick, Hands& hands, int trump, int depth, int seat_to_play)
+      : plays(plays),
+        trick(trick),
+        hands(hands),
+        trump(trump),
+        depth(depth),
+        seat_to_play(seat_to_play) {}
+
+  typedef std::pair<int, Cards> Result;  // NS tricks and rank winners
+
+  Result Search(int beta) {
+    if (!TrickStarting()) {
+      ns_tricks_won = PreviousPlay().ns_tricks_won;
+      seat_to_play = PreviousPlay().NextSeat();
+      return EvaluatePlayableCards(beta);
+    }
+    return SearchWithCache(beta);
+  }
+
+  // Split out so non-trick-start calls skip this large frame's prologue. Only
+  // matters natively; wasm (Binaryen inlines it back) has cheap prologues.
+  __attribute__((noinline)) Result SearchWithCache(int beta) {
+    if (depth > 0) {
+      ns_tricks_won = PreviousPlay().ns_tricks_won + PreviousPlay().NsWon();
+      seat_to_play = PreviousPlay().WinningSeat();
+    }
+
+    if (ns_tricks_won >= beta) return {ns_tricks_won, {}};
+    const int remaining_tricks = hands.num_tricks();
+    if (ns_tricks_won + remaining_tricks < beta) return {ns_tricks_won + remaining_tricks, {}};
+
+    if (remaining_tricks == 1) return CollectLastTrick();
+
+    trick->all_cards = hands.all_cards();
+    ComputeShape();
+    trick->ComputeRelativeHands(depth, hands);
+
+    const auto shape_hash = common_bounds_cache.Hash(trick->shape.Value());
+    auto* shape_entry = common_bounds_cache.Lookup(shape_hash);
+    if (shape_entry) {
+      auto pattern = Pattern::Lookup(shape_entry->patterns[seat_to_play], trick->relative_hands,
+                                     beta - ns_tricks_won);
+      if (pattern) {
+        auto rank_winners = pattern->GetRankWinners(trick->all_cards);
+        VERBOSE(ShowPattern("match", *pattern, trick->shape));
+        int lower = pattern->bounds.lower + ns_tricks_won;
+        if (lower >= beta) {
+          VERBOSE(printf("%2d: beta cut %d\n", depth, lower));
+          return {lower, rank_winners};
+        }
+        int upper = pattern->bounds.upper + ns_tricks_won;
+        VERBOSE(printf("%2d: alpha cut %d\n", depth, upper));
+        return {upper, rank_winners};
+      }
+    }
+
+    auto [ns_tricks, rank_winners] = SearchWithSureTricks(beta);
+    auto bounds = ns_tricks < beta
+                      ? Bounds{0, char(ns_tricks - ns_tricks_won)}
+                      : Bounds{char(ns_tricks - ns_tricks_won), char(remaining_tricks)};
+
+    auto [pattern_hands, extended_rank_winners] = trick->ComputePatternHands(rank_winners);
+    Pattern new_pattern(pattern_hands, bounds);
+    VERBOSE(ShowPattern("update", new_pattern, trick->shape));
+    auto* new_shape_entry = common_bounds_cache.Update(shape_hash);
+#ifdef _DEBUG
+    new_shape_entry->shape = trick->shape;
+#endif
+    Pattern::Update(new_shape_entry->patterns[seat_to_play], new_pattern);
+    return {ns_tricks, extended_rank_winners};
+  }
+
+ private:
+  Result SearchWithSureTricks(int beta) {
+    bool with_trumps = trump != NOTRUMP && trick->all_cards.Suit(trump);
+
+    auto [lead_tricks, lead_rank_winners] = FastTricks();
+    if (lead_tricks == 0 && with_trumps)
+      std::tie(lead_tricks, lead_rank_winners) = SlowTrumpTricks(
+          MySuit(trump), PdSuit(trump), LhoSuit(trump), RhoSuit(trump), /*leading=*/true);
+    if (with_trumps) {
+      int length_tricks =
+          TrumpLengthTricks(MySuit(trump), PdSuit(trump), LhoSuit(trump), RhoSuit(trump));
+      if (length_tricks > 0 && length_tricks >= lead_tricks) {
+        lead_tricks = length_tricks;
+        lead_rank_winners = {};
+      }
+    }
+    auto ns_tricks = SureTrickCutoff(beta, lead_tricks, NsToPlay(), /*leading=*/true);
+    if (ns_tricks >= 0) return {ns_tricks, lead_rank_winners};
+
+    auto [other_tricks, other_rank_winners] =
+        with_trumps ? TopTrumpTricks(LhoSuit(trump), RhoSuit(trump)) : OtherSlowNoTrumpTricks();
+    if (other_tricks == 0 && with_trumps)
+      std::tie(other_tricks, other_rank_winners) = SlowTrumpTricks(
+          LhoSuit(trump), RhoSuit(trump), PdSuit(trump), MySuit(trump), /*leading=*/false);
+    if (with_trumps) {
+      int length_tricks =
+          TrumpLengthTricks(LhoSuit(trump), RhoSuit(trump), PdSuit(trump), MySuit(trump));
+      if (length_tricks > 0 && length_tricks >= other_tricks) {
+        other_tricks = length_tricks;
+        other_rank_winners = {};
+      }
+    }
+    ns_tricks = SureTrickCutoff(beta, other_tricks, !NsToPlay(), /*leading=*/false);
+    if (ns_tricks >= 0) return {ns_tricks, other_rank_winners};
+
+    return EvaluatePlayableCards(beta);
+  }
+
+  int SureTrickCutoff(int beta, int sure_tricks, bool for_ns, bool leading) const {
+    if (for_ns) {
+      auto lower = ns_tricks_won + sure_tricks;
+      if (lower >= beta) {
+        VERBOSE(printf("%2d: beta %s cut %d+%d\n", depth, leading ? "lead" : "other", ns_tricks_won,
+                       sure_tricks));
+        return lower;
+      }
+    } else {
+      auto upper = ns_tricks_won + (hands.num_tricks() - sure_tricks);
+      if (upper < beta) {
+        VERBOSE(printf("%2d: alpha %s cut %d+%d\n", depth, leading ? "lead" : "other",
+                       ns_tricks_won, hands.num_tricks() - sure_tricks));
+        return upper;
+      }
+    }
+    return -1;
+  }
+
+  // Plays out the trick with each follower's first-ordered card and moves leads whose next
+  // trick start cuts for the leader to the front.
+  void PromoteProbedLeads(int start, int beta) {
+    int hits[TOTAL_TRICKS], misses[TOTAL_TRICKS], num_hits = 0, num_misses = 0;
+    for (int i = start; i < ordered_cards.Size(); ++i) {
+      int card = ordered_cards.Card(i);
+      PlayCard(card);
+      int value = NextPlay().ProbeFollow(beta);
+      UnplayCard();
+      bool hit = value >= 0 && (NsToPlay() ? value >= beta : value < beta);
+      if (hit)
+        hits[num_hits++] = card;
+      else
+        misses[num_misses++] = card;
+    }
+    if (num_hits == 0) return;
+    ordered_cards.Truncate(start);
+    for (int i = 0; i < num_hits; ++i) ordered_cards.AddCard(hits[i]);
+    for (int i = 0; i < num_misses; ++i) ordered_cards.AddCard(misses[i]);
+  }
+
+  // Returns NS tricks if the greedy line reaches a trick start with a cutting pattern, else -1.
+  int ProbeFollow(int beta) {
+    if (!TrickStarting()) {
+      ns_tricks_won = PreviousPlay().ns_tricks_won;
+      seat_to_play = PreviousPlay().NextSeat();
+      auto playable_cards = GetPlayableCards();
+      int card = LookupCutoffCard(cutoff_cache.Hash(BuildCutoffIndex()));
+      if (!playable_cards.Include(card)) {
+        ordered_cards.Reset();
+        OrderCards(playable_cards, beta);
+        card = ordered_cards.Card(0);
+      }
+      PlayCard(card);
+      int value = NextPlay().ProbeFollow(beta);
+      UnplayCard();
+      return value;
+    }
+    // TODO: Share this trick-start setup with Search() and SetupTrick().
+    ns_tricks_won = PreviousPlay().ns_tricks_won + PreviousPlay().NsWon();
+    seat_to_play = PreviousPlay().WinningSeat();
+    const int remaining_tricks = hands.num_tricks();
+    if (ns_tricks_won >= beta) return ns_tricks_won;
+    if (ns_tricks_won + remaining_tricks < beta) return ns_tricks_won + remaining_tricks;
+    trick->all_cards = hands.all_cards();
+    ComputeShape();
+    trick->ComputeRelativeHands(depth, hands);
+    if (auto* shape_entry =
+            common_bounds_cache.Lookup(common_bounds_cache.Hash(trick->shape.Value())))
+      if (auto pattern = Pattern::Lookup(shape_entry->patterns[seat_to_play], trick->relative_hands,
+                                         beta - ns_tricks_won)) {
+        int lower = pattern->bounds.lower + ns_tricks_won;
+        return lower >= beta ? lower : pattern->bounds.upper + ns_tricks_won;
+      }
+    return -1;
+  }
+
+  Result EvaluatePlayableCards(int beta) {
+    STATS(++stats[depth].num_visits);
+    ordered_cards.Reset();
+    auto playable_cards = GetPlayableCards();
+    VERBOSE(printf("%2d: all %lx playable %lx\n", depth, hands.all_cards().Value(),
+                   playable_cards.Value()));
+    // One choice (a single card, or equivalent cards in one suit): skip the cutoff cache.
+    int top = playable_cards.Top(), bottom = playable_cards.Bottom();
+    if (SuitOf(top) == SuitOf(bottom) &&
+        trick->all_cards.Slice(top, bottom + 1) == playable_cards) {
+      STATS(++stats[depth].num_branches);
+      PlayCard(top);
+      VERBOSE(ShowTricks(beta, 0, true));
+      auto [ns_tricks, rank_winners] = NextPlay().Search(beta);
+      if (TrickEnding()) rank_winners.Add(GetTrickRankWinner());
+      VERBOSE(ShowTricks(beta, ns_tricks, false));
+      UnplayCard();
+      return {ns_tricks, rank_winners};
+    }
+    const auto cutoff_hash = cutoff_cache.Hash(BuildCutoffIndex());
+    int cutoff_card = LookupCutoffCard(cutoff_hash);
+    if (playable_cards.Include(cutoff_card)) {
+      VERBOSE(printf("%2d: use cutoff %s\n", depth, NameOf(cutoff_card)));
+      ordered_cards.AddCard(cutoff_card);
+      playable_cards.Remove(cutoff_card);
+    } else {
+      STATS(stats[depth].num_cutoff_collisions += (cutoff_card != CARD_END));
+      OrderCards(playable_cards, beta);
+      playable_cards = Cards();
+    }
+
+    int ns_tricks = NsToPlay() ? 0 : TOTAL_TRICKS;
+    int min_relevant_ranks[NUM_SUITS] = {TWO, TWO, TWO, TWO};
+    Cards rank_winners, tried_cards;
+    STATS(int num_branches = 0);
+    for (int i = 0; i < ordered_cards.Size(); ++i) {
+      int card = ordered_cards.Card(i), suit = SuitOf(card), rank = RankOf(card);
+      // Try a card if its rank is still relevant and it isn't equivalent to a tried card.
+      if (rank >= min_relevant_ranks[suit] &&
+          !trick->IsEquivalent(card, tried_cards.Suit(suit), hands[seat_to_play])) {
+        STATS(++stats[depth].num_branches);
+        STATS(++num_branches);
+        PlayCard(card);
+        VERBOSE(ShowTricks(beta, 0, true));
+        auto [branch_ns_tricks, branch_rank_winners] = NextPlay().Search(beta);
+        if (TrickEnding()) branch_rank_winners.Add(GetTrickRankWinner());
+        VERBOSE(ShowTricks(beta, branch_ns_tricks, false));
+        UnplayCard();
+
+        ns_tricks = NsToPlay() ? std::max(ns_tricks, branch_ns_tricks)
+                               : std::min(ns_tricks, branch_ns_tricks);
+        if (NsToPlay() ? ns_tricks >= beta : ns_tricks < beta) {  // cut-off
+          STATS(++stats[depth].num_cuts);
+          if (card != cutoff_card) {
+            SaveCutoffCard(cutoff_hash, card);
+            STATS(stats[depth].num_new_cuts += (cutoff_card == CARD_END));
+            STATS(stats[depth].num_missed_cuts += (cutoff_card != CARD_END));
+          } else {
+            STATS(++stats[depth].num_cached_cuts);
+          }
+          VERBOSE(printf("%2d: search cut @%d %s\n", depth, num_branches, NameOf(card)));
+          return {ns_tricks, branch_rank_winners};
+        }
+
+        rank_winners.Add(branch_rank_winners);
+        // If this card's rank is irrelevant, a relevant rank must be higher.
+        auto suit_rank_winners = branch_rank_winners.Suit(suit);
+        if (!suit_rank_winners)
+          min_relevant_ranks[suit] = NUM_RANKS;
+        else if (LowerRank(card, suit_rank_winners.Bottom()))
+          min_relevant_ranks[suit] =
+              std::max(min_relevant_ranks[suit], RankOf(suit_rank_winners.Bottom()));
+      }
+      tried_cards.Add(card);
+      if (playable_cards) {
+        OrderCards(playable_cards, beta);
+        playable_cards = Cards();
+      }
+    }
+    return {ns_tricks, rank_winners};
+  }
+
+  template <bool SUIT_CONTRACT>
+  void Lead(Cards playable_cards) {
+    Cards good_leads, high_leads, leads, bad_leads, trump_leads, ruff_leads, void_leads;
+    auto pd_hand = hands[Partner()];
+    auto lho_hand = hands[LeftHandOpp()], rho_hand = hands[RightHandOpp()];
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      auto my_suit = playable_cards.Suit(suit);
+      if (!my_suit) continue;
+      if (SUIT_CONTRACT) {
+        // Trump suit - oddly bad.
+        if (suit == trump) {
+          trump_leads.Add(my_suit.Top());
+          trump_leads.Add(my_suit.Bottom());
+          continue;
+        }
+        // Opponents can ruff - very bad.
+        if ((lho_hand.Suit(trump) && !lho_hand.Suit(suit)) ||
+            (rho_hand.Suit(trump) && !rho_hand.Suit(suit)))
+          continue;
+      }
+      auto pd_suit = pd_hand.Suit(suit), our_suits = my_suit.Union(pd_suit);
+      auto lho_suit = lho_hand.Suit(suit);
+      auto all_suit_cards = trick->all_cards.Suit(suit);
+      int a = all_suit_cards.Top();
+      int k = all_suit_cards.Remove(a).Top();
+      int q = all_suit_cards.Remove(k).Top();
+      int j = all_suit_cards.Remove(q).Top();
+      int t = all_suit_cards.Remove(j).Top();
+      // Finesse LHO - good.
+      if (pd_suit.Size() >= 2 && lho_suit.Size() >= 2) {
+        if ((pd_suit.Include(k) && lho_suit.Include(a)) ||
+            (pd_suit.Include(a) && lho_suit.Include(k) &&
+             (pd_suit.Include(q) || our_suits.Include(Cards().Add(q).Add(j)))) ||
+            (pd_suit.Include(k) && lho_suit.Include(q) &&
+             (pd_suit.Include(j) || our_suits.Include(Cards().Add(j).Add(t))))) {
+          good_leads.Add(my_suit.Top());
+          good_leads.Add(my_suit.Bottom());
+          continue;
+        }
+      }
+      auto rho_suit = rho_hand.Suit(suit);
+      // Give free finesse to RHO - bad.
+      if (my_suit.Size() >= 2 && rho_suit.Size() >= 2) {
+        if ((my_suit.Include(a) && rho_suit.Include(k)) ||
+            (my_suit.Include(k) && rho_suit.Include(a) && !our_suits.Include(q))) {
+          if (SUIT_CONTRACT) {
+            bad_leads.Add(my_suit.Top());
+            continue;
+          }
+        }
+      }
+      Cards akq = Cards().Add(a).Add(k).Add(q);
+      // Lead from strong suit - ok.
+      if (lho_suit && rho_suit && our_suits.Intersect(akq).Size() >= 2) {
+        high_leads.Add(my_suit.Top());
+        high_leads.Add(my_suit.Bottom());
+        continue;
+      }
+      // Give partner a ruff - good.
+      if (SUIT_CONTRACT && !pd_suit && lho_suit && rho_suit && pd_hand.Suit(trump) &&
+          pd_hand.Suit(trump).Size() <= playable_cards.Suit(trump).Size() &&
+          my_suit.Bottom() != a) {
+        ruff_leads.Add(my_suit.Bottom());
+        continue;
+      }
+      // With voids in other players' hands.
+      if (!pd_suit || !lho_suit || !rho_suit) {
+        void_leads.Add(my_suit.Top());
+        void_leads.Add(my_suit.Bottom());
+        continue;
+      }
+      // Nothing special.
+      leads.Add(my_suit.Top());
+      leads.Add(my_suit.Bottom());
+    }
+    if (SUIT_CONTRACT) {
+      ordered_cards.AddCards(ruff_leads);
+      playable_cards.Remove(ruff_leads);
+    }
+    ordered_cards.AddCards(good_leads);
+    playable_cards.Remove(good_leads);
+    ordered_cards.AddCards(high_leads);
+    playable_cards.Remove(high_leads);
+    ordered_cards.AddCards(leads);
+    playable_cards.Remove(leads);
+    ordered_cards.AddCards(void_leads);
+    playable_cards.Remove(void_leads);
+    if (SUIT_CONTRACT) {
+      ordered_cards.AddCards(bad_leads);
+      playable_cards.Remove(bad_leads);
+      ordered_cards.AddCards(trump_leads);
+      playable_cards.Remove(trump_leads);
+    }
+    ordered_cards.AddCards(playable_cards);
+  }
+
+  void OrderCards(Cards playable_cards, int beta) {
+    CHECK(playable_cards);
+    if (playable_cards.Size() == 1) {
+      ordered_cards.AddCard(playable_cards.Top());
+      return;
+    }
+    if (TrickStarting()) {  // lead
+      const int start = ordered_cards.Size();
+      trump == NOTRUMP ? Lead<false>(playable_cards) : Lead<true>(playable_cards);
+      if (hands.num_tricks() >= 12) PromoteProbedLeads(start, beta);
+      return;
+    }
+    int winning_seat = PreviousPlay().WinningSeat();
+    int winning_card = PreviousPlay().WinningCard();
+    Cards pd_suit = hands[Partner()].Suit(LeadSuit());
+    Cards lho_suit = hands[LeftHandOpp()].Suit(LeadSuit());
+    if (playable_cards.Suit(LeadSuit())) {  // follow
+      if (!WinOver(playable_cards.Top(), winning_card))
+        return ordered_cards.AddReversedCards(playable_cards);
+      if (winning_seat == Partner() &&
+          (TrickEnding() || !lho_suit || HigherRank(winning_card, lho_suit.Top()) ||
+           lho_suit.Slice(0, winning_card) == lho_suit.Slice(0, playable_cards.Top())))
+        // Partner can win or force LHO's winner.
+        return ordered_cards.AddReversedCards(playable_cards);
+      if (SecondSeat() && pd_suit && HigherRank(pd_suit.Top(), winning_card)) {
+        if (lho_suit && HigherRank(lho_suit.Top(), pd_suit.Union(playable_cards).Top()) &&
+            lho_suit.Slice(0, pd_suit.Top()) == lho_suit.Slice(0, playable_cards.Top()))
+          // Play low as LHO may play a winner to prevent partner from winning.
+          return ordered_cards.AddReversedCards(playable_cards);
+        if (!lho_suit || HigherRank(pd_suit.Top(), lho_suit.Top()))
+          // Play low as partner can win later.
+          return ordered_cards.AddReversedCards(playable_cards);
+      }
+      auto higher_cards = playable_cards.Slice(0, winning_card);
+      if (TrickEnding() || !lho_suit || HigherRank(higher_cards.Bottom(), lho_suit.Top()))
+        ordered_cards.AddReversedCards(higher_cards);
+      else
+        ordered_cards.AddCards(higher_cards);
+      return ordered_cards.AddReversedCards(playable_cards.Different(higher_cards));
+    }
+    if (trump != NOTRUMP && playable_cards.Suit(trump)) {  // ruff
+      if (winning_seat == Partner() &&
+          (TrickEnding() || (lho_suit && WinOver(winning_card, lho_suit.Top())))) {
+        // Partner can win.
+      } else {
+        Cards my_trumps = playable_cards.Suit(trump);
+        if (SuitOf(winning_card) == trump) {
+          if (winning_seat != Partner() && WinOver(my_trumps.Top(), winning_card)) {
+            auto higher_trumps = my_trumps.Slice(my_trumps.Top(), winning_card);
+            ordered_cards.AddReversedCards(higher_trumps);
+            playable_cards.Remove(higher_trumps);
+          }
+        } else if (TrickEnding() || lho_suit || !hands[LeftHandOpp()].Suit(trump)) {
+          // The lowest trump is guaranteed to win.
+          ordered_cards.AddCard(my_trumps.Bottom());
+          playable_cards.Remove(my_trumps.Bottom());
+        } else {
+          ordered_cards.AddReversedCards(my_trumps);
+          playable_cards.Remove(my_trumps);
+        }
+      }
+    }
+    // discard
+    int num_discards = 0;
+    struct {
+      int card;
+      int weight;
+    } discards[NUM_SUITS];
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      if (suit == trump) continue;
+      if (auto my_suit = playable_cards.Suit(suit))
+        discards[num_discards++] = {my_suit.Bottom(), my_suit.Size()};
+    }
+    if (num_discards >= 2) {
+      // Sort discards with up to 3 comparisons.
+      auto compare_swap = [&discards](int a, int b) {
+        if (discards[a].weight < discards[b].weight) std::swap(discards[a], discards[b]);
+      };
+      compare_swap(0, 1);
+      if (num_discards >= 3) {
+        compare_swap(1, 2);
+        compare_swap(0, 1);
+      }
+    }
+    for (int i = 0; i < num_discards; ++i) {
+      ordered_cards.AddCard(discards[i].card);
+      playable_cards.Remove(discards[i].card);
+    }
+    ordered_cards.AddCards(playable_cards);
+  }
+
+  class OrderedCards {
+   public:
+    void Reset() { num_ordered_cards = 0; }
+
+    void AddCard(int card) { ordered_cards[num_ordered_cards++] = card; }
+
+    void AddCards(Cards cards) {
+      for (int card : cards) AddCard(card);
+    }
+
+    void AddReversedCards(Cards cards) {
+      while (cards) {
+        AddCard(cards.Bottom());
+        cards.Remove(cards.Bottom());
+      }
+    }
+
+    int Size() const { return num_ordered_cards; }
+    int Card(int i) const { return ordered_cards[i]; }
+    void Truncate(int n) { num_ordered_cards = n; }
+
+   private:
+    short num_ordered_cards = 0;
+    char ordered_cards[TOTAL_TRICKS];
+  };
+
+  void ComputeShape() const {
+    if (depth == 0) {
+      trick->shape = Shape(hands);
+    } else {
+      trick->shape = (trick - 1)->shape;
+      trick->shape.PlayCards(plays[depth - 4].seat_to_play, plays[depth - 4].card_played,
+                             plays[depth - 3].card_played, plays[depth - 2].card_played,
+                             plays[depth - 1].card_played);
+      CHECK(trick->shape == Shape(hands));
+    }
+  }
+
+  Cards GetPlayableCards() const {
+    const Cards& hand = hands[seat_to_play];
+    if (TrickStarting()) return hand;
+
+    Cards suit_cards = hand.Suit(LeadSuit());
+    if (suit_cards) return suit_cards;
+
+    if (!options.discard_suit_bottom) return hand;
+
+    Cards playable_cards;
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      Cards suit_cards = hand.Suit(suit);
+      if (!suit_cards) continue;
+      if (suit == trump) {
+        playable_cards.Add(suit_cards);
+      } else {
+        // Discard only the bottom card in a suit. It's very rare that discarding
+        // a higher ranked card in the same suit is necessary.
+        playable_cards.Add(suit_cards.Bottom());
+      }
+    }
+    return playable_cards;
+  }
+
+  void PlayCard(int card_to_play) {
+    // remove played card from hand
+    card_played = card_to_play;
+    hands[seat_to_play].Remove(card_played);
+
+    // who's winning?
+    if (TrickStarting()) trick->lead_suit = SuitOf(card_played);
+    if (TrickStarting() || WinOver(card_played, PreviousPlay().WinningCard())) {
+      winning_play = depth;
+    } else {
+      winning_play = PreviousPlay().winning_play;
+    }
+  }
+
+  void UnplayCard() {
+    // add played card back to hand
+    hands[seat_to_play].Add(card_played);
+  }
+
+  uint64_t BuildCutoffIndex() const {
+    if (TrickStarting()) {
+      // 52 bits for my hand + 4 bits for partner's shape parity.
+      return hands[seat_to_play].PackedValue() + (hands[Partner()].ShapeParity() << TOTAL_CARDS);
+    } else if (auto my_suit = hands[seat_to_play].Suit(LeadSuit())) {
+      // 13/52 bits for all cards in suit + 6 bits for winner in the trick + 2 bits for lead seat.
+      auto winner = PreviousPlay().WinningCard();
+      return trick->all_cards.Suit(LeadSuit()).PackedValue() + (uint64_t(winner) << TOTAL_CARDS) +
+             (uint64_t(plays[depth & ~3].seat_to_play) << (TOTAL_CARDS + 6));
+    } else {
+      // 52 bits for my hand + 6 bits for winner in the trick.
+      auto winner = trump == NOTRUMP ? PreviousPlay().WinningSeat() : PreviousPlay().WinningCard();
+      return hands[seat_to_play].PackedValue() + (uint64_t(winner) << TOTAL_CARDS);
+    }
+  }
+
+  int LookupCutoffCard(decltype(cutoff_cache)::HashT hash) const {
+    const auto* entry = cutoff_cache.Lookup(hash);
+    return entry ? entry->card[depth & 3] : CARD_END;
+  }
+
+  void SaveCutoffCard(decltype(cutoff_cache)::HashT hash, int cutoff_card) const {
+    auto* entry = cutoff_cache.Update(hash);
+    entry->card[depth & 3] = cutoff_card;
+  }
+
+  Result TopTrumpTricks(Cards my_trumps, Cards pd_trumps) const {
+    auto all_trumps = trick->all_cards.Suit(trump);
+    if (my_trumps == all_trumps) return {my_trumps.Size(), {}};
+    if (pd_trumps == all_trumps) return {pd_trumps.Size(), {}};
+
+    auto both_trumps = my_trumps.Union(pd_trumps);
+    auto max_trump_tricks = std::max(my_trumps.Size(), pd_trumps.Size());
+    int sure_tricks = 0;
+    Cards rank_winners;
+    for (int card : all_trumps)
+      if (both_trumps.Include(card) && sure_tricks < max_trump_tricks) {
+        ++sure_tricks;
+        rank_winners.Add(card);
+      } else
+        break;
+    return {sure_tricks, rank_winners};
+  }
+
+  Result SlowTrumpTricks(Cards my_trumps, Cards pd_trumps, Cards lho_trumps, Cards rho_trumps,
+                         bool leading) const {
+    auto all_trumps = trick->all_cards.Suit(trump);
+    if (all_trumps.Size() >= 3) {
+      auto a = Cards().Add(all_trumps.Top());
+      auto k = Cards().Add(all_trumps.Different(a).Top());
+      // Kx behind A
+      if ((pd_trumps.StrictlyInclude(k) && lho_trumps.Include(a)) ||
+          (my_trumps.StrictlyInclude(k) && rho_trumps.Include(a) &&
+           (!leading || hands.num_tricks() >= 3)))
+        return {1, a.Union(k)};
+      // Kx against stiff A
+      if ((pd_trumps.StrictlyInclude(k) || my_trumps.StrictlyInclude(k)) &&
+          (rho_trumps == a || lho_trumps == a) && (!leading || hands.num_tricks() >= 3))
+        return {1, a.Union(k)};
+      // KQJ against A
+      auto q = Cards().Add(all_trumps.Different(a.Union(k)).Top());
+      if (all_trumps.Size() >= 4) {
+        auto j = Cards().Add(all_trumps.Different(a.Union(k).Union(q)).Top());
+        if (lho_trumps.Union(rho_trumps).Include(a) &&
+            my_trumps.Union(pd_trumps).Include(k.Union(q).Union(j)) &&
+            (my_trumps.Size() >= 3 || pd_trumps.Size() >= 3))
+          return {2, a.Union(k).Union(q).Union(j)};
+      }
+      // KQ against A
+      if (lho_trumps.Union(rho_trumps).Include(a) &&
+          my_trumps.Union(pd_trumps).Include(k.Union(q)) &&
+          (my_trumps.Size() >= 2 || pd_trumps.Size() >= 2))
+        return {1, a.Union(k).Union(q)};
+      // Qxx behind AK
+      if (all_trumps.Size() >= 5)
+        if ((pd_trumps.Include(q) && pd_trumps.Size() >= 3 && lho_trumps.Include(a.Union(k))) ||
+            (my_trumps.Include(q) && my_trumps.Size() >= 3 && rho_trumps.Include(a.Union(k)) &&
+             (!leading || hands.num_tricks() >= 4)))
+          return {1, a.Union(k).Union(q)};
+      // Qxx against AK tight
+      if (((pd_trumps.Include(q) && pd_trumps.Size() >= 3) ||
+           (my_trumps.Include(q) && my_trumps.Size() >= 3)) &&
+          (lho_trumps == a.Union(k) || rho_trumps == a.Union(k) ||
+           (lho_trumps.Size() == 1 && rho_trumps.Size() == 1)) &&
+          (!leading || hands.num_tricks() >= 4))
+        return {1, a.Union(k).Union(q)};
+    }
+    return {0, {}};
+  }
+
+  // Each of our trumps wins a trick unless an opponent's trump is in it.
+  // Trump lengths are in the shape, so this needs no rank winners.
+  static int TrumpLengthTricks(Cards my_trumps, Cards pd_trumps, Cards lho_trumps,
+                               Cards rho_trumps) {
+    return std::max(my_trumps.Size(), pd_trumps.Size()) - lho_trumps.Size() - rho_trumps.Size();
+  }
+
+  Result OtherSlowNoTrumpTricks() const {
+    auto my_hand = hands[seat_to_play];
+    auto our_hands = my_hand.Union(hands[Partner()]);
+    Cards rank_winners;
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      if (!my_hand.Suit(suit)) continue;
+      auto top = trick->all_cards.Suit(suit).Top();
+      if (our_hands.Include(top)) return {0, {}};
+      rank_winners.Add(top);
+    }
+    if (hands[LeftHandOpp()].Include(rank_winners) || hands[RightHandOpp()].Include(rank_winners)) {
+      return {rank_winners.Size(), rank_winners};
+    } else
+      return {1, rank_winners};
+  }
+
+  // The n highest-ranked cards of a suit, i.e. its n lowest set bits.
+  static Cards KeepTop(Cards suit, int n) {
+    if (n <= 0) return Cards();
+    if (suit.Size() <= n) return suit;
+#ifdef __BMI2__
+    return Cards(_pdep_u64((1ULL << n) - 1, suit.Value()));
+#else
+    uint64_t bits = suit.Value(), kept = 0;
+    for (int i = 0; i < n; ++i) {
+      uint64_t low = bits & -bits;
+      kept |= low;
+      bits ^= low;
+    }
+    return Cards(kept);
+#endif
+  }
+
+  Result FastTricks() const {
+    Cards my_hand = hands[seat_to_play], pd_hand = hands[Partner()];
+    Cards lho_hand = hands[LeftHandOpp()], rho_hand = hands[RightHandOpp()];
+    Cards pd_rank_winners;
+    auto [trump_tricks, rank_winners] =
+        trump == NOTRUMP ? Result{0, {}} : TopTrumpTricks(my_hand.Suit(trump), pd_hand.Suit(trump));
+    int fast_tricks = 0, my_tricks = 0, pd_tricks = 0;
+    bool my_entry = false, pd_entry = false;
+    const bool lho_has_trump = trump != NOTRUMP && lho_hand.Suit(trump);
+    const bool rho_has_trump = trump != NOTRUMP && rho_hand.Suit(trump);
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      if (suit == trump) continue;
+      auto my_suit = my_hand.Suit(suit);
+      auto pd_suit = pd_hand.Suit(suit);
+      auto lho_suit = lho_hand.Suit(suit);
+      auto rho_suit = rho_hand.Suit(suit);
+      int opp_max = std::max(lho_suit.Size(), rho_suit.Size());
+      int my_max_rank_winners = std::max(pd_suit.Size(), opp_max);
+      int pd_max_rank_winners = std::max(my_suit.Size(), opp_max);
+
+      auto max_suit_winners = TOTAL_TRICKS;
+      if (trump != NOTRUMP) {
+        if (lho_has_trump) max_suit_winners = lho_suit.Size();
+        if (rho_has_trump) max_suit_winners = std::min(max_suit_winners, rho_suit.Size());
+        my_suit = KeepTop(my_suit, max_suit_winners);
+        pd_suit = KeepTop(pd_suit, max_suit_winners);
+      }
+
+      int my_winners = 0, pd_winners = 0;
+      for (int card : trick->all_cards.Suit(suit))
+        if (my_suit.Include(card)) {
+          ++my_winners;
+          if (my_winners <= my_max_rank_winners) rank_winners.Add(card);
+        } else if (pd_suit.Include(card)) {
+          ++pd_winners;
+          if (pd_winners <= pd_max_rank_winners) pd_rank_winners.Add(card);
+        } else
+          break;
+      my_tricks +=
+          SuitFastTricks(my_suit, my_winners, my_max_rank_winners, my_entry, pd_suit, pd_winners);
+      pd_tricks +=
+          SuitFastTricks(pd_suit, pd_winners, pd_max_rank_winners, pd_entry, my_suit, my_winners);
+    }
+    if (pd_entry) {
+      fast_tricks = std::max(my_tricks, pd_tricks);
+      rank_winners.Add(pd_rank_winners);
+    } else
+      fast_tricks = my_tricks;
+
+    if (trump != NOTRUMP) {
+      // The long trump hand keeps its trumps while the fast tricks are cashed if it has
+      // enough other cards to play, so its length tricks come afterwards.
+      auto my_trumps = my_hand.Suit(trump), pd_trumps = pd_hand.Suit(trump);
+      int length_tricks =
+          TrumpLengthTricks(my_trumps, pd_trumps, lho_hand.Suit(trump), rho_hand.Suit(trump));
+      int max_trumps = std::max(my_trumps.Size(), pd_trumps.Size());
+      bool my_keeps =
+          my_trumps.Size() == max_trumps && my_hand.Size() - my_trumps.Size() >= fast_tricks;
+      bool pd_keeps =
+          pd_trumps.Size() == max_trumps && pd_hand.Size() - pd_trumps.Size() >= fast_tricks;
+      if (length_tricks > 0 && length_tricks >= trump_tricks && (my_keeps || pd_keeps)) {
+        trump_tricks = length_tricks;
+        rank_winners = rank_winners.Different(trick->all_cards.Suit(trump));
+      }
+    }
+    return {std::min(trump_tricks + fast_tricks, my_hand.Size()), rank_winners};
+  }
+
+  int SuitFastTricks(Cards my_suit, int my_winners, int max_rank_winners, bool& my_entry,
+                     Cards pd_suit, int pd_winners) const {
+    // Entry from partner if my top winner can cover partner's bottom card.
+    if (pd_suit && my_winners > 0 && HigherRank(my_suit.Top(), pd_suit.Bottom())) my_entry = true;
+    if (pd_winners == 0) {
+      // My winners outlast everyone else's cards, so my small cards win too.
+      if (my_winners >= max_rank_winners) return my_suit.Size();
+      // Partner has no winners.
+      return my_winners;
+    }
+    // Cash all my winners, then partner's.
+    if (my_winners == 0) return my_suit ? pd_winners : 0;
+    // Suit blocked by partner.
+    if (LowerRank(my_suit.Top(), pd_suit.Bottom())) return pd_winners;
+    // Suit blocked by me.
+    if (HigherRank(my_suit.Bottom(), pd_suit.Top())) return my_winners;
+    // If partner has no small cards, treat one winner as a small card.
+    if (pd_winners == pd_suit.Size()) --pd_winners;
+    return std::min(my_suit.Size(), my_winners + pd_winners);
+  }
+
+  Cards GetTrickRankWinner() const {
+    CHECK(TrickEnding());
+    int winning_card = WinningCard();
+    auto played_cards = trick->all_cards.Different(hands.all_cards());
+    return played_cards.Suit(SuitOf(winning_card)).Size() > 1 ? Cards().Add(winning_card) : Cards();
+  }
+
+  Result CollectLastTrick() const {
+    int winning_card = hands[seat_to_play].Top();
+    int winning_seat = seat_to_play;
+    for (int s = 1; s < NUM_SEATS; ++s) {
+      int seat = (seat_to_play + s) % NUM_SEATS;
+      int card_to_play = hands[seat].Top();
+      if (WinOver(card_to_play, winning_card)) {
+        winning_card = card_to_play;
+        winning_seat = seat;
+      }
+    }
+    Cards rank_winners;
+    if (hands.all_cards().Suit(SuitOf(winning_card)).Size() > 1) rank_winners.Add(winning_card);
+    return {ns_tricks_won + IsNs(winning_seat), rank_winners};
+  }
+
+  void ShowTricks(int beta, int ns_tricks, bool starting) const {
+    printf("%2d: %c", depth, SuitName(trump)[0]);
+    for (int i = 0; i <= depth; ++i) {
+      if ((i & 3) == 0) printf(" %c", SeatLetter(plays[i].seat_to_play));
+      printf(" %s", NameOf(plays[i].card_played));
+    }
+    if (starting)
+      printf(" (%d)\n", beta);
+    else
+      printf(" (%d) -> %d\n", beta, ns_tricks);
+  }
+
+  void ShowPattern(const char* action, const Pattern& pattern, Shape shape) const {
+    printf("%2d: %s ", depth, action);
+    pattern.Show(shape);
+    printf(" / ");
+    hands.Show();
+  }
+
+  bool TrickStarting() const { return (depth & 3) == 0; }
+  bool SecondSeat() const { return (depth & 3) == 1; }
+  bool ThirdSeat() const { return (depth & 3) == 2; }
+  bool TrickEnding() const { return (depth & 3) == 3; }
+  bool NsToPlay() const { return IsNs(seat_to_play); }
+  bool NsWon() const { return IsNs(WinningSeat()); }
+  bool WinOver(int c1, int c2) const {
+    return SuitOf(c1) == SuitOf(c2) ? HigherRank(c1, c2) : SuitOf(c1) == trump;
+  }
+  int WinningCard() const { return plays[winning_play].card_played; }
+  int WinningSeat() const { return plays[winning_play].seat_to_play; }
+  int LeadSuit() const { return trick->lead_suit; }
+  int NextSeat(int count = 1) const { return (seat_to_play + count) & (NUM_SEATS - 1); }
+  int LeftHandOpp() const { return NextSeat(1); }
+  int Partner() const { return NextSeat(2); }
+  int RightHandOpp() const { return NextSeat(3); }
+  Cards MySuit(int suit) const { return hands[seat_to_play].Suit(suit); }
+  Cards PdSuit(int suit) const { return hands[Partner()].Suit(suit); }
+  Cards LhoSuit(int suit) const { return hands[LeftHandOpp()].Suit(suit); }
+  Cards RhoSuit(int suit) const { return hands[RightHandOpp()].Suit(suit); }
+  const Play& PreviousPlay() const { return *(this - 1); }
+  Play& NextPlay() { return *(this + 1); }
+
+  // Fixed info.
+  Play* const plays = nullptr;
+  Trick* const trick = nullptr;
+  Hands& hands = empty_hands;
+  const int trump = NOTRUMP;
+  const int depth = 0;
+
+  // Per play info.
+  int ns_tricks_won = 0;
+  int seat_to_play;
+  int card_played;
+  int winning_play;
+  OrderedCards ordered_cards;
+
+  friend class InteractivePlay;
+#ifdef _WEB
+  friend class WebPlay;
+#endif  // _WEB
+};
+
+class MinMax {
+ public:
+  MinMax(const Hands& hands_in, int trump, int seat_to_play) : hands(hands_in) {
+    for (int i = 0; i < TOTAL_CARDS; ++i)
+      new (&plays[i]) Play(plays, tricks + i / 4, hands, trump, i, seat_to_play);
+    if (options.stats_level) memset((void*)stats, 0, sizeof(stats));
+  }
+
+  ~MinMax() {
+    if (options.stats_level) {
+      puts("");
+      for (int i = 0; i < TOTAL_CARDS; ++i) stats[i].Show(i);
+    }
+  }
+
+  int Search(int beta) { return plays[0].Search(beta).first; }
+
+  Play& play(int i) { return plays[i]; }
+
+ private:
+  Hands hands;
+  Play plays[TOTAL_CARDS];
+  Trick tricks[TOTAL_TRICKS];
+};
+
+
+inline Cards ParseHand(const char* input_line, Cards all_cards) {
+  // Filter out invalid characters.
+  char filtered_line[120], *line = filtered_line;
+  int pos = 0;
+  for (const char* c = input_line; *c; ++c)
+    if (strchr("AaKkQqJjTt1098765432Xx- ", *c)) filtered_line[pos++] = *c;
+  filtered_line[pos] = '\0';
+
+  Cards hand;
+  for (int suit = 0; suit < NUM_SUITS; ++suit) {
+    while (line[0] && isspace(line[0])) ++line;
+    while (line[0] && !isspace(line[0]) && line[0] != '-') {
+      int rank;
+      if (tolower(line[0]) == 'x') {  // wildcard
+        rank = RankOf(all_cards.Complement().Suit(suit).Bottom());
+      } else {
+        rank = CharToRank(line[0]);
+      }
+      int card = CardOf(suit, rank);
+      if (all_cards.Include(card)) {
+        fprintf(stderr, "%s showed up twice.\n", NameOf(card));
+        exit(-1);
+      }
+      all_cards.Add(card);
+      hand.Add(card);
+
+      if (rank == TEN && line[0] == '1') {
+        if (line[1] != '0') {
+          fprintf(stderr, "Unknown rank: %c%c\n", line[0], line[1]);
+          exit(-1);
+        }
+        ++line;
+      }
+      ++line;
+    }
+    if (line[0] == '-') ++line;
+  }
+  return hand;
+}
+
+inline int MemoryEnhancedTestDriver(const std::function<int(int)>& search, int num_tricks,
+                             int guess_tricks) {
+  int upperbound = num_tricks;
+  int lowerbound = 0;
+  int ns_tricks = guess_tricks;
+  if (options.displaying_depth > 0)
+    printf("Lowerbound: %d\tUpperbound: %d\n", lowerbound, upperbound);
+  while (lowerbound < upperbound) {
+    int beta = (ns_tricks == lowerbound ? ns_tricks + 1 : ns_tricks);
+    ns_tricks = search(beta);
+    if (ns_tricks < beta)
+      upperbound = ns_tricks;
+    else
+      lowerbound = ns_tricks;
+    if (options.displaying_depth > 0)
+      printf("Lowerbound: %d\tUpperbound: %d\n", lowerbound, upperbound);
+  }
+  return ns_tricks;
+}
+
+inline int GuessTricks(const Hands& hands, int trump) {
+  if (options.guess_tricks >= 0) return std::min(options.guess_tricks, hands.num_tricks());
+
+  int ns_points = hands[NORTH].Points() + hands[SOUTH].Points();
+  int ew_points = hands[EAST].Points() + hands[WEST].Points();
+  if (trump == NOTRUMP) {
+    if (ns_points * 2 < ew_points) return 0;
+    if (ns_points < ew_points) return hands.num_tricks() / 2 + 1;
+  } else {
+    int n_trumps = hands[NORTH].Suit(trump).Size(), s_trumps = hands[SOUTH].Suit(trump).Size();
+    int e_trumps = hands[EAST].Suit(trump).Size(), w_trumps = hands[WEST].Suit(trump).Size();
+    if (ns_points < ew_points && (std::max(n_trumps, s_trumps) < std::max(e_trumps, w_trumps) ||
+                                  (std::max(n_trumps, s_trumps) == std::max(e_trumps, w_trumps) &&
+                                   n_trumps + s_trumps < e_trumps + w_trumps)))
+      return 0;
+  }
+  return hands.num_tricks();
+}
+
+inline void Solve(const Hands& hands, const std::vector<int>& trumps, const std::vector<int>& lead_seats,
+           const std::function<void(int trump)>& trump_start,
+           const std::function<void(int trump, int lead_seat, int ns_tricks)>& seat_done,
+           const std::function<void(int trump)>& trump_done) {
+  int num_tricks = hands[WEST].Size();
+  for (int trump : trumps) {
+    trump_start(trump);
+    int guess_tricks = GuessTricks(hands, trump);
+    for (int lead_seat : lead_seats) {
+      MinMax min_max(hands, trump, lead_seat);
+      auto search = [&min_max](int beta) { return min_max.Search(beta); };
+      int ns_tricks = MemoryEnhancedTestDriver(search, num_tricks, guess_tricks);
+      guess_tricks = std::min(ns_tricks + 1, TOTAL_TRICKS);
+      if (options.stats_level) {
+        common_bounds_cache.ShowStatistics();
+        cutoff_cache.ShowStatistics();
+        VectorPool<Pattern>::ShowStatistics();
+      }
+      seat_done(trump, lead_seat, ns_tricks);
+      if (hands.num_voids() >= 4) cutoff_cache.Reset();
+    }
+    common_bounds_cache.Reset();
+    cutoff_cache.Reset();
+    trump_done(trump);
+  }
+}
+
+#endif  // BRIDGE_SOLVER_H_

@@ -104,9 +104,10 @@ Shuffle rounds run across a pool of Web Workers, up to half of the
 `navigator.hardwareConcurrency` reported by the browser.
 
 ## How it's put together
-- `web-bindings.cc` is the Emscripten-facing glue around `../solver.cc`
-  (`solve`, `solve_plays`, `shuffle_and_solve`); it's what actually gets
-  compiled, not `solver.cc` directly.
+- `web-bindings.cc` is the Emscripten-facing glue (`solve`, `solve_plays`,
+  `shuffle_and_solve`). It includes `../solver.h`; the makefile compiles
+  `../solver.cc` as a separate `-D_WEB` translation unit and links both
+  with `-flto` so hot calls still inline across that boundary.
 - The page's scripts, loaded in this order and sharing globals (no bundler):
   `app.js` (deal entry, DD table, par), `shuffle.js` (single-dummy tables),
   `play.js` (card play), `share-url.js` (links) and `startup.js`, which starts

@@ -1,10 +1,12 @@
-// The web app's Emscripten-exported API: the C++ solver.cc engine plus
-// this file's WASM/JS-facing glue (WebPlay, CollectHands, solve,
-// shuffle_and_solve, solve_plays, and the EMSCRIPTEN_BINDINGS below). Kept
-// separate from solver.cc for separation of concerns; this file, not
-// solver.cc, is what the web build actually compiles.
+// The web app's Emscripten-exported API: WASM/JS-facing glue (WebPlay,
+// CollectHands, solve, shuffle_and_solve, solve_plays, and the
+// EMSCRIPTEN_BINDINGS below) over the solver engine in solver.h / solver.cc.
+// The web makefile compiles ../solver.cc as a separate translation unit
+// (-D_WEB) and links it with this file; only the header is included here.
+#ifndef _WEB
 #define _WEB
-#include "../solver.cc"
+#endif
+#include "../solver.h"
 
 class WebPlay {
  public:
