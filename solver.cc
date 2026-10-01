@@ -1387,7 +1387,7 @@ class Play {
       ns_tricks_won = PreviousPlay().ns_tricks_won;
       seat_to_play = PreviousPlay().NextSeat();
       auto playable_cards = GetPlayableCards();
-      int card = LookupCutoffCard(cutoff_cache.Hash(BuildCutoffIndex()));
+      int card = LookupCutoffCard(cutoff_cache.Hash(BuildCutoffIndex(beta)));
       if (!playable_cards.Include(card)) {
         ordered_cards.Reset();
         OrderCards(playable_cards, beta);
@@ -1436,7 +1436,7 @@ class Play {
       UnplayCard();
       return {ns_tricks, rank_winners};
     }
-    const auto cutoff_hash = cutoff_cache.Hash(BuildCutoffIndex());
+    const auto cutoff_hash = cutoff_cache.Hash(BuildCutoffIndex(beta));
     int cutoff_card = LookupCutoffCard(cutoff_hash);
     if (playable_cards.Include(cutoff_card)) {
       VERBOSE(printf("%2d: use cutoff %s\n", depth, NameOf(cutoff_card)));
@@ -1767,19 +1767,25 @@ class Play {
     hands[seat_to_play].Add(card_played);
   }
 
-  uint64_t BuildCutoffIndex() const {
+  uint64_t BuildCutoffIndex(int beta) const {
     if (TrickStarting()) {
-      // 52 bits for my hand + 4 bits for partner's shape parity.
-      return hands[seat_to_play].PackedValue() + (hands[Partner()].ShapeParity() << TOTAL_CARDS);
+      // 52 bits for my hand + 4 bits for partner's shape parity + 4 bits for NS tricks needed
+      // in suit contracts (NT loses from splitting entries across MTD passes).
+      uint64_t needed = trump == NOTRUMP ? 0 : beta - ns_tricks_won;
+      return hands[seat_to_play].PackedValue() + (hands[Partner()].ShapeParity() << TOTAL_CARDS) +
+             (needed << (TOTAL_CARDS + 4));
     } else if (auto my_suit = hands[seat_to_play].Suit(LeadSuit())) {
       // 13/52 bits for all cards in suit + 6 bits for winner in the trick + 2 bits for lead seat.
       auto winner = PreviousPlay().WinningCard();
       return trick->all_cards.Suit(LeadSuit()).PackedValue() + (uint64_t(winner) << TOTAL_CARDS) +
              (uint64_t(plays[depth & ~3].seat_to_play) << (TOTAL_CARDS + 6));
     } else {
-      // 52 bits for my hand + 6 bits for winner in the trick.
+      // 52 bits for my hand + 6 bits for winner in the trick + 4 bits for NS tricks needed
+      // in suit contracts.
       auto winner = trump == NOTRUMP ? PreviousPlay().WinningSeat() : PreviousPlay().WinningCard();
-      return hands[seat_to_play].PackedValue() + (uint64_t(winner) << TOTAL_CARDS);
+      uint64_t needed = trump == NOTRUMP ? 0 : beta - ns_tricks_won;
+      return hands[seat_to_play].PackedValue() + (uint64_t(winner) << TOTAL_CARDS) +
+             (needed << (TOTAL_CARDS + 6));
     }
   }
 
