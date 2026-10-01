@@ -54,8 +54,8 @@ solver.p: solver.cc
 	$(CXX) $(OPTS) -O3 -fprofile-generate -o $@ $^
 	./$@ -if deals/hard/deal.8 | tail
 	mv solver.p-solver.gcda solver.gcda
-solver: solver.cc
-	$(CXX) $(OPTS) -O3 -fprofile-use -o $@ $^
+solver: solver.cc solver.p
+	$(CXX) $(OPTS) -O3 -fprofile-use -o $@ $<
 	./$@ -if deals/hard/deal.8 | tail
 endif
 solver.g: solver.cc
