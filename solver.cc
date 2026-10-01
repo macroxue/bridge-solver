@@ -1252,7 +1252,14 @@ class Play {
 
   // Split out so non-trick-start calls skip this large frame's prologue. Only
   // matters natively; wasm (Binaryen inlines it back) has cheap prologues.
-  __attribute__((noinline)) Result SearchWithCache(int beta) {
+#if defined(__GNUC__) && !defined(__clang__)
+  // Pins the pattern-scan loop within 64-byte lines; a shift by unrelated
+  // code once cost ~10% on deals/freak/deal.2.
+  __attribute__((noinline, optimize("align-loops=32")))
+#else
+  __attribute__((noinline))
+#endif
+  Result SearchWithCache(int beta) {
     if (depth > 0) {
       ns_tricks_won = PreviousPlay().ns_tricks_won + PreviousPlay().NsWon();
       seat_to_play = PreviousPlay().WinningSeat();
