@@ -37,6 +37,10 @@ refresh-emcc-id:
 # (LLVM_PROFILE_FILE isn't honored here) actually lands on disk.
 SOLVER = ../solver.cc ../solver.h
 web.profdata: web-profile.cc web-bindings.cc $(SOLVER) .emcc-id
+	@# Check Node first, so a stale EMSDK_NODE isn't reported as a broken emcc.
+	@$(NODE) --version > /dev/null 2>&1 || { \
+		echo "Node not runnable: $(NODE) (source emsdk_env.sh or fix EMSDK_NODE)" >&2; \
+		exit 1; }
 	$(EMCC) -std=c++17 -O3 -msimd128 -msse4.2 -fprofile-instr-generate \
 		-sNODERAWFS=1 -sEXIT_RUNTIME=1 -o web-profile.js web-profile.cc ../solver.cc
 	rm -f default.profraw
