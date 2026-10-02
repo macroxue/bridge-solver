@@ -33,29 +33,36 @@ refresh-emcc-id:
 	@test -f $@ || printf '%s\n' "$(EMCC_ID)" > $@
 
 # Instrumented wasm run under Node to produce PGO data for the builds
-# below. -sNODERAWFS escapes Emscripten's in-memory FS so default.profraw
-# (LLVM_PROFILE_FILE isn't honored here) actually lands on disk.
+# below, one profile per build: the no-SIMD build compiles some functions
+# differently, so the SIMD profile doesn't fit them. -sNODERAWFS escapes
+# Emscripten's in-memory FS so default.profraw (LLVM_PROFILE_FILE isn't
+# honored here) actually lands on disk -- in the current directory, so each
+# profile runs in its own $@.tmp/ to keep `make -j` from mixing them.
 SOLVER = ../solver.cc ../solver.h
-web.profdata: web-profile.cc web-bindings.cc $(SOLVER) .emcc-id
+SIMD_FLAGS = -msimd128 -msse4.2
+web.profdata: PROFILE_FLAGS = $(SIMD_FLAGS)
+web-no-simd.profdata: PROFILE_FLAGS =
+web.profdata web-no-simd.profdata: web-profile.cc web-bindings.cc $(SOLVER) .emcc-id
 	@# Check Node first, so a stale EMSDK_NODE isn't reported as a broken emcc.
 	@$(NODE) --version > /dev/null 2>&1 || { \
 		echo "Node not runnable: $(NODE) (source emsdk_env.sh or fix EMSDK_NODE)" >&2; \
 		exit 1; }
-	$(EMCC) -std=c++17 -O3 -msimd128 -msse4.2 -fprofile-instr-generate \
-		-sNODERAWFS=1 -sEXIT_RUNTIME=1 -o web-profile.js web-profile.cc ../solver.cc
-	rm -f default.profraw
+	rm -rf $@.tmp
+	mkdir $@.tmp
+	$(EMCC) -std=c++17 -O3 $(PROFILE_FLAGS) -fprofile-instr-generate \
+		-sNODERAWFS=1 -sEXIT_RUNTIME=1 -o $@.tmp/web-profile.js web-profile.cc ../solver.cc
 	@test -n "$(LLVM_PROFDATA)" || { \
 		echo "llvm-profdata not found (set EMSDK or ensure emcc's LLVM tools are on PATH)" >&2; \
 		exit 1; }; \
-	$(NODE) web-profile.js > /dev/null || { \
+	(cd $@.tmp && $(NODE) web-profile.js > /dev/null) || { \
 		printf '\033[1mPGO profile run failed. Emscripten 6.0.5-6.0.10 are known broken; use 5.0.7 (see web/README.md).\033[0m\n' >&2; \
 		exit 1; }; \
-	"$(LLVM_PROFDATA)" merge -o $@ default.profraw || { \
+	"$(LLVM_PROFDATA)" merge -o $@ $@.tmp/default.profraw || { \
 		echo "llvm-profdata merge failed (LLVM_PROFDATA=$(LLVM_PROFDATA))" >&2; \
 		exit 1; }
-	rm -f web-profile.js web-profile.wasm default.profraw
+	rm -rf $@.tmp
 solver.js: web-bindings.cc $(SOLVER) solver-no-simd.wasm web.profdata
-	$(EMCC) -std=c++17 -O3 -msimd128 -msse4.2 \
+	$(EMCC) -std=c++17 -O3 $(SIMD_FLAGS) \
 		-fprofile-instr-use=web.profdata -o $@ web-bindings.cc ../solver.cc \
 		--bind -s ALLOW_MEMORY_GROWTH
 	@# Cache-bust both wasm URLs with each binary's own content hash, to
@@ -69,8 +76,8 @@ solver.js: web-bindings.cc $(SOLVER) solver-no-simd.wasm web.profdata
 	sed -i.bak "s/\"solver.wasm\"/simd?\"solver.wasm?v=$$simd_hash\":\"solver-no-simd.wasm?v=$$nosimd_hash\"/" $@
 	rm -f $@.bak
 solver.wasm: solver.js
-solver-no-simd.wasm: web-bindings.cc $(SOLVER) web.profdata
-	$(EMCC) -std=c++17 -O3 -fprofile-instr-use=web.profdata \
+solver-no-simd.wasm: web-bindings.cc $(SOLVER) web-no-simd.profdata
+	$(EMCC) -std=c++17 -O3 -fprofile-instr-use=web-no-simd.profdata \
 		-o solver-no-simd.js web-bindings.cc ../solver.cc \
 		--bind -s ALLOW_MEMORY_GROWTH
 	rm solver-no-simd.js
@@ -99,5 +106,6 @@ deals.js: gen_deals.py $(wildcard ../deals/hard/deal.* ../deals/freak/deal.*)
 	python3 gen_deals.py
 clean:
 	rm -f solver.js solver.wasm solver-no-simd.js solver-no-simd.wasm \
-		web-test web.profdata web-profile.js web-profile.wasm web-profile.profraw \
-		default.profraw deals.js .emcc-id .emcc-id.new
+		web-test web.profdata web-no-simd.profdata web-profile.js web-profile.wasm \
+		web-profile.profraw default.profraw deals.js .emcc-id .emcc-id.new
+	rm -rf web.profdata.tmp web-no-simd.profdata.tmp
