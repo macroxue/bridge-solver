@@ -366,10 +366,19 @@ class InteractivePlay {
     old.c_cc[VMIN] = 1;
     old.c_cc[VTIME] = 0;
     if (tcsetattr(0, TCSANOW, &old) < 0) perror("tcsetattr ICANON");
-    if (read(0, &buf, 1) < 0) perror("read()");
+    ssize_t num_read = read(0, &buf, 1);
     old.c_lflag |= ICANON;
     old.c_lflag |= ECHO;
     if (tcsetattr(0, TCSADRAIN, &old) < 0) perror("tcsetattr ~ICANON");
+    if (num_read < 0) {
+      perror("read()");
+      exit(-1);
+    }
+    // Piped input ran out: stop instead of reading nothing forever.
+    if (num_read == 0) {
+      printf("\n");
+      exit(0);
+    }
     return (buf);
   }
 
