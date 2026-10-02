@@ -2,7 +2,7 @@
 // result from solve_plays(). Loaded after app.js.
 
 // --- CARD PLAY ---
-// Trump encoding expected by solve_plays (see solver.cc:
+// Trump encoding expected by solve_plays (see solver.h:
 // enum { SPADE, HEART, DIAMOND, CLUB, NUM_SUITS, NOTRUMP = NUM_SUITS }).
 const TRUMP_NUMBERS = { S: 0, H: 1, D: 2, C: 3, N: 4 };
 // Rank value for comparing cards within a suit (A high).

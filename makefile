@@ -30,6 +30,9 @@ OPTS=-std=c++17 -Wall $(if $(IS_CLANG),,-Wno-missing-profile) $(ARCH_OPTS) -fno-
 # Its PGO format (.profraw + llvm-profdata) differs from GCC's (.gcda), and
 # GCC's flat-file recipe measures ~0.8% faster than directory-form, so each
 # compiler keeps its own recipe below.
+SOURCES = solver.cc solver-cli.cc
+HEADERS = solver.h
+
 IS_CLANG := $(shell echo | $(CXX) -E -dM -x c++ - 2>/dev/null | grep -q __clang__ && echo 1)
 PGO_DIR = pgo-data
 
@@ -38,37 +41,39 @@ ifeq ($(IS_CLANG),1)
 # LLVM alongside Xcode); Apple Clang's lives in the Xcode toolchain, off PATH.
 LLVM_PROFDATA := $(shell p=$$($(CXX) -print-prog-name=llvm-profdata); \
 	[ -x "$$p" ] && echo "$$p" || xcrun --find llvm-profdata 2>/dev/null || command -v llvm-profdata)
-solver.p: solver.cc
+solver.p: $(SOURCES) $(HEADERS)
 	@test -n "$(LLVM_PROFDATA)" || { echo "llvm-profdata not found (install Xcode CLT or LLVM)" >&2; exit 1; }
 	rm -rf $(PGO_DIR)
 	mkdir $(PGO_DIR)
-	$(CXX) $(OPTS) -O3 -fprofile-generate=$(PGO_DIR) -o $@ $^
+	$(CXX) $(OPTS) -O3 -fprofile-generate=$(PGO_DIR) -o $@ $(SOURCES)
 	./$@ -if deals/hard/deal.8 | tail
 	"$(LLVM_PROFDATA)" merge -o $(PGO_DIR)/default.profdata $(PGO_DIR)/*.profraw
-solver: solver.cc solver.p
-	$(CXX) $(OPTS) -O3 -fprofile-use=$(PGO_DIR) -o $@ solver.cc
+solver: $(SOURCES) $(HEADERS) solver.p
+	$(CXX) $(OPTS) -O3 -fprofile-use=$(PGO_DIR) -o $@ $(SOURCES)
 	./$@ -if deals/hard/deal.8 | tail
 else
-solver.p: solver.cc
-	rm -f solver.gcda
-	$(CXX) $(OPTS) -O3 -fprofile-generate -o $@ $^
+# GCC names each source's profile after the binary: solver.p-solver.gcda
+# from the run, read back as solver-solver.gcda.
+solver.p: $(SOURCES) $(HEADERS)
+	rm -f solver-*.gcda
+	$(CXX) $(OPTS) -O3 -fprofile-generate -o $@ $(SOURCES)
 	./$@ -if deals/hard/deal.8 | tail
-	mv solver.p-solver.gcda solver.gcda
-solver: solver.cc solver.p
-	$(CXX) $(OPTS) -O3 -fprofile-use -o $@ $<
+	for f in $(SOURCES:.cc=); do mv solver.p-$$f.gcda solver-$$f.gcda; done
+solver: $(SOURCES) $(HEADERS) solver.p
+	$(CXX) $(OPTS) -O3 -fprofile-use -o $@ $(SOURCES)
 	./$@ -if deals/hard/deal.8 | tail
 endif
-solver.g: solver.cc
-	$(CXX) $(OPTS) -D_DEBUG -Og -g -o $@ $^
-solver.m: solver.cc
-	clang++ -std=c++17 -O3 -fsanitize=memory -o $@ $^
+solver.g: $(SOURCES) $(HEADERS)
+	$(CXX) $(OPTS) -D_DEBUG -Og -g -o $@ $(SOURCES)
+solver.m: $(SOURCES) $(HEADERS)
+	clang++ -std=c++17 -O3 -fsanitize=memory -o $@ $(SOURCES)
 	./$@ -if deals/hard/deal.1
-solver.a: solver.cc
-	clang++ -std=c++17 -O3 -fsanitize=address -o $@ $^
+solver.a: $(SOURCES) $(HEADERS)
+	clang++ -std=c++17 -O3 -fsanitize=address -o $@ $(SOURCES)
 	./$@ -if deals/hard/deal.1
 clean:
 	rm -rf solver.p solver solver.g solver.m solver.a $(PGO_DIR)
-	rm -f solver.gcda solver.p-solver.gcda *.gcno
+	rm -f *.gcda *.gcno
 
 # Also drop local run logs from run.sh / web/run.sh / parallel_run*.sh.
 distclean: clean

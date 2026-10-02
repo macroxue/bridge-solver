@@ -34,8 +34,7 @@
 /solver.m
 /solver.a
 /pgo-data/
-/solver.gcda
-/solver.p-solver.gcda
+*.gcda
 *.gcno
 
 # Local run logs from run.sh / web/run.sh / parallel_run*.sh

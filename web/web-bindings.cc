@@ -1,119 +1,53 @@
-// The web app's Emscripten-exported API: the C++ solver.cc engine plus
-// this file's WASM/JS-facing glue (WebPlay, CollectHands, solve,
-// shuffle_and_solve, solve_plays, and the EMSCRIPTEN_BINDINGS below). Kept
-// separate from solver.cc for separation of concerns; this file, not
-// solver.cc, is what the web build actually compiles.
-#define _WEB
-#include "../solver.cc"
+// The web app's Emscripten-exported API (solve, shuffle_and_solve,
+// solve_plays and the EMSCRIPTEN_BINDINGS below), built on ../solver.h.
+#include <stdio.h>
+#include <string.h>
+#include <sys/time.h>
 
-class WebPlay {
- public:
-  WebPlay(const Hands& hands, int trump, int lead_seat, int target_ns_tricks,
-          std::vector<int> played_cards)
-      : min_max(hands, trump, lead_seat),
-        target_ns_tricks(target_ns_tricks),
-        num_tricks(hands.num_tricks()),
-        played_cards(played_cards) {}
+#include <string>
+#include <vector>
 
-  typedef std::map<int, int> CardTricks;
+#include "../solver.h"
 
-  CardTricks EvaluatePlays(int ns_tricks, bool ns_contract) {
-    // Where the last trick starts: card 48 of a full deal, earlier in an ending.
-    const size_t last_trick = 4 * (num_tricks - 1);
-    // Play all the cards from start.
-    for (size_t p = 0; p <= played_cards.size(); ++p) {
-      auto& play = min_max.play(p);
-      if (play.TrickStarting()) {
-        if (play.depth > 0) {
-          play.ns_tricks_won = play.PreviousPlay().ns_tricks_won + play.PreviousPlay().NsWon();
-          play.seat_to_play = play.PreviousPlay().WinningSeat();
-        }
-        play.trick->all_cards = play.hands.all_cards();
-        play.ComputeShape();
-        play.trick->ComputeRelativeHands(play.depth, play.hands);
-      } else {
-        play.ns_tricks_won = play.PreviousPlay().ns_tricks_won;
-        play.seat_to_play = play.PreviousPlay().NextSeat();
-      }
-      // Leave the last trick for GetPlayableCards() below.
-      if (p < played_cards.size() && p < last_trick) play.PlayCard(played_cards[p]);
-    }
+double Now() {
+  timeval now;
+  gettimeofday(&now, nullptr);
+  return now.tv_sec + now.tv_usec * 1e-6;
+}
 
-    auto& play = min_max.play(played_cards.size());
-    CardTricks card_tricks;
-    if (played_cards.size() >= last_trick) {
-      // The last trick.
-      auto [new_ns_tricks, _] = min_max.play(last_trick).CollectLastTrick();
-      int trick_diff =
-          ns_contract ? new_ns_tricks - target_ns_tricks : target_ns_tricks - new_ns_tricks;
-      card_tricks[play.GetPlayableCards().Top()] = trick_diff;
-      return card_tricks;
-    }
-    for (int card : play.trick->FilterEquivalent(play.GetPlayableCards())) {
-      auto search = [&play, card](int beta) {
-        play.PlayCard(card);
-        auto [ns_tricks, _] = play.NextPlay().Search(beta);
-        play.UnplayCard();
-        return ns_tricks;
-      };
-      int new_ns_tricks = MemoryEnhancedTestDriver(search, num_tricks, ns_tricks);
-      int trick_diff =
-          ns_contract ? new_ns_tricks - target_ns_tricks : target_ns_tricks - new_ns_tricks;
-      card_tricks[card] = trick_diff;
-    }
-    return card_tricks;
-  }
-
- private:
-  MinMax min_max;
-  const int target_ns_tricks;
-  const int num_tricks;
-  const std::vector<int> played_cards;
-};
-
-Hands CollectHands(const char* west, const char* north, const char* east, const char* south) {
-  Cards all_cards;
-  Hands hands;
-  hands[WEST] = ParseHand(west, all_cards);
-  all_cards.Add(hands[WEST]);
-  hands[NORTH] = ParseHand(north, all_cards);
-  all_cards.Add(hands[NORTH]);
-  hands[EAST] = ParseHand(east, all_cards);
-  all_cards.Add(hands[EAST]);
-  hands[SOUTH] = ParseHand(south, all_cards);
-  all_cards.Add(hands[SOUTH]);
-  return hands;
+Deal CollectDeal(const std::string& west, const std::string& north, const std::string& east,
+                 const std::string& south) {
+  Deal deal;
+  deal.hands[WEST] = west;
+  deal.hands[NORTH] = north;
+  deal.hands[EAST] = east;
+  deal.hands[SOUTH] = south;
+  return ParseDeal(deal);
 }
 
 // Runs Solve() over all 5 strains/4 lead seats and formats the per-seat
 // trick counts into solve()/shuffle_and_solve()'s shared "<strain> <S> <N>
 // <W> <E> <time> s" line format.
-std::string SolveToString(Hands& hands) {
+std::string SolveToString(const Deal& deal) {
   static char buffer[256];
   buffer[0] = '\0';
   auto start_time = Now();
   auto trump_start = [&](int trump) { sprintf(buffer + strlen(buffer), "%c", SuitName(trump)[0]); };
+  int num_tricks = NumTricks(deal);
   auto seat_done = [&](int trump, int lead_seat, int ns_tricks) {
-    sprintf(buffer + strlen(buffer), " %2d",
-            IsNs(lead_seat) ? hands.num_tricks() - ns_tricks : ns_tricks);
+    sprintf(buffer + strlen(buffer), " %2d", IsNs(lead_seat) ? num_tricks - ns_tricks : ns_tricks);
   };
   auto trump_done = [start_time](int trump) {
     sprintf(buffer + strlen(buffer), " %5.2f s\n", Now() - start_time);
   };
   std::vector<int> trumps = {NOTRUMP, SPADE, HEART, DIAMOND, CLUB};
   std::vector<int> lead_seats = {WEST, EAST, NORTH, SOUTH};
-  Solve(hands, trumps, lead_seats, trump_start, seat_done, trump_done);
+  Solve(deal, trumps, lead_seats, trump_start, seat_done, trump_done);
   return buffer;
 }
 
 std::string solve(std::string west, std::string north, std::string east, std::string south) {
-  auto hands = CollectHands(west.c_str(), north.c_str(), east.c_str(), south.c_str());
-
-  // solve_plays() below leaves these populated for a different trump/deal;
-  // clear them so Solve() doesn't get stale hits.
-  common_bounds_cache.Reset();
-  cutoff_cache.Reset();
-  return SolveToString(hands);
+  return SolveToString(CollectDeal(west, north, east, south));
 }
 
 // Like solve(), but first redeals the given seats' pooled cards among
@@ -125,44 +59,34 @@ std::string solve(std::string west, std::string north, std::string east, std::st
 std::string shuffle_and_solve(std::string west, std::string north, std::string east,
                               std::string south, std::string shuffle_seats,
                               bool discard_suit_bottom) {
-  auto hands = CollectHands(west.c_str(), north.c_str(), east.c_str(), south.c_str());
-  hands.Shuffle(shuffle_seats.c_str());
+  auto deal = ShuffleDeal(CollectDeal(west, north, east, south), shuffle_seats.c_str());
   options.discard_suit_bottom = discard_suit_bottom;
-  common_bounds_cache.Reset();
-  cutoff_cache.Reset();
-  return SolveToString(hands);
+  return SolveToString(deal);
 }
 
 std::string solve_plays(std::string west, std::string north, std::string east, std::string south,
                         int target_tricks, int trump, int lead_seat, std::string played_cards) {
-  auto hands = CollectHands(west.c_str(), north.c_str(), east.c_str(), south.c_str());
+  auto deal = CollectDeal(west, north, east, south);
+  int num_tricks = NumTricks(deal);
   bool ns_contract = !IsNs(lead_seat);
   // Declarer's target, e.g. 9 for 3NT, leaves the rest to N/S when E/W
   // declare.
-  int target_ns_tricks = ns_contract ? target_tricks : hands.num_tricks() - target_tricks;
+  int target_ns_tricks = ns_contract ? target_tricks : num_tricks - target_tricks;
 
   std::vector<int> cards;
   cards.reserve(played_cards.size() / 2);
   for (size_t i = 0; i < played_cards.size() / 2; ++i)
     cards.push_back(CardOf(CharToSuit(played_cards[i * 2]), CharToRank(played_cards[i * 2 + 1])));
 
-  // Caches are reused for the same (hands, trump) across calls, like in the
-  // standalone Solve(); reset only when the deal or trump actually changes.
-  static Hands last_hands;
-  static int last_trump = -1;
-  if (!hands.Equals(last_hands) || trump != last_trump) {
-    common_bounds_cache.Reset();
-    cutoff_cache.Reset();
-    last_hands = hands;
-    last_trump = trump;
-  }
-
   static char buffer[256];
   buffer[0] = '\0';
-  auto web_play = WebPlay(hands, trump, lead_seat, target_ns_tricks, cards);
-  auto card_tricks = web_play.EvaluatePlays(GuessTricks(hands, trump), ns_contract);
-  for (const auto& card_trick : card_tricks) {
-    sprintf(buffer + strlen(buffer), "%s:%+d ", NameOf(card_trick.first), card_trick.second);
+  for (int card : GetPosition(deal, trump, lead_seat, cards).playable_cards) {
+    cards.push_back(card);
+    int new_ns_tricks = SolvePlay(deal, trump, lead_seat, cards);
+    cards.pop_back();
+    int trick_diff =
+        ns_contract ? new_ns_tricks - target_ns_tricks : target_ns_tricks - new_ns_tricks;
+    sprintf(buffer + strlen(buffer), "%s:%+d ", NameOf(card), trick_diff);
   }
   return buffer;
 }
