@@ -85,7 +85,7 @@ solver-no-simd.wasm: web-bindings.cc $(SOLVER) web-no-simd.profdata
 IS_AARCH64 := $(shell echo | g++ -E -dM -x c++ - 2>/dev/null | grep -q __aarch64__ && echo 1)
 ARCH_OPTS := $(if $(filter 1,$(IS_AARCH64)),,-march=native)
 web-test: web-test.cc web-bindings.cc $(SOLVER)
-	g++ -std=c++17 -Wall -Wno-missing-profile $(ARCH_OPTS) -O3 -o $@ web-test.cc ../solver.cc
+	g++ -std=c++17 -Wall $(ARCH_OPTS) -O3 -o $@ web-test.cc ../solver.cc
 	./$@
 
 # The C++ binding tests, then every *-test.js. Those need Node 14+ (for
