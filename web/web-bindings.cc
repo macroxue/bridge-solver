@@ -1,5 +1,5 @@
 // The web app's Emscripten-exported API (solve, shuffle_and_solve,
-// solve_plays and the EMSCRIPTEN_BINDINGS below), built on ../solver.h.
+// solve_plays and the EMSCRIPTEN_BINDINGS below), built on ../src/solver.h.
 #include <stdio.h>
 #include <string.h>
 #include <sys/time.h>
@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "../solver.h"
+#include "../src/solver.h"
 
 double Now() {
   timeval now;

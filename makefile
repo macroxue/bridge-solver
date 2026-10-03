@@ -30,8 +30,8 @@ OPTS=-std=c++17 -Wall $(if $(IS_CLANG),,-Wno-missing-profile) $(ARCH_OPTS) -fno-
 # Its PGO format (.profraw + llvm-profdata) differs from GCC's (.gcda), and
 # GCC's flat-file recipe measures ~0.8% faster than directory-form, so each
 # compiler keeps its own recipe below.
-SOURCES = solver.cc solver-cli.cc
-HEADERS = solver.h
+SOURCES = src/solver.cc src/solver-cli.cc
+HEADERS = src/solver.h
 
 IS_CLANG := $(shell echo | $(CXX) -E -dM -x c++ - 2>/dev/null | grep -q __clang__ && echo 1)
 PGO_DIR = pgo-data
@@ -58,7 +58,7 @@ solver.p: $(SOURCES) $(HEADERS)
 	rm -f solver-*.gcda
 	$(CXX) $(OPTS) -O3 -fprofile-generate -o $@ $(SOURCES)
 	./$@ -if deals/hard/deal.8 | tail
-	for f in $(SOURCES:.cc=); do mv solver.p-$$f.gcda solver-$$f.gcda; done
+	for f in $(notdir $(SOURCES:.cc=)); do mv solver.p-$$f.gcda solver-$$f.gcda; done
 solver: $(SOURCES) $(HEADERS) solver.p
 	$(CXX) $(OPTS) -O3 -fprofile-use -o $@ $(SOURCES)
 	./$@ -if deals/hard/deal.8 | tail
