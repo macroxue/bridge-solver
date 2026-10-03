@@ -46,6 +46,8 @@ check_deals() {
 
 # The cards in a deal's compact display (its first 3 lines), one per line
 # as "<suit><rank>", sorted; with `skip`, the seats to leave out.
+# LC_ALL=C: under en_US.UTF-8, suit symbols share collation weight so sort
+# order depends on input order and shuffle/random comparisons flake.
 cards_of() {
   head -3 | awk -v skip="$1" '
     { seat = (NR == 1) ? "N" : (NR == 3) ? "S" : "W" }
@@ -58,7 +60,7 @@ cards_of() {
         }
       }
       suit = ""
-    }' | sort
+    }' | LC_ALL=C sort
 }
 
 # A result table: 5 strain lines, each with 4 trick counts.
