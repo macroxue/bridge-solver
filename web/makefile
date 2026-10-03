@@ -38,7 +38,7 @@ refresh-emcc-id:
 # Emscripten's in-memory FS so default.profraw (LLVM_PROFILE_FILE isn't
 # honored here) actually lands on disk -- in the current directory, so each
 # profile runs in its own $@.tmp/ to keep `make -j` from mixing them.
-SOLVER = ../solver.cc ../solver.h
+SOLVER = ../src/solver.cc ../src/solver.h
 SIMD_FLAGS = -msimd128 -msse4.2
 web.profdata: PROFILE_FLAGS = $(SIMD_FLAGS)
 web-no-simd.profdata: PROFILE_FLAGS =
@@ -50,7 +50,7 @@ web.profdata web-no-simd.profdata: web-profile.cc web-bindings.cc $(SOLVER) .emc
 	rm -rf $@.tmp
 	mkdir $@.tmp
 	$(EMCC) -std=c++17 -O3 $(PROFILE_FLAGS) -fprofile-instr-generate \
-		-sNODERAWFS=1 -sEXIT_RUNTIME=1 -o $@.tmp/web-profile.js web-profile.cc ../solver.cc
+		-sNODERAWFS=1 -sEXIT_RUNTIME=1 -o $@.tmp/web-profile.js web-profile.cc ../src/solver.cc
 	@test -n "$(LLVM_PROFDATA)" || { \
 		echo "llvm-profdata not found (set EMSDK or ensure emcc's LLVM tools are on PATH)" >&2; \
 		exit 1; }; \
@@ -63,7 +63,7 @@ web.profdata web-no-simd.profdata: web-profile.cc web-bindings.cc $(SOLVER) .emc
 	rm -rf $@.tmp
 solver.js: web-bindings.cc $(SOLVER) solver-no-simd.wasm web.profdata
 	$(EMCC) -std=c++17 -O3 $(SIMD_FLAGS) \
-		-fprofile-instr-use=web.profdata -o $@ web-bindings.cc ../solver.cc \
+		-fprofile-instr-use=web.profdata -o $@ web-bindings.cc ../src/solver.cc \
 		--bind -s ALLOW_MEMORY_GROWTH
 	@# Cache-bust both wasm URLs with each binary's own content hash, to
 	@# avoid stale files being served after a new build. -i.bak rather than
@@ -78,14 +78,14 @@ solver.js: web-bindings.cc $(SOLVER) solver-no-simd.wasm web.profdata
 solver.wasm: solver.js
 solver-no-simd.wasm: web-bindings.cc $(SOLVER) web-no-simd.profdata
 	$(EMCC) -std=c++17 -O3 -fprofile-instr-use=web-no-simd.profdata \
-		-o solver-no-simd.js web-bindings.cc ../solver.cc \
+		-o solver-no-simd.js web-bindings.cc ../src/solver.cc \
 		--bind -s ALLOW_MEMORY_GROWTH
 	rm solver-no-simd.js
 # -march=native is unsafe on AArch64 -- see ../makefile's IS_AARCH64 comment.
 IS_AARCH64 := $(shell echo | g++ -E -dM -x c++ - 2>/dev/null | grep -q __aarch64__ && echo 1)
 ARCH_OPTS := $(if $(filter 1,$(IS_AARCH64)),,-march=native)
 web-test: web-test.cc web-bindings.cc $(SOLVER)
-	g++ -std=c++17 -Wall -Wno-missing-profile $(ARCH_OPTS) -O3 -o $@ web-test.cc ../solver.cc
+	g++ -std=c++17 -Wall -Wno-missing-profile $(ARCH_OPTS) -O3 -o $@ web-test.cc ../src/solver.cc
 	./$@
 
 # The C++ binding tests, then every *-test.js. Those need Node 14+ (for

@@ -105,8 +105,8 @@ Shuffle rounds run across a pool of Web Workers, up to half of the
 
 ## How it's put together
 - `web-bindings.cc` exports `solve`, `solve_plays` and `shuffle_and_solve`
-  to JavaScript, built on the solver's API in `../solver.h` and compiled
-  with `../solver.cc`.
+  to JavaScript, built on the solver's API in `../src/solver.h` and compiled
+  with `../src/solver.cc`.
 - The page's scripts, loaded in this order and sharing globals (no bundler):
   `app.js` (deal entry, DD table, par), `shuffle.js` (single-dummy tables),
   `play.js` (card play), `share-url.js` (links) and `startup.js`, which starts

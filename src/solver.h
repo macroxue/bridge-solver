@@ -1,6 +1,6 @@
-// The public API of the double-dummy solver in solver.cc, used by the command
-// line in solver-cli.cc and the web app in web/web-bindings.cc. Everything
-// else in solver.cc is internal.
+// The public API of the double-dummy solver in src/solver.cc, used by the
+// command line in src/solver-cli.cc and the web app in web/web-bindings.cc.
+// Everything else in src/solver.cc is internal.
 #ifndef SOLVER_H
 #define SOLVER_H
 
