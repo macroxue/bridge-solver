@@ -31,14 +31,18 @@ Deal CollectDeal(const std::string& west, const std::string& north, const std::s
 std::string SolveToString(const Deal& deal) {
   static char buffer[256];
   buffer[0] = '\0';
+  auto append = [&](const char* fmt, auto... args) {
+    size_t len = strlen(buffer);
+    snprintf(buffer + len, sizeof(buffer) - len, fmt, args...);
+  };
   auto start_time = Now();
-  auto trump_start = [&](int trump) { sprintf(buffer + strlen(buffer), "%c", SuitName(trump)[0]); };
+  auto trump_start = [&](int trump) { append("%c", SuitName(trump)[0]); };
   int num_tricks = NumTricks(deal);
   auto seat_done = [&](int trump, int lead_seat, int ns_tricks) {
-    sprintf(buffer + strlen(buffer), " %2d", IsNs(lead_seat) ? num_tricks - ns_tricks : ns_tricks);
+    append(" %2d", IsNs(lead_seat) ? num_tricks - ns_tricks : ns_tricks);
   };
-  auto trump_done = [start_time](int trump) {
-    sprintf(buffer + strlen(buffer), " %5.2f s\n", Now() - start_time);
+  auto trump_done = [start_time, &append](int trump) {
+    append(" %5.2f s\n", Now() - start_time);
   };
   std::vector<int> trumps = {NOTRUMP, SPADE, HEART, DIAMOND, CLUB};
   std::vector<int> lead_seats = {WEST, EAST, NORTH, SOUTH};
@@ -86,7 +90,8 @@ std::string solve_plays(std::string west, std::string north, std::string east, s
     cards.pop_back();
     int trick_diff =
         ns_contract ? new_ns_tricks - target_ns_tricks : target_ns_tricks - new_ns_tricks;
-    sprintf(buffer + strlen(buffer), "%s:%+d ", NameOf(card), trick_diff);
+    size_t len = strlen(buffer);
+    snprintf(buffer + len, sizeof(buffer) - len, "%s:%+d ", NameOf(card), trick_diff);
   }
   return buffer;
 }
