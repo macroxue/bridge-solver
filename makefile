@@ -25,6 +25,12 @@ ARCH_OPTS := $(if $(filter 1,$(IS_AARCH64)),,-march=native)
 # Distro compilers (e.g. Ubuntu GCC) enable the stack protector by default; its
 # canary check in every search prologue costs ~0.7% on deals/hard.
 OPTS=-std=c++17 -Wall $(if $(IS_CLANG),,-Wno-missing-profile) $(ARCH_OPTS) -fno-stack-protector
+# Static (non-PIE) linking runs searches 1-2% faster and starts 0.5 ms
+# sooner. Used only if a tiny C++ program links statically: macOS doesn't
+# support it, and e.g. Fedora needs glibc-static and libstdc++-static.
+LDOPTS := $(shell t=$$(mktemp) && \
+	printf '\043include <iostream>\nint main() { std::cout << 1; }\n' | \
+	$(CXX) -static -x c++ -o $$t - >/dev/null 2>&1 && echo -static; rm -f $$t)
 
 # CXX may be Clang directly or Apple Clang aliased as g++ on stock macOS.
 # Its PGO format (.profraw + llvm-profdata) differs from GCC's (.gcda), and
@@ -45,22 +51,22 @@ solver.p: $(SOURCES) $(HEADERS)
 	@test -n "$(LLVM_PROFDATA)" || { echo "llvm-profdata not found (install Xcode CLT or LLVM)" >&2; exit 1; }
 	rm -rf $(PGO_DIR)
 	mkdir $(PGO_DIR)
-	$(CXX) $(OPTS) -O3 -fprofile-generate=$(PGO_DIR) -o $@ $(SOURCES)
+	$(CXX) $(OPTS) -O3 -fprofile-generate=$(PGO_DIR) $(LDOPTS) -o $@ $(SOURCES)
 	./$@ -if deals/hard/deal.8 | tail
 	"$(LLVM_PROFDATA)" merge -o $(PGO_DIR)/default.profdata $(PGO_DIR)/*.profraw
 solver: $(SOURCES) $(HEADERS) solver.p
-	$(CXX) $(OPTS) -O3 -fprofile-use=$(PGO_DIR) -o $@ $(SOURCES)
+	$(CXX) $(OPTS) -O3 -fprofile-use=$(PGO_DIR) $(LDOPTS) -o $@ $(SOURCES)
 	./$@ -if deals/hard/deal.8 | tail
 else
 # GCC names each source's profile after the binary: solver.p-solver.gcda
 # from the run, read back as solver-solver.gcda.
 solver.p: $(SOURCES) $(HEADERS)
 	rm -f solver-*.gcda
-	$(CXX) $(OPTS) -O3 -fprofile-generate -o $@ $(SOURCES)
+	$(CXX) $(OPTS) -O3 -fprofile-generate $(LDOPTS) -o $@ $(SOURCES)
 	./$@ -if deals/hard/deal.8 | tail
 	for f in $(SOURCES:.cc=); do mv solver.p-$$f.gcda solver-$$f.gcda; done
 solver: $(SOURCES) $(HEADERS) solver.p
-	$(CXX) $(OPTS) -O3 -fprofile-use -o $@ $(SOURCES)
+	$(CXX) $(OPTS) -O3 -fprofile-use $(LDOPTS) -o $@ $(SOURCES)
 	./$@ -if deals/hard/deal.8 | tail
 endif
 solver.g: $(SOURCES) $(HEADERS)
