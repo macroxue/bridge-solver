@@ -1439,7 +1439,8 @@ class Play {
 
   template <bool SUIT_CONTRACT>
   void Lead(Cards playable_cards) {
-    Cards good_leads, high_leads, leads, bad_leads, trump_leads, ruff_leads, void_leads;
+    Cards good_leads, high_leads, high_leads_low, leads, bad_leads, trump_leads, ruff_leads,
+        void_leads;
     auto pd_hand = hands[Partner()];
     auto lho_hand = hands[LeftHandOpp()], rho_hand = hands[RightHandOpp()];
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
@@ -1489,10 +1490,11 @@ class Play {
         }
       }
       Cards akq = Cards().Add(a).Add(k).Add(q);
-      // Lead from strong suit - ok.
+      // Lead from strong suit - ok. Low first toward partner's A or K.
       if (lho_suit && rho_suit && our_suits.Intersect(akq).Size() >= 2) {
-        high_leads.Add(my_suit.Top());
-        high_leads.Add(my_suit.Bottom());
+        auto& suit_leads = pd_suit.Include(a) || pd_suit.Include(k) ? high_leads_low : high_leads;
+        suit_leads.Add(my_suit.Top());
+        suit_leads.Add(my_suit.Bottom());
         continue;
       }
       // Give partner a ruff - good.
@@ -1518,6 +1520,8 @@ class Play {
     }
     ordered_cards.AddCards(good_leads);
     playable_cards.Remove(good_leads);
+    ordered_cards.AddReversedCards(high_leads_low);
+    playable_cards.Remove(high_leads_low);
     ordered_cards.AddCards(high_leads);
     playable_cards.Remove(high_leads);
     ordered_cards.AddCards(leads);
