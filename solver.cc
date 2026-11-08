@@ -1,3 +1,5 @@
+#include "solver.hh"
+
 #include <assert.h>
 #include <ctype.h>
 #if defined(__BMI2__) || defined(__SSE4_1__)
@@ -16,8 +18,6 @@
 #include <memory>
 #include <random>
 #include <vector>
-
-#include "solver.h"
 
 // clang-format off
 #ifdef _DEBUG
@@ -50,7 +50,7 @@ const char* SuitSign(int suit) {
 #ifdef _DEBUG
   return plain_suit_signs[suit];
 #else
-  static const char* color_suit_signs[] = {"♠", "\e[31m♥\e[0m", "\e[31m♦\e[0m", "♣", "NT"};
+  static const char* color_suit_signs[] = {"♠", "\x1b[31m♥\x1b[0m", "\x1b[31m♦\x1b[0m", "♣", "NT"};
   static struct stat stdout_stat;
   static bool is_terminal = fstat(1, &stdout_stat) == 0 && S_ISCHR(stdout_stat.st_mode);
   return is_terminal ? color_suit_signs[suit] : plain_suit_signs[suit];
@@ -1280,6 +1280,7 @@ class Play {
   }
 
   int SureTrickCutoff(int beta, int sure_tricks, bool for_ns, bool leading) const {
+    (void)leading;
     if (for_ns) {
       auto lower = ns_tricks_won + sure_tricks;
       if (lower >= beta) {

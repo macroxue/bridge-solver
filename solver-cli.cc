@@ -1,4 +1,6 @@
 // The command line of the double-dummy solver, built on the API in solver.h.
+#include "solver.hh"
+
 #include <assert.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -13,8 +15,6 @@
 #include <set>
 #include <string>
 #include <vector>
-
-#include "solver.h"
 
 struct CliOptions {
   char* code = nullptr;
@@ -359,7 +359,7 @@ class InteractivePlay {
 
   static char GetRawChar() {
     char buf = 0;
-    struct termios old = {0};
+    struct termios old = {};
     if (tcgetattr(0, &old) < 0) perror("tcsetattr()");
     old.c_lflag &= ~ICANON;
     old.c_lflag &= ~ECHO;
@@ -429,7 +429,7 @@ int main(int argc, char* argv[]) {
   }
   int num_tricks = NumTricks(deal);
   if (cli_options.play_interactively) {
-    auto do_nothing = [](int trump) {};
+    auto do_nothing = [](int /*trump*/) {};
     auto seat_done = [&deal, num_tricks](int trump, int lead_seat, int ns_tricks) {
       if (num_tricks < TOTAL_TRICKS ||
           (num_tricks == TOTAL_TRICKS && ns_tricks >= 7 && !IsNs(lead_seat)) ||
@@ -444,10 +444,10 @@ int main(int argc, char* argv[]) {
   } else {
     auto start_time = Now();
     auto trump_start = [](int trump) { printf("%c", SuitName(trump)[0]); };
-    auto seat_done = [num_tricks](int trump, int lead_seat, int ns_tricks) {
+    auto seat_done = [num_tricks](int /*trump*/, int lead_seat, int ns_tricks) {
       printf(" %2d", IsNs(lead_seat) ? num_tricks - ns_tricks : ns_tricks);
     };
-    auto trump_done = [start_time](int trump) {
+    auto trump_done = [start_time](int /*trump*/) {
       struct rusage usage;
       getrusage(RUSAGE_SELF, &usage);
       // ru_maxrss is KB on Linux, but bytes on macOS specifically -- other
