@@ -1,3 +1,5 @@
+#include "solver.hh"
+
 #include <assert.h>
 #include <ctype.h>
 #if defined(__BMI2__) || defined(__SSE4_1__)
@@ -16,8 +18,6 @@
 #include <memory>
 #include <random>
 #include <vector>
-
-#include "solver.h"
 
 // clang-format off
 #ifdef _DEBUG

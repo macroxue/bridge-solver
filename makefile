@@ -31,7 +31,7 @@ OPTS=-std=c++17 -Wall $(if $(IS_CLANG),,-Wno-missing-profile) $(ARCH_OPTS) -fno-
 # GCC's flat-file recipe measures ~0.8% faster than directory-form, so each
 # compiler keeps its own recipe below.
 SOURCES = solver.cc solver-cli.cc
-HEADERS = solver.h
+HEADERS = solver.hh
 
 IS_CLANG := $(shell echo | $(CXX) -E -dM -x c++ - 2>/dev/null | grep -q __clang__ && echo 1)
 PGO_DIR = pgo-data

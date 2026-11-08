@@ -1,4 +1,6 @@
 // The command line of the double-dummy solver, built on the API in solver.h.
+#include "solver.hh"
+
 #include <assert.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -13,8 +15,6 @@
 #include <set>
 #include <string>
 #include <vector>
-
-#include "solver.h"
 
 struct CliOptions {
   char* code = nullptr;
