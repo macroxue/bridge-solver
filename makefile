@@ -24,7 +24,8 @@ IS_AARCH64 := $(shell echo | $(CXX) -E -dM -x c++ - 2>/dev/null | grep -q __aarc
 ARCH_OPTS := $(if $(filter 1,$(IS_AARCH64)),,-march=native)
 # Distro compilers (e.g. Ubuntu GCC) enable the stack protector by default; its
 # canary check in every search prologue costs ~0.7% on deals/hard.
-OPTS=-std=c++17 -Wall $(if $(IS_CLANG),,-Wno-missing-profile) $(ARCH_OPTS) -fno-stack-protector
+OPTS=-std=c++17 -Wall -Wpedantic -Wextra -Werror \
+$(if $(IS_CLANG),,-Wno-missing-profile) $(ARCH_OPTS) -fno-stack-protector
 
 # CXX may be Clang directly or Apple Clang aliased as g++ on stock macOS.
 # Its PGO format (.profraw + llvm-profdata) differs from GCC's (.gcda), and
