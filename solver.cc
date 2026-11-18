@@ -530,6 +530,84 @@ class Hands {
 
 Hands empty_hands;
 
+class Shape {
+ public:
+  Shape() : value(0) {}
+  Shape(uint64_t value) : value(value) {}
+  Shape(const Hands& hands) : value(0) {
+    for (int seat = 0; seat < NUM_SEATS; ++seat)
+      for (int suit = 0; suit < NUM_SUITS; ++suit)
+        value += uint64_t(hands[seat].Suit(suit).Size()) << Offset(seat, suit);
+  }
+
+  void PlayCards(int seat, int c1, int c2, int c3, int c4) {
+    value -= 1ULL << Offset(seat, SuitOf(c1));
+    value -= 1ULL << Offset((seat + 1) % NUM_SEATS, SuitOf(c2));
+    value -= 1ULL << Offset((seat + 2) % NUM_SEATS, SuitOf(c3));
+    value -= 1ULL << Offset((seat + 3) % NUM_SEATS, SuitOf(c4));
+  }
+
+  int SuitLength(int seat, int suit) const { return (value >> Offset(seat, suit)) & 0xf; }
+
+  uint64_t Value() const { return value; }
+
+  bool operator==(const Shape& s) const { return value == s.value; }
+
+ private:
+  static int Offset(int seat, int suit) { return 60 - (seat * NUM_SUITS + suit) * 4; }
+
+  uint64_t value;
+};
+
+// The hands of a pattern or of a position to match patterns against, as
+// relative cards (see Trick::ConvertToRelativeSuit): each seat's cards as the
+// suit-local dense ranks of the position's remaining cards. A pattern holds its
+// rank winners; a position holds every card. Its own type so a denser encoding
+// can replace the Hands storage without touching callers.
+class RelativeHands {
+ public:
+  Cards& operator[](int seat) { return hands[seat]; }
+  const Cards& operator[](int seat) const { return hands[seat]; }
+
+  // Whether every seat's hand in `other` is a subset of the hand here.
+  bool Include(const RelativeHands& other) const { return hands.Include(other.hands); }
+  bool Equals(const RelativeHands& other) const { return hands.Equals(other.hands); }
+  Cards all_cards() const { return hands.all_cards(); }
+  int Size() const { return all_cards().Size(); }
+
+  // The relative cards here expanded to the real card positions in all_cards.
+  Cards GetRankWinners(Cards all_cards) const {
+    Cards relative_rank_winners = hands.all_cards();
+    Cards rank_winners;
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      if (!relative_rank_winners.Suit(suit)) continue;
+      rank_winners.Add(UnpackSuitBits(relative_rank_winners, all_cards, suit));
+    }
+    return rank_winners;
+  }
+
+  // These hands in shape's grid of seats and suits.
+  void Show(Shape shape) const {
+    for (int seat = 0; seat < NUM_SEATS; ++seat) {
+      for (int suit = 0; suit < NUM_SUITS; ++suit) {
+        auto suit_length = shape.SuitLength(seat, suit);
+        if (suit_length == 0)
+          putchar('-');
+        else {
+          auto rank_winners = hands[seat].Suit(suit);
+          for (int card : rank_winners) printf("%c", RankName(RankOf(card)));
+          for (int i = rank_winners.Size(); i < suit_length; ++i) putchar('x');
+        }
+        putchar(' ');
+      }
+      if (seat < NUM_SEATS - 1) printf(", ");
+    }
+  }
+
+ private:
+  Hands hands;
+};
+
 template <class Entry>
 class Cache {
  public:
@@ -659,35 +737,6 @@ struct Bounds {
   bool Cutoff(int beta) const { return lower >= beta || upper < beta; }
 };
 
-class Shape {
- public:
-  Shape() : value(0) {}
-  Shape(uint64_t value) : value(value) {}
-  Shape(const Hands& hands) : value(0) {
-    for (int seat = 0; seat < NUM_SEATS; ++seat)
-      for (int suit = 0; suit < NUM_SUITS; ++suit)
-        value += uint64_t(hands[seat].Suit(suit).Size()) << Offset(seat, suit);
-  }
-
-  void PlayCards(int seat, int c1, int c2, int c3, int c4) {
-    value -= 1ULL << Offset(seat, SuitOf(c1));
-    value -= 1ULL << Offset((seat + 1) % NUM_SEATS, SuitOf(c2));
-    value -= 1ULL << Offset((seat + 2) % NUM_SEATS, SuitOf(c3));
-    value -= 1ULL << Offset((seat + 3) % NUM_SEATS, SuitOf(c4));
-  }
-
-  int SuitLength(int seat, int suit) const { return (value >> Offset(seat, suit)) & 0xf; }
-
-  uint64_t Value() const { return value; }
-
-  bool operator==(const Shape& s) const { return value == s.value; }
-
- private:
-  static int Offset(int seat, int suit) { return 60 - (seat * NUM_SUITS + suit) * 4; }
-
-  uint64_t value;
-};
-
 // Free-list pool for Vector<T>'s backing storage: one LIFO list per
 // power-of-two capacity, refilled in SLAB_SIZE slabs and never freed.
 template <class T>
@@ -799,7 +848,7 @@ class Vector {
 };
 
 struct Pattern {
-  Hands hands;
+  RelativeHands hands;
   Bounds bounds;
   uint16_t order;
   Vector<Pattern> patterns;
@@ -807,8 +856,8 @@ struct Pattern {
   mutable uint16_t hits, cuts;
 #endif
 
-  Pattern(const Hands& hands = Hands(), Bounds bounds = Bounds())
-      : hands(hands), bounds(bounds), order(hands.all_cards().Size()) {
+  Pattern(const RelativeHands& hands = RelativeHands(), Bounds bounds = Bounds())
+      : hands(hands), bounds(bounds), order(hands.Size()) {
     STATS(hits = cuts = 0);
   }
 
@@ -828,13 +877,14 @@ struct Pattern {
     STATS(std::swap(cuts, p.cuts));
   }
 
-  static const Pattern* Lookup(const Vector<Pattern>& patterns, const Hands& hands, int beta) {
+  static const Pattern* Lookup(const Vector<Pattern>& patterns, const RelativeHands& hands,
+                               int beta) {
     const Pattern* best = nullptr;
     Lookup(patterns, hands, beta, best);
     return best;
   }
 
-  static void Lookup(const Vector<Pattern>& patterns, const Hands& hands, int beta,
+  static void Lookup(const Vector<Pattern>& patterns, const RelativeHands& hands, int beta,
                      const Pattern*& best) {
     for (size_t i = 0; i < patterns.size(); ++i) {
       auto& pattern = patterns[i];
@@ -855,7 +905,7 @@ struct Pattern {
     size_t n = patterns.size(), pos = 0;
     // Local copies: the compiler can't prove new_pattern is disjoint from
     // patterns, so it would reload these on every comparison.
-    const Hands new_hands = new_pattern.hands;
+    const RelativeHands new_hands = new_pattern.hands;
     const uint16_t new_order = new_pattern.order;
     const Bounds new_bounds = new_pattern.bounds;
     // Go under the most generic pattern including the new one.
@@ -913,15 +963,7 @@ struct Pattern {
     for (size_t i = 0; i < new_size; ++i) patterns[size + i].MoveFrom(new_patterns[i]);
   }
 
-  Cards GetRankWinners(Cards all_cards) const {
-    Cards relative_rank_winners = hands.all_cards();
-    Cards rank_winners;
-    for (int suit = 0; suit < NUM_SUITS; ++suit) {
-      if (!relative_rank_winners.Suit(suit)) continue;
-      rank_winners.Add(UnpackSuitBits(relative_rank_winners, all_cards, suit));
-    }
-    return rank_winners;
-  }
+  Cards GetRankWinners(Cards all_cards) const { return hands.GetRankWinners(all_cards); }
 
   int Size() const {
     int sum = 1;
@@ -932,20 +974,7 @@ struct Pattern {
   void Show(Shape shape, int level = 1, Bounds parent_bounds = {0, TOTAL_TRICKS}) const {
     if (level > 0) {
       printf("%*d: (%d %d) ", level * 2, level, bounds.lower, bounds.upper);
-      for (int seat = 0; seat < NUM_SEATS; ++seat) {
-        for (int suit = 0; suit < NUM_SUITS; ++suit) {
-          auto suit_length = shape.SuitLength(seat, suit);
-          if (suit_length == 0)
-            putchar('-');
-          else {
-            auto rank_winners = hands[seat].Suit(suit);
-            for (int card : rank_winners) printf("%c", RankName(RankOf(card)));
-            for (int i = rank_winners.Size(); i < suit_length; ++i) putchar('x');
-          }
-          putchar(' ');
-        }
-        if (seat < NUM_SEATS - 1) printf(", ");
-      }
+      hands.Show(shape);
       printf(" %2d", order);
       STATS(printf(" hits %d cuts %d", hits, cuts));
       puts(level > 1 && bounds.Include(parent_bounds) ? " dup" : "");
@@ -1025,7 +1054,7 @@ Cache<CutoffEntry> cutoff_cache("Cut-off Cache", 16);
 struct Trick {
   Shape shape;
   Cards all_cards;
-  Hands relative_hands;
+  RelativeHands relative_hands;
   int lead_suit;
 
   // A relative hand contains relative cards.
@@ -1088,7 +1117,7 @@ struct Trick {
   }
 
   // A pattern hand contains relative cards and rank-irrelevant cards.
-  std::pair<Hands, Cards> ComputePatternHands(Cards rank_winners) const {
+  std::pair<RelativeHands, Cards> ComputePatternHands(Cards rank_winners) const {
     Cards relative_rank_winners, extended_rank_winners;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       if (!rank_winners.Suit(suit)) continue;
@@ -1109,7 +1138,7 @@ struct Trick {
       extended_rank_winners.Add(UnpackSuitBits(relative_rank_winners, all_cards, suit));
     }
 
-    Hands pattern_hands;
+    RelativeHands pattern_hands;
     for (int seat = 0; seat < NUM_SEATS; ++seat)
       pattern_hands[seat] = relative_hands[seat].Intersect(relative_rank_winners);
     return {pattern_hands, extended_rank_winners};
