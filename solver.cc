@@ -559,31 +559,45 @@ class Shape {
   uint64_t value;
 };
 
-// The hands of a pattern or of a position to match patterns against, as
-// relative cards (see Trick::ConvertToRelativeSuit): each seat's cards as the
-// suit-local dense ranks of the position's remaining cards. A pattern holds its
-// rank winners; a position holds every card. Its own type so a denser encoding
-// can replace the Hands storage without touching callers.
+// The hands of a pattern or of a position to match patterns against, as the
+// seat of each card in play, in two bit planes. Cards are numbered densely
+// from the top card of spades down to the bottom card of clubs (PackBits's
+// order): `cards` is the cards present, and bit i of `low`/`high` is the
+// low/high bit of the seat holding card i (W=00, N=01, E=10, S=11). A pattern
+// holds its rank winners; a position holds every card.
 class RelativeHands {
  public:
-  Cards& operator[](int seat) { return hands[seat]; }
-  const Cards& operator[](int seat) const { return hands[seat]; }
+  RelativeHands() : low(0), high(0), cards(0) {}
 
-  // Whether every seat's hand in `other` is a subset of the hand here.
-  bool Include(const RelativeHands& other) const { return hands.Include(other.hands); }
-  bool Equals(const RelativeHands& other) const { return hands.Equals(other.hands); }
-  Cards all_cards() const { return hands.all_cards(); }
-  int Size() const { return all_cards().Size(); }
+  // A position's whole hands with `all_cards` in play.
+  RelativeHands(const Hands& hands, Cards all_cards)
+      : low(PackBits(hands[NORTH].Union(hands[SOUTH]).Value(), all_cards.Value())),
+        high(PackBits(hands[EAST].Union(hands[SOUTH]).Value(), all_cards.Value())),
+        cards(PackBits(all_cards.Value(), all_cards.Value())) {}
 
-  // The relative cards here expanded to the real card positions in all_cards.
+  // These hands reduced to the cards in `kept_cards`, numbered as above.
+  RelativeHands Keep(uint64_t kept_cards) const {
+    RelativeHands kept;
+    kept.low = low & kept_cards;
+    kept.high = high & kept_cards;
+    kept.cards = kept_cards;
+    return kept;
+  }
+
+  int Size() const { return __builtin_popcountll(cards); }
+
+  // Whether every card in `other` is in the same seat's hand here (and no
+  // card of `other` is missing).
+  bool Include(const RelativeHands& other) const {
+    return ((((low ^ other.low) | (high ^ other.high)) & other.cards) | (~cards & other.cards)) == 0;
+  }
+  bool Equals(const RelativeHands& other) const {
+    return low == other.low && high == other.high && cards == other.cards;
+  }
+
+  // The cards here expanded to their real positions in all_cards.
   Cards GetRankWinners(Cards all_cards) const {
-    Cards relative_rank_winners = hands.all_cards();
-    Cards rank_winners;
-    for (int suit = 0; suit < NUM_SUITS; ++suit) {
-      if (!relative_rank_winners.Suit(suit)) continue;
-      rank_winners.Add(UnpackSuitBits(relative_rank_winners, all_cards, suit));
-    }
-    return rank_winners;
+    return Cards(UnpackBits(cards, all_cards.Value()));
   }
 
   // These hands in shape's grid of seats and suits.
@@ -594,9 +608,19 @@ class RelativeHands {
         if (suit_length == 0)
           putchar('-');
         else {
-          auto rank_winners = hands[seat].Suit(suit);
-          for (int card : rank_winners) printf("%c", RankName(RankOf(card)));
-          for (int i = rank_winners.Size(); i < suit_length; ++i) putchar('x');
+          // Card numbers of the suit start after those of the suits before it.
+          int first = 0;
+          for (int s = 0; s < suit; ++s)
+            for (int t = 0; t < NUM_SEATS; ++t) first += shape.SuitLength(t, s);
+          int total = 0;
+          for (int t = 0; t < NUM_SEATS; ++t) total += shape.SuitLength(t, suit);
+          int winners = 0;
+          for (int i = 0; i < total; ++i)
+            if ((cards >> (first + i) & 1) && SeatOf(first + i) == seat) {
+              printf("%c", RankName(ACE - i));
+              ++winners;
+            }
+          for (int i = winners; i < suit_length; ++i) putchar('x');
         }
         putchar(' ');
       }
@@ -605,7 +629,10 @@ class RelativeHands {
   }
 
  private:
-  Hands hands;
+  // The seat holding a card, by number.
+  int SeatOf(int number) const { return (low >> number & 1) + (high >> number & 1) * 2; }
+
+  uint64_t low, high, cards;
 };
 
 template <class Entry>
@@ -1057,38 +1084,8 @@ struct Trick {
   RelativeHands relative_hands;
   int lead_suit;
 
-  // A relative hand contains relative cards.
-  void ComputeRelativeHands(int depth, const Hands& hands) {
-    if (depth == 0) {
-      for (int suit = 0; suit < NUM_SUITS; ++suit)
-        ConvertToRelativeSuit(hands, suit, all_cards.Suit(suit));
-    } else {
-      // Recompute the relative cards for suits changed by the last trick.
-      auto prev_trick = this - 1;
-      auto prev_trick_cards = prev_trick->all_cards.Different(all_cards);
-      relative_hands = prev_trick->relative_hands;
-      while (prev_trick_cards) {
-        auto suit = SuitOf(prev_trick_cards.Top());
-#ifndef CHEAP_PACK_BITS
-        uint64_t removed = prev_trick_cards.Suit(suit).Value();
-#endif
-        prev_trick_cards.ClearSuit(suit);
-#ifndef CHEAP_PACK_BITS
-        // If every survivor outranks every played card (`removed & -removed`
-        // is the highest played), survivors keep relative positions 0..k-1,
-        // so just drop the positions above them and skip the PackBits calls.
-        uint64_t remaining = all_cards.Suit(suit).Value();
-        if (remaining < (removed & -removed)) {
-          uint64_t keep = ((1ULL << __builtin_popcountll(remaining)) - 1) << (suit * SUIT_SPAN);
-          Cards stale(MaskOf(suit) & ~keep);
-          for (int seat = 0; seat < NUM_SEATS; ++seat) relative_hands[seat].Remove(stale);
-          continue;
-        }
-#endif
-        ConvertToRelativeSuit(hands, suit, all_cards.Suit(suit));
-      }
-    }
-  }
+  // Each card's seat as dense card numbers (see RelativeHands).
+  void ComputeRelativeHands(const Hands& hands) { relative_hands = RelativeHands(hands, all_cards); }
 
   // Whether a card is equivalent to one of the tried cards.
   bool IsEquivalent(int card, Cards tried_suit_cards, Cards hand) const {
@@ -1117,58 +1114,37 @@ struct Trick {
   }
 
   // A pattern hand contains relative cards and rank-irrelevant cards.
-  std::pair<RelativeHands, Cards> ComputePatternHands(Cards rank_winners) const {
-    Cards relative_rank_winners, extended_rank_winners;
+  std::pair<RelativeHands, Cards> ComputePatternHands(const Hands& hands, Cards rank_winners) const {
+    Cards extended_rank_winners;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       if (!rank_winners.Suit(suit)) continue;
-
-      int bottom_rank_winner = RelativeCard(rank_winners.Suit(suit).Bottom(), suit);
+      auto all_suit_cards = all_cards.Suit(suit);
+      auto bottom_card = rank_winners.Suit(suit).Bottom();
+      // The relative rank (from the top) of the bottom rank winner.
+      int bottom = all_suit_cards.Slice(0, bottom_card).Size();
       for (int seat = 0; seat < NUM_SEATS; ++seat) {
-        if (!relative_hands[seat].Include(bottom_rank_winner)) continue;
-        auto suit_cards = relative_hands[seat].Suit(suit);
+        if (!hands[seat].Include(bottom_card)) continue;
+        // The seat's cards of the suit as relative cards, the top card at bit 0.
+        uint64_t suit_cards = PackBits(hands[seat].Value(), all_suit_cards.Value());
         // Extend bottom rank winner to its lowest equivalent card.
-        bottom_rank_winner += __builtin_ctzll(~(suit_cards.Value() >> (bottom_rank_winner + 1)));
+        bottom += __builtin_ctzll(~(suit_cards >> (bottom + 1)));
         // Suit bottom can't win by rank. Compensate the inaccuracy of fast tricks.
-        if (bottom_rank_winner == relative_hands.all_cards().Suit(suit).Bottom())
+        if (bottom == all_suit_cards.Size() - 1)
           // Extend bottom rank winner to its highest equivalent card and go one rank higher.
-          bottom_rank_winner -= __builtin_clzll(~(suit_cards.Value() << (63 - bottom_rank_winner)));
+          bottom -= __builtin_clzll(~(suit_cards << (63 - bottom)));
         break;
       }
-      relative_rank_winners.Add(Cards(MaskOf(suit)).Slice(0, bottom_rank_winner + 1));
-      extended_rank_winners.Add(UnpackSuitBits(relative_rank_winners, all_cards, suit));
+      extended_rank_winners.Add(
+          Cards(UnpackBits((1ULL << (bottom + 1)) - 1, all_suit_cards.Value())));
     }
-
-    RelativeHands pattern_hands;
-    for (int seat = 0; seat < NUM_SEATS; ++seat)
-      pattern_hands[seat] = relative_hands[seat].Intersect(relative_rank_winners);
-    return {pattern_hands, extended_rank_winners};
+    return {relative_hands.Keep(PackBits(extended_rank_winners.Value(), all_cards.Value())),
+            extended_rank_winners};
   }
 
  private:
-  void ConvertToRelativeSuit(const Hands& hands, int suit, Cards all_suit_cards) {
-#ifdef POSITION_INDEPENDENT_BITS
-    for (int seat = 0; seat < NUM_SEATS; ++seat) {
-      auto packed = PackBits(hands[seat].Suit(suit).Value(), all_suit_cards.Value());
-      relative_hands[seat].ClearSuit(suit);
-      relative_hands[seat].Add(Cards(packed << (suit * SUIT_SPAN)));
-    }
-#else
-    // Pre-shift into the suit's own bit range so PackBits<4> applies.
-    int shift = suit * SUIT_SPAN;
-    auto suit_mask = all_suit_cards.Value() >> shift;
-    for (int seat = 0; seat < NUM_SEATS; ++seat) {
-      auto packed = PackBits<4>(hands[seat].Suit(suit).Value() >> shift, suit_mask);
-      relative_hands[seat].ClearSuit(suit);
-      relative_hands[seat].Add(Cards(packed << shift));
-    }
-#endif
-  }
-
   int RelativeRank(int card, int suit) const {
     return ACE - all_cards.Suit(suit).Slice(0, card).Size();
   }
-
-  int RelativeCard(int card, int suit) const { return CardOf(suit, RelativeRank(card, suit)); }
 };
 
 struct Stat {
@@ -1233,7 +1209,7 @@ class Play {
 
     trick->all_cards = hands.all_cards();
     ComputeShape();
-    trick->ComputeRelativeHands(depth, hands);
+    trick->ComputeRelativeHands(hands);
 
     const auto shape_hash = common_bounds_cache.Hash(trick->shape.Value());
     auto* shape_entry = common_bounds_cache.Lookup(shape_hash);
@@ -1259,7 +1235,7 @@ class Play {
                       ? Bounds{0, char(ns_tricks - ns_tricks_won)}
                       : Bounds{char(ns_tricks - ns_tricks_won), char(remaining_tricks)};
 
-    auto [pattern_hands, extended_rank_winners] = trick->ComputePatternHands(rank_winners);
+    auto [pattern_hands, extended_rank_winners] = trick->ComputePatternHands(hands, rank_winners);
     Pattern new_pattern(pattern_hands, bounds);
     VERBOSE(ShowPattern("update", new_pattern, trick->shape));
     auto* new_shape_entry = common_bounds_cache.Update(shape_hash);
@@ -1373,7 +1349,7 @@ class Play {
     if (ns_tricks_won + remaining_tricks < beta) return ns_tricks_won + remaining_tricks;
     trick->all_cards = hands.all_cards();
     ComputeShape();
-    trick->ComputeRelativeHands(depth, hands);
+    trick->ComputeRelativeHands(hands);
     if (auto* shape_entry =
             common_bounds_cache.Lookup(common_bounds_cache.Hash(trick->shape.Value())))
       if (auto pattern = Pattern::Lookup(shape_entry->patterns[seat_to_play], trick->relative_hands,
@@ -2296,7 +2272,7 @@ class PlaySequence {
         }
         play.trick->all_cards = play.hands.all_cards();
         play.ComputeShape();
-        play.trick->ComputeRelativeHands(play.depth, play.hands);
+        play.trick->ComputeRelativeHands(play.hands);
       } else {
         play.ns_tricks_won = play.PreviousPlay().ns_tricks_won;
         play.seat_to_play = play.PreviousPlay().NextSeat();
