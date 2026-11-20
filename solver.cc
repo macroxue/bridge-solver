@@ -1296,6 +1296,7 @@ class Play {
     bool with_trumps = trump != NOTRUMP && trick->all_cards.Suit(trump);
 
     auto [lead_tricks, lead_rank_winners] = FastTricks();
+    const bool from_fast_tricks = lead_tricks > 0;
     if (lead_tricks == 0 && with_trumps)
       std::tie(lead_tricks, lead_rank_winners) = SlowTrumpTricks(
           MySuit(trump), PdSuit(trump), LhoSuit(trump), RhoSuit(trump), /*leading=*/true);
@@ -1308,6 +1309,14 @@ class Play {
       }
     }
     auto ns_tricks = SureTrickCutoff(beta, lead_tricks, NsToPlay(), /*leading=*/true);
+    if (ns_tricks >= 0 && from_fast_tricks && lead_rank_winners) {
+      // The cut may need fewer tricks than there are: keep only the rank winners of the
+      // tricks it needs, for a pattern that matches more positions.
+      int need =
+          NsToPlay() ? beta - ns_tricks_won : ns_tricks_won + hands.num_tricks() - beta + 1;
+      if (MinimizeFastTricks(need, with_trumps, lead_tricks, lead_rank_winners))
+        ns_tricks = SureTrickCutoff(beta, lead_tricks, NsToPlay(), /*leading=*/true);
+    }
     if (ns_tricks >= 0) return {ns_tricks, lead_rank_winners};
 
     auto [other_tricks, other_rank_winners] =
@@ -1909,7 +1918,7 @@ class Play {
 #endif
   }
 
-  Result FastTricks() const {
+  Result FastTricks(unsigned suit_mask = 15) const {
     Cards my_hand = hands[seat_to_play], pd_hand = hands[Partner()];
     Cards lho_hand = hands[LeftHandOpp()], rho_hand = hands[RightHandOpp()];
     Cards pd_rank_winners;
@@ -1920,7 +1929,7 @@ class Play {
     const bool lho_has_trump = trump != NOTRUMP && lho_hand.Suit(trump);
     const bool rho_has_trump = trump != NOTRUMP && rho_hand.Suit(trump);
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
-      if (suit == trump) continue;
+      if (suit == trump || !((suit_mask >> suit) & 1)) continue;
       auto my_suit = my_hand.Suit(suit);
       auto pd_suit = pd_hand.Suit(suit);
       auto lho_suit = lho_hand.Suit(suit);
@@ -2003,6 +2012,98 @@ class Play {
     int winning_card = WinningCard();
     auto played_cards = trick->all_cards.Different(hands.all_cards());
     return played_cards.Suit(SuitOf(winning_card)).Size() > 1 ? Cards().Add(winning_card) : Cards();
+  }
+
+  // Given fast tricks that cut needing only `need` of them, looks for the same cut with
+  // fewer rank winners (so its pattern matches more positions); returns whether it changed
+  // the tricks and rank winners.
+  bool MinimizeFastTricks(int need, bool with_trumps, int& lead_tricks,
+                          Cards& lead_rank_winners) const {
+    // Trump length tricks need no rank winners.
+    if (with_trumps) {
+      int length_tricks =
+          TrumpLengthTricks(MySuit(trump), PdSuit(trump), LhoSuit(trump), RhoSuit(trump));
+      if (length_tricks >= need) {
+        lead_tricks = length_tricks;
+        lead_rank_winners = {};
+        return true;
+      }
+    }
+    // The top cards of one suit.
+    if (SingleSuitFastTricks(need, lead_rank_winners)) {
+      lead_tricks = need;
+      return true;
+    }
+    if (lead_tricks == need) return false;
+    // Drop the suits the cut can do without, the one with the lowest rank winner first.
+    unsigned suit_mask = 15, tried_mask = 0;
+    bool reduced = false;
+    for (;;) {
+      int drop_suit = -1, lowest_rank = NUM_RANKS;
+      for (int suit = 0; suit < NUM_SUITS; ++suit) {
+        if (suit == trump || ((tried_mask >> suit) & 1) || !lead_rank_winners.Suit(suit)) continue;
+        int rank = RankOf(lead_rank_winners.Suit(suit).Bottom());
+        if (rank < lowest_rank) lowest_rank = rank, drop_suit = suit;
+      }
+      if (drop_suit < 0) break;
+      tried_mask |= 1u << drop_suit;
+      auto [tricks, rank_winners] = FastTricks(suit_mask & ~(1u << drop_suit));
+      if (tricks < need) continue;
+      suit_mask &= ~(1u << drop_suit);
+      lead_tricks = tricks;
+      lead_rank_winners = rank_winners;
+      reduced = true;
+      if (tricks == need) break;
+    }
+    return reduced;
+  }
+
+  // Whether the leader can cash `need` tricks from the top of one suit with fewer rank
+  // winners than `rank_winners`; if so, sets them.
+  bool SingleSuitFastTricks(int need, Cards& rank_winners) const {
+    Cards my_hand = hands[seat_to_play], pd_hand = hands[Partner()];
+    Cards lho_hand = hands[LeftHandOpp()], rho_hand = hands[RightHandOpp()];
+    const bool lho_has_trump = trump != NOTRUMP && lho_hand.Suit(trump);
+    const bool rho_has_trump = trump != NOTRUMP && rho_hand.Suit(trump);
+    Cards best_winners;
+    int best_score = -1;
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      Cards my_suit = my_hand.Suit(suit);
+      if (my_suit.Size() < need) continue;
+      if (suit != trump) {
+        // An opponent with trumps must follow suit to every one of the tricks.
+        int max_suit_winners = TOTAL_TRICKS;
+        if (lho_has_trump) max_suit_winners = lho_hand.Suit(suit).Size();
+        if (rho_has_trump)
+          max_suit_winners = std::min(max_suit_winners, rho_hand.Suit(suit).Size());
+        if (max_suit_winners < need) continue;
+      }
+      // Once the others have no card left in the suit, ranks no longer matter.
+      int max_rank_winners =
+          std::max(pd_hand.Suit(suit).Size(),
+                   std::max(lho_hand.Suit(suit).Size(), rho_hand.Suit(suit).Size()));
+      int winners = 0, lowest_winner = -1;
+      Cards suit_winners;
+      for (int card : trick->all_cards.Suit(suit)) {
+        if (winners == need || !my_suit.Include(card)) break;
+        ++winners;
+        if (winners <= max_rank_winners) {
+          suit_winners.Add(card);
+          lowest_winner = card;
+        }
+      }
+      if (winners < need) continue;
+      // Fewest rank winners, then the highest card.
+      int score = (TOTAL_TRICKS - suit_winners.Size()) * 16 +
+                  (lowest_winner < 0 ? 15 : RankOf(lowest_winner));
+      if (score > best_score) {
+        best_score = score;
+        best_winners = suit_winners;
+      }
+    }
+    if (best_score < 0 || best_winners.Size() >= rank_winners.Size()) return false;
+    rank_winners = best_winners;
+    return true;
   }
 
   Result CollectLastTrick() const {
