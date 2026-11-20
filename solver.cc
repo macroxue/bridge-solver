@@ -1119,6 +1119,19 @@ struct Trick {
     return false;
   }
 
+  // If `card` is equivalent to one of the tried cards, the rank positions from the higher
+  // of the two down to just above the lower one (never empty); else no cards.
+  Cards EquivalentRun(int card, Cards tried_suit_cards, Cards hand) const {
+    if (!tried_suit_cards) return Cards();
+    if (auto above = tried_suit_cards.Slice(0, card))
+      if (all_cards.Slice(above.Bottom(), card) == hand.Slice(above.Bottom(), card))
+        return Cards(~0ULL).Slice(above.Bottom(), card);
+    if (auto below = tried_suit_cards.Slice(card + 1, CARD_END))
+      if (all_cards.Slice(card, below.Top()) == hand.Slice(card, below.Top()))
+        return Cards(~0ULL).Slice(card, below.Top());
+    return Cards();
+  }
+
   Cards FilterEquivalent(Cards playable_cards) const {
     Cards filtered_cards;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
@@ -1135,32 +1148,39 @@ struct Trick {
     return filtered_cards;
   }
 
-  // A pattern hand contains relative cards and rank-irrelevant cards.
-  std::pair<RelativeHands, Cards> ComputePatternHands(const Hands& hands, Cards rank_winners) const {
-    Cards extended_rank_winners;
+  // The cards of a pattern for a position won with `rank_winners`: in each suit, those from
+  // the top down to the lowest rank winner. `runs` are the equivalence runs the search of
+  // this trick relied on: where a side that had to fail with every card skipped a card as
+  // equivalent to a tried one, the rank positions from the higher of the two down to just
+  // above the lower one. A pattern whose lowest rank winner fell inside such a run would
+  // match positions where the two cards are not equivalent, so it is extended to the low end
+  // of the run. (Skips by a side that needed only one card to work, and skips of cards below
+  // every rank winner, need nothing: any low card does.)
+  Cards ComputePatternCards(const Hands& hands, Cards rank_winners, Cards runs) const {
+    Cards pattern_cards;
     for (int suit = 0; suit < NUM_SUITS; ++suit) {
       if (!rank_winners.Suit(suit)) continue;
       auto all_suit_cards = all_cards.Suit(suit);
-      auto bottom_card = rank_winners.Suit(suit).Bottom();
-      // The relative rank (from the top) of the bottom rank winner.
-      int bottom = all_suit_cards.Slice(0, bottom_card).Size();
+      // A run ends just above a card in play, so this stops at one.
+      int bottom_card = rank_winners.Suit(suit).Bottom();
+      while (runs.Include(bottom_card)) ++bottom_card;
+      // The number of cards kept, counting down from the top of the suit.
+      int kept = all_suit_cards.Slice(0, bottom_card).Size() + 1;
       for (int seat = 0; seat < NUM_SEATS; ++seat) {
         if (!hands[seat].Include(bottom_card)) continue;
-        // The seat's cards of the suit as relative cards, the top card at bit 0.
+        // The seat's cards of the suit as relative cards, the top card of the suit at bit 0.
         uint64_t suit_cards = PackBits(hands[seat].Value(), all_suit_cards.Value());
-        // Extend bottom rank winner to its lowest equivalent card.
-        bottom += __builtin_ctzll(~(suit_cards >> (bottom + 1)));
-        // Suit bottom can't win by rank. Compensate the inaccuracy of fast tricks.
-        if (bottom == all_suit_cards.Size() - 1)
-          // Extend bottom rank winner to its highest equivalent card and go one rank higher.
-          bottom -= __builtin_clzll(~(suit_cards << (63 - bottom)));
+        // If this seat holds every card from the bottom rank winner to the suit bottom, the
+        // cards above them already determine the suit: stop above them. (This also keeps the
+        // suit bottom, which can't win by rank, out of the pattern.)
+        int lowest = kept + __builtin_ctzll(~(suit_cards >> kept));
+        if (lowest == all_suit_cards.Size())
+          kept = lowest - __builtin_clzll(~(suit_cards << (64 - lowest)));
         break;
       }
-      extended_rank_winners.Add(
-          Cards(UnpackBits((1ULL << (bottom + 1)) - 1, all_suit_cards.Value())));
+      pattern_cards.Add(Cards(UnpackBits((1ULL << kept) - 1, all_suit_cards.Value())));
     }
-    return {relative_hands.Keep(PackBits(extended_rank_winners.Value(), all_cards.Value())),
-            extended_rank_winners};
+    return pattern_cards;
   }
 
  private:
@@ -1252,20 +1272,23 @@ class Play {
       }
     }
 
+    equivalence_runs = Cards();
     auto [ns_tricks, rank_winners] = SearchWithSureTricks(beta);
     auto bounds = ns_tricks < beta
                       ? Bounds{0, char(ns_tricks - ns_tricks_won)}
                       : Bounds{char(ns_tricks - ns_tricks_won), char(remaining_tricks)};
 
-    auto [pattern_hands, extended_rank_winners] = trick->ComputePatternHands(hands, rank_winners);
-    Pattern new_pattern(pattern_hands, bounds);
+    auto pattern_cards = trick->ComputePatternCards(hands, rank_winners, equivalence_runs);
+    Pattern new_pattern(trick->relative_hands.Keep(
+                            PackBits(pattern_cards.Value(), trick->all_cards.Value())),
+                        bounds);
     VERBOSE(ShowPattern("update", new_pattern, trick->shape));
     auto* new_shape_entry = common_bounds_cache.Update(shape_hash);
 #ifdef _DEBUG
     new_shape_entry->shape = trick->shape;
 #endif
     Pattern::Update(new_shape_entry->patterns[seat_to_play], new_pattern);
-    return {ns_tricks, extended_rank_winners};
+    return {ns_tricks, pattern_cards};
   }
 
  private:
@@ -1399,6 +1422,10 @@ class Play {
       if (TrickEnding()) rank_winners.Add(GetTrickRankWinner());
       VERBOSE(ShowTricks(beta, ns_tricks, false));
       UnplayCard();
+      equivalence_runs = NextRuns();
+      // A failure relies on the other cards of the run failing like the one played.
+      if (top != bottom && (NsToPlay() ? ns_tricks < beta : ns_tricks >= beta))
+        equivalence_runs.Add(Cards(~0ULL).Slice(top, bottom));
       return {ns_tricks, rank_winners};
     }
     const auto cutoff_hash = cutoff_cache.Hash(BuildCutoffIndex(beta));
@@ -1416,12 +1443,18 @@ class Play {
     int ns_tricks = NsToPlay() ? 0 : TOTAL_TRICKS;
     int min_relevant_ranks[NUM_SUITS] = {TWO, TWO, TWO, TWO};
     Cards rank_winners, tried_cards;
+    // The equivalence runs a failure of every card relies on.
+    Cards runs;
     STATS(int num_branches = 0);
     for (int i = 0; i < ordered_cards.Size(); ++i) {
       int card = ordered_cards.Card(i), suit = SuitOf(card), rank = RankOf(card);
       // Try a card if its rank is still relevant and it isn't equivalent to a tried card.
-      if (rank >= min_relevant_ranks[suit] &&
-          !trick->IsEquivalent(card, tried_cards.Suit(suit), hands[seat_to_play])) {
+      Cards equivalent_run;
+      if (rank >= min_relevant_ranks[suit]) {
+        equivalent_run = trick->EquivalentRun(card, tried_cards.Suit(suit), hands[seat_to_play]);
+        runs.Add(equivalent_run);
+      }
+      if (rank >= min_relevant_ranks[suit] && !equivalent_run) {
         STATS(++stats[depth].num_branches);
         STATS(++num_branches);
         PlayCard(card);
@@ -1443,9 +1476,12 @@ class Play {
             STATS(++stats[depth].num_cached_cuts);
           }
           VERBOSE(printf("%2d: search cut @%d %s\n", depth, num_branches, NameOf(card)));
+          // One card that works is enough: only its own play relies on equivalence runs.
+          equivalence_runs = NextRuns();
           return {ns_tricks, branch_rank_winners};
         }
 
+        runs.Add(NextRuns());
         rank_winners.Add(branch_rank_winners);
         // If this card's rank is irrelevant, a relevant rank must be higher.
         auto suit_rank_winners = branch_rank_winners.Suit(suit);
@@ -1461,6 +1497,7 @@ class Play {
         playable_cards = Cards();
       }
     }
+    equivalence_runs = runs;
     return {ns_tricks, rank_winners};
   }
 
@@ -2026,6 +2063,10 @@ class Play {
   const Play& PreviousPlay() const { return *(this - 1); }
   Play& NextPlay() { return *(this + 1); }
 
+  // The equivalence runs that the result of the play after this one relies on within this
+  // trick: none if that play starts the next trick.
+  Cards NextRuns() { return TrickEnding() ? Cards() : NextPlay().equivalence_runs; }
+
   // Fixed info.
   Play* const plays = nullptr;
   Trick* const trick = nullptr;
@@ -2039,6 +2080,9 @@ class Play {
   int card_played;
   int winning_play;
   OrderedCards ordered_cards;
+  // The equivalence runs this play's last result relies on within its trick; see
+  // ComputePatternCards().
+  Cards equivalence_runs;
 
   friend class PlaySequence;
 };
