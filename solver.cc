@@ -524,7 +524,7 @@ class RelativeHands {
   RelativeHands(const Hands& hands, Cards all_cards)
       : low(PackBits(hands[NORTH].Union(hands[SOUTH]).Value(), all_cards.Value())),
         high(PackBits(hands[EAST].Union(hands[SOUTH]).Value(), all_cards.Value())),
-        cards(PackBits(all_cards.Value(), all_cards.Value())) {}
+        cards((uint64_t(1) << all_cards.Size()) - 1) {}  // PackBits of all_cards over itself
 
   // These hands reduced to the cards in `kept_cards`, numbered as above.
   RelativeHands Keep(uint64_t kept_cards) const {
