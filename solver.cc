@@ -1556,47 +1556,86 @@ class Play {
       }
     }
     STATS(++stats[depth].num_visits);
-    ordered_cards.Reset();
     auto playable_cards = GetPlayableCards<POS>();
     VERBOSE(printf("%2d: all %lx playable %lx\n", depth, hands.all_cards().Value(),
                    playable_cards.Value()));
+    // Plays a card, searches the rest and takes the card back.
+    auto search_card = [this, beta](int card) -> Result {
+      STATS(++stats[depth].num_branches);
+      PlayCard<POS>(card);
+      VERBOSE(ShowTricks(beta, 0, true));
+      Result result = SearchNext<POS>(beta);
+      if (At<POS>(3)) result.second.Add(GetTrickRankWinner());
+      VERBOSE(ShowTricks(beta, result.first, false));
+      UnplayCard();
+      return result;
+    };
     // One choice (a single card, or equivalent cards in one suit): skip the cutoff cache.
     int top = playable_cards.Top(), bottom = playable_cards.Bottom();
     if (SuitOf(top) == SuitOf(bottom) &&
         trick->all_cards.Slice(top, bottom + 1) == playable_cards) {
-      STATS(++stats[depth].num_branches);
-      PlayCard<POS>(top);
-      VERBOSE(ShowTricks(beta, 0, true));
-      auto [ns_tricks, rank_winners] = SearchNext<POS>(beta);
-      if (At<POS>(3)) rank_winners.Add(GetTrickRankWinner());
-      VERBOSE(ShowTricks(beta, ns_tricks, false));
-      UnplayCard();
+      Result result = search_card(top);
       equivalence_runs = NextRuns<POS>();
       // A failure relies on the other cards of the run failing like the one played.
-      if (top != bottom && (NsToPlay() ? ns_tricks < beta : ns_tricks >= beta))
+      if (top != bottom && (NsToPlay() ? result.first < beta : result.first >= beta))
         equivalence_runs.Add(Cards(~0ULL).Slice(top, bottom));
-      return {ns_tricks, rank_winners};
+      return result;
     }
+
     const auto cutoff_hash = cutoff_cache.Hash(BuildCutoffIndex<POS>(beta));
-    int cutoff_card = LookupCutoffCard<POS>(cutoff_hash);
+    const int cutoff_card = LookupCutoffCard<POS>(cutoff_hash);
+    int card;
     if (playable_cards.Include(cutoff_card)) {
       VERBOSE(printf("%2d: use cutoff %s\n", depth, NameOf(cutoff_card)));
-      ordered_cards.AddCard(cutoff_card);
+      card = cutoff_card;
       playable_cards.Remove(cutoff_card);
     } else {
       STATS(stats[depth].num_cutoff_collisions += (cutoff_card != CARD_END));
+      ordered_cards.Reset();
       OrderCards<POS>(playable_cards, beta);
       playable_cards = Cards();
+      card = ordered_cards.Card(0);
     }
 
-    int ns_tricks = NsToPlay() ? 0 : TOTAL_TRICKS;
-    int min_relevant_ranks[NUM_SUITS] = {TWO, TWO, TWO, TWO};
-    Cards rank_winners, tried_cards;
+    // The first card: every rank is still relevant and no card was tried. It is tried outside
+    // the loop below as it cuts off most of the time, often straight from the cut-off cache.
+    const bool ns_to_play = NsToPlay();
+    auto is_cutoff = [ns_to_play, beta](int tricks) {
+      return ns_to_play ? tricks >= beta : tricks < beta;
+    };
+    auto [ns_tricks, rank_winners] = search_card(card);
+    if (is_cutoff(ns_tricks)) {
+      STATS(++stats[depth].num_cuts);
+      if (card != cutoff_card) SaveCutoffCard<POS>(cutoff_hash, card);
+      // One card that works is enough: only its own play relies on equivalence runs.
+      equivalence_runs = NextRuns<POS>();
+      return {ns_tricks, rank_winners};
+    }
     // The equivalence runs a failure of every card relies on.
-    Cards runs;
-    STATS(int num_branches = 0);
-    for (int i = 0; i < ordered_cards.Size(); ++i) {
-      int card = ordered_cards.Card(i), suit = SuitOf(card), rank = RankOf(card);
+    Cards runs = NextRuns<POS>();
+
+    int min_relevant_ranks[NUM_SUITS] = {TWO, TWO, TWO, TWO};
+    // If a card's rank is irrelevant, a relevant rank must be higher.
+    auto update_relevant_ranks = [&min_relevant_ranks](int card, Cards branch_rank_winners) {
+      int suit = SuitOf(card);
+      auto suit_rank_winners = branch_rank_winners.Suit(suit);
+      if (!suit_rank_winners)
+        min_relevant_ranks[suit] = NUM_RANKS;
+      else if (LowerRank(card, suit_rank_winners.Bottom()))
+        min_relevant_ranks[suit] =
+            std::max(min_relevant_ranks[suit], RankOf(suit_rank_winners.Bottom()));
+    };
+    update_relevant_ranks(card, rank_winners);
+    Cards tried_cards;
+    tried_cards.Add(card);
+    if (playable_cards) {  // the cut-off card didn't cut: order the other cards after it
+      ordered_cards.Reset();
+      ordered_cards.AddCard(card);
+      OrderCards<POS>(playable_cards, beta);
+    }
+    for (int i = 1; i < ordered_cards.Size(); ++i) {
+      card = ordered_cards.Card(i);
+      int suit = SuitOf(card), rank = RankOf(card);
       // Try a card if its rank is still relevant and it isn't equivalent to a tried card.
       Cards equivalent_run;
       if (rank >= min_relevant_ranks[suit]) {
@@ -1604,47 +1643,21 @@ class Play {
         runs.Add(equivalent_run);
       }
       if (rank >= min_relevant_ranks[suit] && !equivalent_run) {
-        STATS(++stats[depth].num_branches);
-        STATS(++num_branches);
-        PlayCard<POS>(card);
-        VERBOSE(ShowTricks(beta, 0, true));
-        auto [branch_ns_tricks, branch_rank_winners] = SearchNext<POS>(beta);
-        if (At<POS>(3)) branch_rank_winners.Add(GetTrickRankWinner());
-        VERBOSE(ShowTricks(beta, branch_ns_tricks, false));
-        UnplayCard();
-
-        ns_tricks = NsToPlay() ? std::max(ns_tricks, branch_ns_tricks)
+        auto [branch_ns_tricks, branch_rank_winners] = search_card(card);
+        ns_tricks = ns_to_play ? std::max(ns_tricks, branch_ns_tricks)
                                : std::min(ns_tricks, branch_ns_tricks);
-        if (NsToPlay() ? ns_tricks >= beta : ns_tricks < beta) {  // cut-off
+        if (is_cutoff(ns_tricks)) {
           STATS(++stats[depth].num_cuts);
-          if (card != cutoff_card) {
-            SaveCutoffCard<POS>(cutoff_hash, card);
-            STATS(stats[depth].num_new_cuts += (cutoff_card == CARD_END));
-            STATS(stats[depth].num_missed_cuts += (cutoff_card != CARD_END));
-          } else {
-            STATS(++stats[depth].num_cached_cuts);
-          }
-          VERBOSE(printf("%2d: search cut @%d %s\n", depth, num_branches, NameOf(card)));
+          if (card != cutoff_card) SaveCutoffCard<POS>(cutoff_hash, card);
           // One card that works is enough: only its own play relies on equivalence runs.
           equivalence_runs = NextRuns<POS>();
           return {ns_tricks, branch_rank_winners};
         }
-
         runs.Add(NextRuns<POS>());
         rank_winners.Add(branch_rank_winners);
-        // If this card's rank is irrelevant, a relevant rank must be higher.
-        auto suit_rank_winners = branch_rank_winners.Suit(suit);
-        if (!suit_rank_winners)
-          min_relevant_ranks[suit] = NUM_RANKS;
-        else if (LowerRank(card, suit_rank_winners.Bottom()))
-          min_relevant_ranks[suit] =
-              std::max(min_relevant_ranks[suit], RankOf(suit_rank_winners.Bottom()));
+        update_relevant_ranks(card, branch_rank_winners);
       }
       tried_cards.Add(card);
-      if (playable_cards) {
-        OrderCards<POS>(playable_cards, beta);
-        playable_cards = Cards();
-      }
     }
     equivalence_runs = runs;
     return {ns_tricks, rank_winners};
