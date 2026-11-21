@@ -1481,8 +1481,80 @@ class Play {
     return -1;
   }
 
+  // Second seat (from DDS QuickTricksSecondHand): our side surely wins this trick, by a ruff
+  // the third hand cannot overruff or by a card above the lead and all of the third hand's
+  // cards in the suit. In notrump the winner then cashes its top cards. Returns true with a
+  // bound in `result` if that is enough for a cut.
+  //
+  // The rank winners stand on their own: the claim holds wherever the cards from the top of
+  // each suit down to them are in the same hands, so it relies on no equivalence run.
+  bool SecondSeatSureTricks(int beta, Result& result) const {
+    const int lead = PreviousPlay().card_played, suit = SuitOf(lead);
+    const Cards my_hand = hands[seat_to_play], pd_hand = hands[Partner()];
+    const Cards third_hand = hands[LeftHandOpp()];
+    const Cards my_suit = my_hand.Suit(suit), pd_suit = pd_hand.Suit(suit);
+    const Cards third_suit = third_hand.Suit(suit);
+    const bool side_suit = trump != NOTRUMP && suit != trump;
+    if (side_suit && !third_suit && third_hand.Suit(trump)) return false;  // third hand ruffs
+    Cards rank_winners;
+    const Cards ours = my_suit.Union(pd_suit);
+    if (side_suit && ((!my_suit && my_hand.Suit(trump)) || (!pd_suit && pd_hand.Suit(trump)))) {
+      // We ruff; the third hand follows suit or has no trump. No rank matters.
+    } else {
+      if (!ours) return false;
+      const int top = ours.Top();
+      if (!HigherRank(top, lead) || (third_suit && !HigherRank(top, third_suit.Top())))
+        return false;
+      rank_winners.Add(top);
+    }
+    const int remaining = my_hand.Size();
+    const int needed =
+        NsToPlay() ? beta - ns_tricks_won : remaining - (beta - ns_tricks_won) + 1;
+    int sure_tricks = 1;
+    if (sure_tricks < needed) {
+      if (trump != NOTRUMP) return false;
+      // Notrump: the hand that wins this trick leads to the next one and cashes.
+      const Cards winner_hand =
+          !pd_suit || (my_suit && HigherRank(my_suit.Top(), pd_suit.Top())) ? my_hand : pd_hand;
+      const Cards all_cards = trick->all_cards;  // cards at the start of this trick
+      const Cards all_suit = all_cards.Suit(suit);
+      const int top = all_suit.Top();
+      if (winner_hand.Include(top)) {
+        const Cards rest = all_suit.Different(Cards().Add(top));
+        if (rest && winner_hand.Include(rest.Top())) {
+          ++sure_tricks;
+          rank_winners.Add(rest.Top());
+        }
+      }
+      for (int s = 0; s < NUM_SUITS && sure_tricks < needed; ++s) {
+        if (s == suit) continue;
+        const Cards hand_suit = winner_hand.Suit(s);
+        if (!hand_suit) continue;
+        // Only the lead has been played, so the other suits are as at the trick start.
+        const Cards all_s = all_cards.Suit(s);
+        if (all_s == hand_suit) {
+          sure_tricks += hand_suit.Size();
+        } else if (hand_suit.Include(all_s.Top())) {
+          ++sure_tricks;
+          rank_winners.Add(all_s.Top());
+        }
+      }
+      if (sure_tricks < needed) return false;
+    }
+    result = {NsToPlay() ? ns_tricks_won + sure_tricks : ns_tricks_won + remaining - sure_tricks,
+              rank_winners};
+    return true;
+  }
+
   template <int POS>
   Result EvaluatePlayableCards(int beta) {
+    if (At<POS>(1)) {
+      Result result;
+      if (SecondSeatSureTricks(beta, result)) {
+        equivalence_runs = Cards();  // no card was skipped as equivalent to another
+        return result;
+      }
+    }
     STATS(++stats[depth].num_visits);
     ordered_cards.Reset();
     auto playable_cards = GetPlayableCards<POS>();
