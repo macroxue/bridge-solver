@@ -101,11 +101,11 @@ where [STRAIN] is one of {N, S, H, D, C}.
 Solving a single deal with one thread per strain can be done with `xargs`:
 ```
 echo N S H D C | xargs -n1 -P5 ./solver -if deals/freak/deal.0 -m0 -t
-D 11 11  2  2  0.07 s   8.6 M
-S  8  8  5  5  0.32 s  26.2 M
-H  8  8  5  5  0.90 s  55.2 M
-C  6  6  7  6  1.40 s  79.1 M
-N  7  7  6  5  3.80 s 205.9 M
+D 11 11  2  2  0.05 s   6.3 M
+S  8  8  5  5  0.24 s  20.1 M
+H  8  8  5  5  0.69 s  42.3 M
+C  6  6  7  6  1.14 s  60.6 M
+N  7  7  6  5  2.67 s 142.5 M
 ```
 
 To get the strains sorted, pipe the previous command to
@@ -257,39 +257,39 @@ GLIBC_TUNABLES=glibc.malloc.hugetlb=1 taskset -c 0 ./run.sh deals/1k
 
 ### Single-core
 
-The solver fully analyzed 1000 random deals (under `deals/1k`) in just 74.2 seconds,
-averaging more than 13 deals per second. Below are time and memory distributions,
-with both maximums from `deal.310`.
+The solver fully analyzed 1000 random deals (under `deals/1k`) in just 52.6 seconds,
+averaging 19 deals per second. Below are time and memory distributions,
+with the time maximum from `deal.310` and the memory maximum from `deal.8`.
 
 | Percentile   | 50th | 75th | 90th | 95th | 99th | 99.9th | Max  |
 |--------------|------|------|------|------|------|--------|------|
-| Time (s)     | 0.05 | 0.09 | 0.15 | 0.22 | 0.37 |  0.50  | 0.63 |
-| Memory (MiB) |  7.3 |  8.9 | 11.5 | 14.2 | 20.2 |  28.6  | 28.7 |
+| Time (s)     | 0.04 | 0.07 | 0.11 | 0.16 | 0.29 |  0.37  | 0.49 |
+| Memory (MiB) |  4.3 |  6.0 |  8.0 |  8.8 | 14.0 |  20.9  | 23.1 |
 
 One of the most difficult deals is this symmetric one, with four void suits and
-nobody holding consecutive ranks in any suit. It took the solver a little over 2 seconds.
+nobody holding consecutive ranks in any suit. It took the solver about 1.5 seconds.
 ```
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
-N  5  5  5  5  0.98 s  82.0 M
-S  4  4  8  7  1.24 s  84.0 M
-H  8  7  4  4  1.56 s  84.0 M
-D  4  4  7  8  1.85 s  84.0 M
-C  7  8  4  4  2.15 s  84.0 M
+N  5  5  5  5  0.73 s  60.3 M
+S  4  4  8  7  0.91 s  60.3 M
+H  8  7  4  4  1.13 s  60.3 M
+D  4  4  7  8  1.32 s  60.3 M
+C  7  8  4  4  1.51 s  60.3 M
 ```
 
 An even more freakish deal with each player holding only two suits made the solver
-work hard for more than 9 seconds!
+work hard for more than 6 seconds!
 ```
                           ♠ KJ9753 ♥ - ♦ AQT8642 ♣ -
   ♠ AQT8642 ♥ KJ9753 ♦ - ♣ -                       ♠ - ♥ - ♦ KJ9753 ♣ AQT8642
                           ♠ - ♥ AQT8642 ♦ - ♣ KJ9753
-N  7  7  7  7  5.08 s 118.2 M
-S  6  6  7  7  5.92 s 118.2 M
-H  7  7  6  6  7.21 s 118.2 M
-D  7  7  6  6  8.48 s 118.2 M
-C  6  6  7  7  9.41 s 118.2 M
+N  7  7  7  7  3.78 s  78.9 M
+S  6  6  7  7  4.36 s  78.9 M
+H  7  7  6  6  5.28 s  78.9 M
+D  7  7  6  6  6.19 s  78.9 M
+C  6  6  7  7  6.74 s  78.9 M
 ```
 
 A new champion has emerged when North and South switch hands in the symmetric
@@ -300,11 +300,11 @@ for NT contracts.
                           ♠ AJ962 ♥ KT74 ♦ - ♣ Q853
   ♠ KT74 ♥ - ♦ Q853 ♣ AJ962                       ♠ Q853 ♥ AJ962 ♦ KT74 ♣ -
                           ♠ - ♥ Q853 ♦ AJ962 ♣ KT74
-N  7  7  7  7 46.94 s 1632.4 M
-S  4  4  7  7 47.19 s 1632.4 M
-H  7  7  4  4 47.39 s 1632.4 M
-D  4  4  7  7 47.60 s 1632.4 M
-C  7  7  4  4 47.87 s 1632.4 M
+N  7  7  7  7 34.45 s 1147.7 M
+S  4  4  7  7 34.64 s 1147.7 M
+H  7  7  4  4 34.81 s 1147.7 M
+D  4  4  7  7 34.97 s 1147.7 M
+C  7  7  4  4 35.17 s 1147.7 M
 ```
 
 ### Multi-core
@@ -314,7 +314,7 @@ The solver is single-threaded, so multiple instances of the solver are running i
 
 | # Cores   |    1 |    2 |    4 |    8 |   16 |
 |-----------|------|------|------|------|------|
-| Time (s)  | 74.2 | 44.1 | 23.2 | 14.4 | 11.8 |
+| Time (s)  | 52.6 | 31.7 | 16.3 | 10.2 |  8.3 |
 | Speed-up  |  1.0 |  1.7 |  3.2 |  5.2 |  6.3 |
 
 The scaling is decent up to 8 cores. 16 cores give small additional speed-up as the cores
@@ -337,8 +337,8 @@ wider than the gap between DDS and bcalc.
 
 ![5k.log](https://github.com/macroxue/bridge-solver/blob/master/comparison/5k_deals.log.png)
 
-**Sep 2026 update**: this solver has improved by 50% since the above
-comparison, so it's 2.0x faster than DDS 2.9 and 2.6x faster than bcalc now.
+**Nov 2026 update**: this solver has improved by 2.2x since the above
+comparison, so it's 3.0x faster than DDS 2.9 and 3.9x faster than bcalc now.
 Performance improvements seem to have stagnated with both DDS and bcalc.
 
 ## License
