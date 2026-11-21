@@ -595,6 +595,14 @@ class RelativeHands {
     return low == other.low && high == other.high && cards == other.cards;
   }
 
+  // Whether every card here is in the same seat's hand in a position, which has every card
+  // and comes as its two bit planes.
+  bool Matches(uint64_t position_low, uint64_t position_high) const {
+    return (((low ^ position_low) | (high ^ position_high)) & cards) == 0;
+  }
+  uint64_t Low() const { return low; }
+  uint64_t High() const { return high; }
+
   // The cards here expanded to their real positions in all_cards.
   Cards GetRankWinners(Cards all_cards) const {
     return Cards(UnpackBits(cards, all_cards.Value()));
@@ -904,27 +912,41 @@ struct Pattern {
     STATS(std::swap(cuts, p.cuts));
   }
 
-  static const Pattern* Lookup(const Vector<Pattern>& patterns, const RelativeHands& hands,
-                               int beta) {
-    const Pattern* best = nullptr;
-    Lookup(patterns, hands, beta, best);
-    return best;
-  }
-
-  static void Lookup(const Vector<Pattern>& patterns, const RelativeHands& hands, int beta,
-                     const Pattern*& best) {
-    for (size_t i = 0; i < patterns.size(); ++i) {
+  // Lookup() below with the scan of `patterns` itself inlined into the caller.
+  __attribute__((always_inline)) static const Pattern* Lookup(const Vector<Pattern>& patterns,
+                                                              const RelativeHands& hands,
+                                                              int beta) {
+    const uint64_t low = hands.Low(), high = hands.High();
+    for (size_t i = 0, size = patterns.size(); i < size; ++i) {
       auto& pattern = patterns[i];
-      if (!hands.Include(pattern.hands)) continue;
+      if (!pattern.hands.Matches(low, high)) continue;
       STATS(++pattern.hits);
       if (pattern.bounds.Cutoff(beta)) {
         STATS(++pattern.cuts);
-        best = &pattern;
-        return;
+        return &pattern;
       }
-      Lookup(pattern.patterns, hands, beta, best);
-      if (best) return;
+      if (pattern.patterns.size() == 0) continue;
+      if (auto* best = Lookup(pattern.patterns, low, high, beta)) return best;
     }
+    return nullptr;
+  }
+
+  // The first pattern, going down into the subpatterns of each pattern before the next one,
+  // that has the position's cards and bounds deciding `beta`. The position comes as its two
+  // bit planes so that they stay in registers.
+  __attribute__((noinline)) static const Pattern* Lookup(const Vector<Pattern>& patterns,
+                                                         uint64_t low, uint64_t high, int beta) {
+    for (size_t i = 0, size = patterns.size(); i < size; ++i) {
+      auto& pattern = patterns[i];
+      if (!pattern.hands.Matches(low, high)) continue;
+      STATS(++pattern.hits);
+      if (pattern.bounds.Cutoff(beta)) {
+        STATS(++pattern.cuts);
+        return &pattern;
+      }
+      if (auto* best = Lookup(pattern.patterns, low, high, beta)) return best;
+    }
+    return nullptr;
   }
 
   // Patterns are sorted by order, most generic first.
