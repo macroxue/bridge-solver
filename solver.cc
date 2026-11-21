@@ -123,6 +123,9 @@ struct CardInitializer {
 
 Options options;
 
+// Draw trumps then cash (see DrawTrumpsThenCash()) only this close to the tricks needed.
+const int MAX_DRAW_TRUMP_GAP = 3;
+
 template <class T>
 int BitSize(T v) {
   return sizeof(v) * 8;
@@ -1342,6 +1345,12 @@ class Play {
     const int lead_need =
         NsToPlay() ? beta - ns_tricks_won : remaining_tricks - (beta - ns_tricks_won) + 1;
     const int other_need = remaining_tricks - lead_need + 1;
+    if (with_trumps && lead_need - lead_tricks <= MAX_DRAW_TRUMP_GAP) {
+      auto [draw_tricks, draw_rank_winners] = DrawTrumpsThenCash();
+      if (draw_tricks >= lead_need)
+        return {SureTrickCutoff(beta, draw_tricks, NsToPlay(), /*leading=*/true),
+                draw_rank_winners};
+    }
 
     auto [other_tricks, other_rank_winners] =
         with_trumps ? TopTrumpTricks(LhoSuit(trump), RhoSuit(trump)) : OtherSlowNoTrumpTricks();
@@ -1987,6 +1996,114 @@ class Play {
     if (most > 0 && winners + most <= hands.num_tricks())
       return {1, top_rank_winners.Union(stopper_rank_winners)};
     return {0, {}};
+  }
+
+  // The fast tricks of a notrump position given by four hands, me on lead.
+  Result FastTricksNoTrump(Cards my_hand, Cards pd_hand, Cards lho_hand, Cards rho_hand) const {
+    Cards all_cards = my_hand.Union(pd_hand).Union(lho_hand).Union(rho_hand);
+    Cards rank_winners, pd_rank_winners;
+    int my_tricks = 0, pd_tricks = 0;
+    bool my_entry = false, pd_entry = false;
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      auto my_suit = my_hand.Suit(suit);
+      auto pd_suit = pd_hand.Suit(suit);
+      int opp_max = std::max(lho_hand.Suit(suit).Size(), rho_hand.Suit(suit).Size());
+      int my_max_rank_winners = std::max(pd_suit.Size(), opp_max);
+      int pd_max_rank_winners = std::max(my_suit.Size(), opp_max);
+      int my_winners = 0, pd_winners = 0;
+      for (int card : all_cards.Suit(suit))
+        if (my_suit.Include(card)) {
+          ++my_winners;
+          if (my_winners <= my_max_rank_winners) rank_winners.Add(card);
+        } else if (pd_suit.Include(card)) {
+          ++pd_winners;
+          if (pd_winners <= pd_max_rank_winners) pd_rank_winners.Add(card);
+        } else
+          break;
+      my_tricks +=
+          SuitFastTricks(my_suit, my_winners, my_max_rank_winners, my_entry, pd_suit, pd_winners);
+      pd_tricks +=
+          SuitFastTricks(pd_suit, pd_winners, pd_max_rank_winners, pd_entry, my_suit, my_winners);
+    }
+    int fast_tricks = my_tricks;
+    if (pd_entry) {
+      fast_tricks = std::max(my_tricks, pd_tricks);
+      rank_winners.Add(pd_rank_winners);
+    }
+    return {std::min(fast_tricks, my_hand.Size()), rank_winners};
+  }
+
+  // Draws the opponents' trumps in `rounds` rounds with the top trumps `run`,
+  // all ours, whichever of us holds them, then counts the notrump fast tricks
+  // of the hand left on lead. Each round the hand on lead leads its lowest
+  // trump of the run, or its lowest trump to partner's lowest of the run.
+  Result DrawTrumpsWithRun(Cards run, int rounds) const {
+    Cards hand[2] = {hands[seat_to_play], hands[Partner()]};
+    int discards[2] = {0, 0};
+    int leader = 0;
+    for (int r = 0; r < rounds; ++r) {
+      int follower = 1 - leader;
+      Cards lead_trumps = hand[leader].Suit(trump), follow_trumps = hand[follower].Suit(trump);
+      if (!lead_trumps) return {0, {}};
+      if (!follow_trumps) ++discards[follower];
+      if (Cards lead_run = lead_trumps.Intersect(run)) {
+        int lead_card = lead_run.Bottom();
+        hand[leader].Remove(lead_card);
+        if (follow_trumps) {
+          int follow_card = follow_trumps.Bottom();
+          hand[follower].Remove(follow_card);
+          // The follower has only higher trumps: it wins the trick.
+          if (HigherRank(follow_card, lead_card)) leader = follower;
+        }
+      } else {
+        Cards follow_run = follow_trumps.Intersect(run);
+        if (!follow_run) return {0, {}};
+        hand[leader].Remove(lead_trumps.Bottom());
+        hand[follower].Remove(follow_run.Bottom());
+        leader = follower;
+      }
+    }
+    // A hand out of trumps discarded the lowest cards of its longest side suits.
+    for (int h = 0; h < 2; ++h)
+      for (; discards[h] > 0; --discards[h]) {
+        int longest = -1, length = 0;
+        for (int suit = 0; suit < NUM_SUITS; ++suit)
+          if (suit != trump && hand[h].Suit(suit).Size() > length) {
+            length = hand[h].Suit(suit).Size();
+            longest = suit;
+          }
+        if (longest < 0) return {0, {}};
+        hand[h].Remove(hand[h].Suit(longest).Bottom());
+      }
+    Cards lho_hand = hands[LeftHandOpp()], rho_hand = hands[RightHandOpp()];
+    lho_hand.ClearSuit(trump);
+    rho_hand.ClearSuit(trump);
+    auto [tricks, rank_winners] =
+        FastTricksNoTrump(hand[leader], hand[1 - leader], lho_hand, rho_hand);
+    return {std::min(rounds + tricks, hands.num_tricks()), rank_winners.Union(run)};
+  }
+
+  // We hold the top trumps needed to draw all the opponents' trumps: draw them,
+  // then the rest is a notrump position in which our other trumps are winners.
+  Result DrawTrumpsThenCash() const {
+    int rounds = std::max(LhoSuit(trump).Size(), RhoSuit(trump).Size());
+    if (rounds == 0) return {0, {}};
+    Cards ours = MySuit(trump).Union(PdSuit(trump));
+    Cards all_trumps = trick->all_cards.Suit(trump);
+    Cards run = KeepTop(all_trumps, rounds);
+    if (!ours.Include(run)) return {0, {}};
+    auto result = DrawTrumpsWithRun(run, rounds);
+    if (result.first > 0) return result;
+    // Two of the top trumps may fall together: retry with up to twice as many.
+    Cards long_run;
+    int count = 0;
+    for (int card : all_trumps) {
+      if (!ours.Include(card) || count == 2 * rounds) break;
+      long_run.Add(card);
+      ++count;
+    }
+    if (long_run == run) return {0, {}};
+    return DrawTrumpsWithRun(long_run, rounds);
   }
 
   // The n highest-ranked cards of a suit, i.e. its n lowest set bits.
