@@ -123,7 +123,8 @@ struct CardInitializer {
 
 Options options;
 
-// Draw trumps then cash (see DrawTrumpsThenCash()) only this close to the tricks needed.
+// The trump bounds at a trick start are tried only this close to the tricks needed.
+const int MAX_RANK_TRICK_GAP = 2;
 const int MAX_DRAW_TRUMP_GAP = 3;
 
 template <class T>
@@ -1316,7 +1317,9 @@ class Play {
   Result SearchWithSureTricks(int beta) {
     bool with_trumps = trump != NOTRUMP && trick->all_cards.Suit(trump);
 
-    auto [lead_tricks, lead_rank_winners] = FastTricks();
+    int side_tricks = 0;
+    Cards side_rank_winners;
+    auto [lead_tricks, lead_rank_winners] = FastTricks(15, &side_tricks, &side_rank_winners);
     const bool from_fast_tricks = lead_tricks > 0;
     if (lead_tricks == 0 && with_trumps)
       std::tie(lead_tricks, lead_rank_winners) = SlowTrumpTricks(
@@ -1345,11 +1348,28 @@ class Play {
     const int lead_need =
         NsToPlay() ? beta - ns_tricks_won : remaining_tricks - (beta - ns_tricks_won) + 1;
     const int other_need = remaining_tricks - lead_need + 1;
-    if (with_trumps && lead_need - lead_tricks <= MAX_DRAW_TRUMP_GAP) {
-      auto [draw_tricks, draw_rank_winners] = DrawTrumpsThenCash();
-      if (draw_tricks >= lead_need)
-        return {SureTrickCutoff(beta, draw_tricks, NsToPlay(), /*leading=*/true),
-                draw_rank_winners};
+    if (with_trumps) {
+      const int lead_gap = lead_need - lead_tricks;
+      // Side-suit fast tricks, then the trump tricks one hand has by rank. That hand
+      // keeps its trumps meanwhile if it has enough other cards to play.
+      if (lead_gap <= MAX_RANK_TRICK_GAP && lead_need > side_tricks) {
+        Cards opp_trumps = LhoSuit(trump).Union(RhoSuit(trump));
+        for (int seat : {seat_to_play, Partner()}) {
+          Cards hand_trumps = hands[seat].Suit(trump);
+          if (hands[seat].Size() - hand_trumps.Size() < side_tricks) continue;
+          auto [trump_tricks, trump_rank_winners] =
+              TrumpRankTricks(hand_trumps, opp_trumps, lead_need - side_tricks);
+          if (trump_tricks > 0)
+            return {SureTrickCutoff(beta, side_tricks + trump_tricks, NsToPlay(), /*leading=*/true),
+                    side_rank_winners.Union(trump_rank_winners)};
+        }
+      }
+      if (lead_gap <= MAX_DRAW_TRUMP_GAP) {
+        auto [draw_tricks, draw_rank_winners] = DrawTrumpsThenCash();
+        if (draw_tricks >= lead_need)
+          return {SureTrickCutoff(beta, draw_tricks, NsToPlay(), /*leading=*/true),
+                  draw_rank_winners};
+      }
     }
 
     auto [other_tricks, other_rank_winners] =
@@ -1365,6 +1385,18 @@ class Play {
       if (length_tricks > 0 && length_tricks >= other_tricks) {
         other_tricks = length_tricks;
         other_rank_winners = {};
+      }
+      if (other_need - other_tricks == 1) {
+        Cards our_trumps = MySuit(trump).Union(PdSuit(trump));
+        for (int seat : {LeftHandOpp(), RightHandOpp()}) {
+          auto [trump_tricks, trump_rank_winners] =
+              TrumpRankTricks(hands[seat].Suit(trump), our_trumps, other_need);
+          if (trump_tricks > 0) {
+            other_tricks = trump_tricks;
+            other_rank_winners = trump_rank_winners;
+            break;
+          }
+        }
       }
     }
     ns_tricks = SureTrickCutoff(beta, other_tricks, !NsToPlay(), /*leading=*/false);
@@ -2106,6 +2138,53 @@ class Play {
     return DrawTrumpsWithRun(long_run, rounds);
   }
 
+  // The most trumps of `trumps` that higher trumps of `opp_trumps` can beat,
+  // each used once.
+  static int TrumpKills(Cards trumps, Cards opp_trumps) {
+    int kills = 0;
+    while (trumps) {
+      int low = trumps.Bottom();
+      Cards higher = opp_trumps.Slice(0, low);
+      if (!higher) break;
+      ++kills;
+      trumps.Remove(low);
+      opp_trumps = higher;
+      opp_trumps.Remove(higher.Bottom());
+    }
+    return kills;
+  }
+
+  // Sure trump tricks of one hand by rank, whoever leads. Each trump the hand
+  // plays wins the trick for its side unless an opponent plays a higher trump
+  // on it, and an opponent's trump does that once. Pins as few top trumps as
+  // give `wanted` tricks: below the pinned cards any opposing trump may beat
+  // any of the hand's. With no card pinned this is TrumpLengthTricks().
+  Result TrumpRankTricks(Cards trumps, Cards opp_trumps, int wanted) const {
+    int n = trumps.Size();
+    if (wanted <= 0 || n < wanted) return {0, {}};
+    if (n - TrumpKills(trumps, opp_trumps) < wanted) return {0, {}};
+    Cards all_trumps = trick->all_cards.Suit(trump);
+    Cards rest = trumps;
+    int num_opp = opp_trumps.Size();
+    for (int i = 1; i <= n; ++i) {
+      int card = rest.Top();
+      rest.Remove(card);
+      Cards pinned = all_trumps.Slice(0, card + 1);
+      Cards pinned_opp = opp_trumps.Intersect(pinned);
+      int unpinned = n - i, unpinned_opp = num_opp - pinned_opp.Size();
+      // Unpinned opposing trumps beat unpinned trumps only.
+      int kills = std::min(unpinned, unpinned_opp);
+      // Pinned opposing trumps beat the other unpinned trumps, then lower pinned ones.
+      for (int k = unpinned - kills; k > 0 && pinned_opp; --k) {
+        pinned_opp.Remove(pinned_opp.Bottom());
+        ++kills;
+      }
+      kills += TrumpKills(trumps.Intersect(pinned), pinned_opp);
+      if (n - kills >= wanted) return {n - kills, pinned};
+    }
+    return {0, {}};
+  }
+
   // The n highest-ranked cards of a suit, i.e. its n lowest set bits.
   static Cards KeepTop(Cards suit, int n) {
     if (n <= 0) return Cards();
@@ -2123,7 +2202,10 @@ class Play {
 #endif
   }
 
-  Result FastTricks(unsigned suit_mask = 15) const {
+  // `suit_mask` leaves out the side suits whose bit is clear. Also reports the side-suit
+  // part alone, before the cap to the hand's size.
+  Result FastTricks(unsigned suit_mask = 15, int* side_tricks = nullptr,
+                    Cards* side_rank_winners = nullptr) const {
     Cards my_hand = hands[seat_to_play], pd_hand = hands[Partner()];
     Cards lho_hand = hands[LeftHandOpp()], rho_hand = hands[RightHandOpp()];
     Cards pd_rank_winners;
@@ -2171,6 +2253,11 @@ class Play {
       rank_winners.Add(pd_rank_winners);
     } else
       fast_tricks = my_tricks;
+    if (side_tricks) {
+      *side_tricks = fast_tricks;
+      *side_rank_winners =
+          trump == NOTRUMP ? rank_winners : rank_winners.Different(Cards(MaskOf(trump)));
+    }
 
     if (trump != NOTRUMP) {
       // The long trump hand keeps its trumps while the fast tricks are cashed if it has
