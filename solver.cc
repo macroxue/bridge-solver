@@ -94,7 +94,7 @@ char rank_of[CARD_END];
 char card_of[NUM_SUITS][16];
 char name_of[CARD_END][4];
 
-int SuitOf(int card) { return SUIT_SPAN == 16 ? card / SUIT_SPAN : suit_of[card]; }
+int SuitOf(int card) { return SUIT_SPAN == 16 ? int(unsigned(card) / SUIT_SPAN) : suit_of[card]; }
 int RankOf(int card) { return rank_of[card]; }
 int CardOf(int suit, int rank) { return card_of[suit][rank]; }
 uint64_t MaskOf(int suit) { return 0x1fffULL << (suit * SUIT_SPAN); }
