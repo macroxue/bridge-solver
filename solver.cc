@@ -1337,8 +1337,16 @@ class Play {
     }
     if (ns_tricks >= 0) return {ns_tricks, lead_rank_winners};
 
+    // Tricks each side still needs to decide this search.
+    const int remaining_tricks = hands.num_tricks();
+    const int lead_need =
+        NsToPlay() ? beta - ns_tricks_won : remaining_tricks - (beta - ns_tricks_won) + 1;
+    const int other_need = remaining_tricks - lead_need + 1;
+
     auto [other_tricks, other_rank_winners] =
         with_trumps ? TopTrumpTricks(LhoSuit(trump), RhoSuit(trump)) : OtherSlowNoTrumpTricks();
+    if (!with_trumps && other_tricks == 0 && other_need == 1)
+      std::tie(other_tricks, other_rank_winners) = CannotTakeAllNoTrump(seat_to_play);
     if (other_tricks == 0 && with_trumps)
       std::tie(other_tricks, other_rank_winners) = SlowTrumpTricks(
           LhoSuit(trump), RhoSuit(trump), PdSuit(trump), MySuit(trump), /*leading=*/false);
@@ -1924,6 +1932,61 @@ class Play {
       return {rank_winners.Size(), rank_winners};
     } else
       return {1, rank_winners};
+  }
+
+  // No trumps (or none left), the side of a_seat on lead: it can't take all
+  // the remaining tricks, so the other side gets one. Every trick is won in
+  // the suit led, and a side wins a suit at most as often as the longer of its
+  // two holdings.
+  // 1. The other side keeps the top cards of the suits it tops, so the side
+  //    wins tricks only in the suits it tops itself: too short, and it fails.
+  // 2. With stoppers: in a suit the side tops, the other side's highest card
+  //    stops it if its holder plays after the hand with all the higher cards
+  //    (no finesse) and has a lower card to play on each of them; the side
+  //    then wins that suit only as often as it has higher cards. A hand of the
+  //    other side keeps a card for each top card or stopper it is in charge
+  //    of, and has spare cards to play on the side's winners as long as
+  //    winners + cards in charge <= tricks.
+  // The rank winners are the top cards of the other side's suits and, for a
+  // stopped suit, its cards down to the stopper.
+  Result CannotTakeAllNoTrump(int a_seat) const {
+    const int b_seat[2] = {(a_seat + 1) & (NUM_SEATS - 1), (a_seat + 3) & (NUM_SEATS - 1)};
+    Cards a1 = hands[a_seat], a2 = hands[(a_seat + 2) & (NUM_SEATS - 1)];
+    Cards a_cards = a1.Union(a2);
+    int lengths = 0, winners = 0, in_charge[2] = {0, 0};
+    Cards top_rank_winners, stopper_rank_winners;
+    for (int suit = 0; suit < NUM_SUITS; ++suit) {
+      auto all_suit = trick->all_cards.Suit(suit);
+      if (!all_suit) continue;
+      int top = all_suit.Top();
+      if (!a_cards.Include(top)) {
+        ++in_charge[hands[b_seat[0]].Include(top) ? 0 : 1];
+        top_rank_winners.Add(top);
+        continue;
+      }
+      Cards a_suit = a_cards.Suit(suit);
+      int max_length = std::max(a1.Suit(suit).Size(), a2.Suit(suit).Size());
+      lengths += max_length;
+      if (Cards b_suit = all_suit.Different(a_suit)) {
+        int stopper = b_suit.Top();
+        int holder = hands[b_seat[0]].Include(stopper) ? 0 : 1;
+        // The hand playing just before the stopper's holder.
+        Cards before = hands[(b_seat[holder] + 3) & (NUM_SEATS - 1)];
+        Cards higher = a_suit.Slice(0, stopper);
+        if (before.Include(higher) && hands[b_seat[holder]].Suit(suit).Size() > higher.Size()) {
+          winners += higher.Size();
+          ++in_charge[holder];
+          stopper_rank_winners.Add(all_suit.Slice(0, stopper + 1));
+          continue;
+        }
+      }
+      winners += max_length;
+    }
+    if (lengths < hands.num_tricks()) return {1, top_rank_winners};
+    int most = std::max(in_charge[0], in_charge[1]);
+    if (most > 0 && winners + most <= hands.num_tricks())
+      return {1, top_rank_winners.Union(stopper_rank_winners)};
+    return {0, {}};
   }
 
   // The n highest-ranked cards of a suit, i.e. its n lowest set bits.
