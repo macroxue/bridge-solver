@@ -1220,12 +1220,30 @@ class Play {
   typedef std::pair<int, Cards> Result;  // NS tricks and rank winners
 
   Result Search(int beta) {
-    if (!TrickStarting()) {
-      ns_tricks_won = PreviousPlay().ns_tricks_won;
-      seat_to_play = PreviousPlay().NextSeat();
-      return EvaluatePlayableCards(beta);
+    switch (depth & 3) {
+      case 0: return SearchWithCache(beta);
+      case 1: return SearchFollow<1>(beta);
+      case 2: return SearchFollow<2>(beta);
+      default: return SearchFollow<3>(beta);
     }
-    return SearchWithCache(beta);
+  }
+
+  // The code of a play after the lead is specialized by POS, its position in the trick
+  // (1 second .. 3 last); POS -1, the default of the helpers below, reads it from depth.
+  template <int POS>
+  Result SearchFollow(int beta) {
+    ns_tricks_won = PreviousPlay().ns_tricks_won;
+    seat_to_play = PreviousPlay().NextSeat();
+    return EvaluatePlayableCards<POS>(beta);
+  }
+
+  // Searches the play after this one, which is at POS.
+  template <int POS>
+  Result SearchNext(int beta) {
+    if constexpr (POS == 3)
+      return NextPlay().SearchWithCache(beta);
+    else
+      return NextPlay().template SearchFollow<POS + 1>(beta);
   }
 
   // Split out so non-trick-start calls skip this large frame's prologue. Only
@@ -1335,7 +1353,7 @@ class Play {
     ns_tricks = SureTrickCutoff(beta, other_tricks, !NsToPlay(), /*leading=*/false);
     if (ns_tricks >= 0) return {ns_tricks, other_rank_winners};
 
-    return EvaluatePlayableCards(beta);
+    return EvaluatePlayableCards<0>(beta);
   }
 
   int SureTrickCutoff(int beta, int sure_tricks, bool for_ns, bool leading) const {
@@ -1414,10 +1432,11 @@ class Play {
     return -1;
   }
 
+  template <int POS>
   Result EvaluatePlayableCards(int beta) {
     STATS(++stats[depth].num_visits);
     ordered_cards.Reset();
-    auto playable_cards = GetPlayableCards();
+    auto playable_cards = GetPlayableCards<POS>();
     VERBOSE(printf("%2d: all %lx playable %lx\n", depth, hands.all_cards().Value(),
                    playable_cards.Value()));
     // One choice (a single card, or equivalent cards in one suit): skip the cutoff cache.
@@ -1425,27 +1444,27 @@ class Play {
     if (SuitOf(top) == SuitOf(bottom) &&
         trick->all_cards.Slice(top, bottom + 1) == playable_cards) {
       STATS(++stats[depth].num_branches);
-      PlayCard(top);
+      PlayCard<POS>(top);
       VERBOSE(ShowTricks(beta, 0, true));
-      auto [ns_tricks, rank_winners] = NextPlay().Search(beta);
-      if (TrickEnding()) rank_winners.Add(GetTrickRankWinner());
+      auto [ns_tricks, rank_winners] = SearchNext<POS>(beta);
+      if (At<POS>(3)) rank_winners.Add(GetTrickRankWinner());
       VERBOSE(ShowTricks(beta, ns_tricks, false));
       UnplayCard();
-      equivalence_runs = NextRuns();
+      equivalence_runs = NextRuns<POS>();
       // A failure relies on the other cards of the run failing like the one played.
       if (top != bottom && (NsToPlay() ? ns_tricks < beta : ns_tricks >= beta))
         equivalence_runs.Add(Cards(~0ULL).Slice(top, bottom));
       return {ns_tricks, rank_winners};
     }
-    const auto cutoff_hash = cutoff_cache.Hash(BuildCutoffIndex(beta));
-    int cutoff_card = LookupCutoffCard(cutoff_hash);
+    const auto cutoff_hash = cutoff_cache.Hash(BuildCutoffIndex<POS>(beta));
+    int cutoff_card = LookupCutoffCard<POS>(cutoff_hash);
     if (playable_cards.Include(cutoff_card)) {
       VERBOSE(printf("%2d: use cutoff %s\n", depth, NameOf(cutoff_card)));
       ordered_cards.AddCard(cutoff_card);
       playable_cards.Remove(cutoff_card);
     } else {
       STATS(stats[depth].num_cutoff_collisions += (cutoff_card != CARD_END));
-      OrderCards(playable_cards, beta);
+      OrderCards<POS>(playable_cards, beta);
       playable_cards = Cards();
     }
 
@@ -1466,10 +1485,10 @@ class Play {
       if (rank >= min_relevant_ranks[suit] && !equivalent_run) {
         STATS(++stats[depth].num_branches);
         STATS(++num_branches);
-        PlayCard(card);
+        PlayCard<POS>(card);
         VERBOSE(ShowTricks(beta, 0, true));
-        auto [branch_ns_tricks, branch_rank_winners] = NextPlay().Search(beta);
-        if (TrickEnding()) branch_rank_winners.Add(GetTrickRankWinner());
+        auto [branch_ns_tricks, branch_rank_winners] = SearchNext<POS>(beta);
+        if (At<POS>(3)) branch_rank_winners.Add(GetTrickRankWinner());
         VERBOSE(ShowTricks(beta, branch_ns_tricks, false));
         UnplayCard();
 
@@ -1478,7 +1497,7 @@ class Play {
         if (NsToPlay() ? ns_tricks >= beta : ns_tricks < beta) {  // cut-off
           STATS(++stats[depth].num_cuts);
           if (card != cutoff_card) {
-            SaveCutoffCard(cutoff_hash, card);
+            SaveCutoffCard<POS>(cutoff_hash, card);
             STATS(stats[depth].num_new_cuts += (cutoff_card == CARD_END));
             STATS(stats[depth].num_missed_cuts += (cutoff_card != CARD_END));
           } else {
@@ -1486,11 +1505,11 @@ class Play {
           }
           VERBOSE(printf("%2d: search cut @%d %s\n", depth, num_branches, NameOf(card)));
           // One card that works is enough: only its own play relies on equivalence runs.
-          equivalence_runs = NextRuns();
+          equivalence_runs = NextRuns<POS>();
           return {ns_tricks, branch_rank_winners};
         }
 
-        runs.Add(NextRuns());
+        runs.Add(NextRuns<POS>());
         rank_winners.Add(branch_rank_winners);
         // If this card's rank is irrelevant, a relevant rank must be higher.
         auto suit_rank_winners = branch_rank_winners.Suit(suit);
@@ -1502,7 +1521,7 @@ class Play {
       }
       tried_cards.Add(card);
       if (playable_cards) {
-        OrderCards(playable_cards, beta);
+        OrderCards<POS>(playable_cards, beta);
         playable_cards = Cards();
       }
     }
@@ -1610,13 +1629,14 @@ class Play {
     ordered_cards.AddCards(playable_cards);
   }
 
+  template <int POS = -1>
   void OrderCards(Cards playable_cards, int beta) {
     CHECK(playable_cards);
     if (playable_cards.Size() == 1) {
       ordered_cards.AddCard(playable_cards.Top());
       return;
     }
-    if (TrickStarting()) {  // lead
+    if (At<POS>(0)) {  // lead
       const int start = ordered_cards.Size();
       trump == NOTRUMP ? Lead<false>(playable_cards) : Lead<true>(playable_cards);
       if (hands.num_tricks() >= 12) PromoteProbedLeads(start, beta);
@@ -1630,11 +1650,11 @@ class Play {
       if (!WinOver(playable_cards.Top(), winning_card))
         return ordered_cards.AddReversedCards(playable_cards);
       if (winning_seat == Partner() &&
-          (TrickEnding() || !lho_suit || HigherRank(winning_card, lho_suit.Top()) ||
+          (At<POS>(3) || !lho_suit || HigherRank(winning_card, lho_suit.Top()) ||
            lho_suit.Slice(0, winning_card) == lho_suit.Slice(0, playable_cards.Top())))
         // Partner can win or force LHO's winner.
         return ordered_cards.AddReversedCards(playable_cards);
-      if (SecondSeat() && pd_suit && HigherRank(pd_suit.Top(), winning_card)) {
+      if (At<POS>(1) && pd_suit && HigherRank(pd_suit.Top(), winning_card)) {
         if (lho_suit && HigherRank(lho_suit.Top(), pd_suit.Union(playable_cards).Top()) &&
             lho_suit.Slice(0, pd_suit.Top()) == lho_suit.Slice(0, playable_cards.Top()))
           // Play low as LHO may play a winner to prevent partner from winning.
@@ -1644,7 +1664,7 @@ class Play {
           return ordered_cards.AddReversedCards(playable_cards);
       }
       auto higher_cards = playable_cards.Slice(0, winning_card);
-      if (TrickEnding() || !lho_suit || HigherRank(higher_cards.Bottom(), lho_suit.Top()))
+      if (At<POS>(3) || !lho_suit || HigherRank(higher_cards.Bottom(), lho_suit.Top()))
         ordered_cards.AddReversedCards(higher_cards);
       else
         ordered_cards.AddCards(higher_cards);
@@ -1652,7 +1672,7 @@ class Play {
     }
     if (trump != NOTRUMP && playable_cards.Suit(trump)) {  // ruff
       if (winning_seat == Partner() &&
-          (TrickEnding() || (lho_suit && WinOver(winning_card, lho_suit.Top())))) {
+          (At<POS>(3) || (lho_suit && WinOver(winning_card, lho_suit.Top())))) {
         // Partner can win.
       } else {
         Cards my_trumps = playable_cards.Suit(trump);
@@ -1662,7 +1682,7 @@ class Play {
             ordered_cards.AddReversedCards(higher_trumps);
             playable_cards.Remove(higher_trumps);
           }
-        } else if (TrickEnding() || lho_suit || !hands[LeftHandOpp()].Suit(trump)) {
+        } else if (At<POS>(3) || lho_suit || !hands[LeftHandOpp()].Suit(trump)) {
           // The lowest trump is guaranteed to win.
           ordered_cards.AddCard(my_trumps.Bottom());
           playable_cards.Remove(my_trumps.Bottom());
@@ -1739,9 +1759,10 @@ class Play {
     }
   }
 
+  template <int POS = -1>
   Cards GetPlayableCards() const {
     const Cards& hand = hands[seat_to_play];
-    if (TrickStarting()) return hand;
+    if (At<POS>(0)) return hand;
 
     Cards suit_cards = hand.Suit(LeadSuit());
     if (suit_cards) return suit_cards;
@@ -1763,14 +1784,15 @@ class Play {
     return playable_cards;
   }
 
+  template <int POS = -1>
   void PlayCard(int card_to_play) {
     // remove played card from hand
     card_played = card_to_play;
     hands[seat_to_play].Remove(card_played);
 
     // who's winning?
-    if (TrickStarting()) trick->lead_suit = SuitOf(card_played);
-    if (TrickStarting() || WinOver(card_played, PreviousPlay().WinningCard())) {
+    if (At<POS>(0)) trick->lead_suit = SuitOf(card_played);
+    if (At<POS>(0) || WinOver(card_played, PreviousPlay().WinningCard())) {
       winning_play = depth;
     } else {
       winning_play = PreviousPlay().winning_play;
@@ -1782,8 +1804,9 @@ class Play {
     hands[seat_to_play].Add(card_played);
   }
 
+  template <int POS = -1>
   uint64_t BuildCutoffIndex(int beta) const {
-    if (TrickStarting()) {
+    if (At<POS>(0)) {
       // 52 bits for my hand + 4 bits for partner's shape parity + 4 bits for NS tricks needed
       // in suit contracts (NT loses from splitting entries across MTD passes).
       uint64_t needed = trump == NOTRUMP ? 0 : beta - ns_tricks_won;
@@ -1793,7 +1816,7 @@ class Play {
       // 13/52 bits for all cards in suit + 6 bits for winner in the trick + 2 bits for lead seat.
       auto winner = PreviousPlay().WinningCard();
       return trick->all_cards.Suit(LeadSuit()).PackedValue() + (uint64_t(winner) << TOTAL_CARDS) +
-             (uint64_t(plays[depth & ~3].seat_to_play) << (TOTAL_CARDS + 6));
+             (uint64_t((this - Pos<POS>())->seat_to_play) << (TOTAL_CARDS + 6));
     } else {
       // 52 bits for my hand + 6 bits for winner in the trick + 4 bits for NS tricks needed
       // in suit contracts.
@@ -1804,14 +1827,16 @@ class Play {
     }
   }
 
+  template <int POS = -1>
   int LookupCutoffCard(decltype(cutoff_cache)::HashT hash) const {
     const auto* entry = cutoff_cache.Lookup(hash);
-    return entry ? entry->card[depth & 3] : CARD_END;
+    return entry ? entry->card[Pos<POS>()] : CARD_END;
   }
 
+  template <int POS = -1>
   void SaveCutoffCard(decltype(cutoff_cache)::HashT hash, int cutoff_card) const {
     auto* entry = cutoff_cache.Update(hash);
-    entry->card[depth & 3] = cutoff_card;
+    entry->card[Pos<POS>()] = cutoff_card;
   }
 
   Result TopTrumpTricks(Cards my_trumps, Cards pd_trumps) const {
@@ -2141,6 +2166,15 @@ class Play {
     hands.Show();
   }
 
+  // Whether this play is at position p of its trick.
+  template <int POS>
+  bool At(int p) const {
+    return POS >= 0 ? POS == p : (depth & 3) == p;
+  }
+  template <int POS>
+  int Pos() const {
+    return POS >= 0 ? POS : depth & 3;
+  }
   bool TrickStarting() const { return (depth & 3) == 0; }
   bool SecondSeat() const { return (depth & 3) == 1; }
   bool ThirdSeat() const { return (depth & 3) == 2; }
@@ -2164,9 +2198,12 @@ class Play {
   const Play& PreviousPlay() const { return *(this - 1); }
   Play& NextPlay() { return *(this + 1); }
 
-  // The equivalence runs that the result of the play after this one relies on within this
-  // trick: none if that play starts the next trick.
-  Cards NextRuns() { return TrickEnding() ? Cards() : NextPlay().equivalence_runs; }
+  // The equivalence runs that the result of the play after this one, at POS, relies on
+  // within this trick: none if that play starts the next trick.
+  template <int POS>
+  Cards NextRuns() const {
+    return At<POS>(3) ? Cards() : (this + 1)->equivalence_runs;
+  }
 
   // Fixed info.
   Play* const plays = nullptr;
