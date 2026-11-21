@@ -209,20 +209,6 @@ uint64_t UnpackBits(uint64_t source, uint64_t mask) {
 #endif
 }
 
-// True where PackBits/UnpackBits don't care about a mask's absolute
-// position (pext/pdep, and the wasm bit-loop fallback) -- so callers can
-// skip the shift-to-suit-local-range dance the branchless STAGES<6 path
-// needs.
-#if defined(__BMI2__) || (defined(__EMSCRIPTEN__) && !defined(__wasm_simd128__))
-#define POSITION_INDEPENDENT_BITS 1
-#endif
-
-// True where PackBits is a single instruction (pext). Elsewhere it is costly
-// enough to be worth skipping when possible.
-#ifdef __BMI2__
-#define CHEAP_PACK_BITS 1
-#endif
-
 class Cards {
  public:
   Cards() : bits(0) {}
@@ -312,19 +298,6 @@ class Cards {
   uint64_t bits;
 };
 
-// Expands suit-local relative bits back to real card positions in all_cards.
-Cards UnpackSuitBits(Cards relative_bits, Cards all_cards, int suit) {
-  int shift = suit * SUIT_SPAN;
-  auto packed = relative_bits.Suit(suit).Value() >> shift;
-#ifdef POSITION_INDEPENDENT_BITS
-  return Cards(UnpackBits(packed, all_cards.Suit(suit).Value()));
-#else
-  // Shift the mask down too and the result back up, so UnpackBits<4> applies.
-  auto suit_mask = all_cards.Suit(suit).Value() >> shift;
-  return Cards(UnpackBits<4>(packed, suit_mask) << shift);
-#endif
-}
-
 class Hands {
  public:
   void Randomize() {
@@ -383,33 +356,6 @@ class Hands {
   }
   const Cards& operator[](int seat) const { return hands[seat]; }
   Cards& operator[](int seat) { return hands[seat]; }
-
-  // Whether every seat's hand in `other` is a subset of the hand here.
-  // Pack two adjacent hands into one 128-bit PTESTs.
-  bool Include(const Hands& other) const {
-#ifdef __AVX2__
-    __m256i a = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hands));
-    __m256i b = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(other.hands));
-    return _mm256_testc_si256(a, b);
-#elif defined(__SSE4_1__)
-    __m128i a0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&hands[WEST]));
-    __m128i b0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&other.hands[WEST]));
-    __m128i a1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&hands[EAST]));
-    __m128i b1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&other.hands[EAST]));
-    __m128i missing = _mm_or_si128(_mm_andnot_si128(a0, b0), _mm_andnot_si128(a1, b1));
-    return _mm_testz_si128(missing, missing);
-#elif defined(__ARM_NEON)
-    uint64x2_t a0 = vld1q_u64(reinterpret_cast<const uint64_t*>(&hands[WEST]));
-    uint64x2_t b0 = vld1q_u64(reinterpret_cast<const uint64_t*>(&other.hands[WEST]));
-    uint64x2_t a1 = vld1q_u64(reinterpret_cast<const uint64_t*>(&hands[EAST]));
-    uint64x2_t b1 = vld1q_u64(reinterpret_cast<const uint64_t*>(&other.hands[EAST]));
-    uint64x2_t missing = vorrq_u64(vbicq_u64(b0, a0), vbicq_u64(b1, a1));
-    return (vgetq_lane_u64(missing, 0) | vgetq_lane_u64(missing, 1)) == 0;
-#else
-    return hands[WEST].Include(other.hands[WEST]) & hands[NORTH].Include(other.hands[NORTH]) &
-           hands[EAST].Include(other.hands[EAST]) & hands[SOUTH].Include(other.hands[SOUTH]);
-#endif
-  }
 
   bool Equals(const Hands& other) const {
 #ifdef __AVX2__
@@ -1114,16 +1060,6 @@ struct Trick {
   // Each card's seat as dense card numbers (see RelativeHands).
   void ComputeRelativeHands(const Hands& hands) { relative_hands = RelativeHands(hands, all_cards); }
 
-  // Whether a card is equivalent to one of the tried cards.
-  bool IsEquivalent(int card, Cards tried_suit_cards, Cards hand) const {
-    if (!tried_suit_cards) return false;
-    if (auto above = tried_suit_cards.Slice(0, card))
-      if (all_cards.Slice(above.Bottom(), card) == hand.Slice(above.Bottom(), card)) return true;
-    if (auto below = tried_suit_cards.Slice(card + 1, CARD_END))
-      if (all_cards.Slice(card, below.Top()) == hand.Slice(card, below.Top())) return true;
-    return false;
-  }
-
   // If `card` is equivalent to one of the tried cards, the rank positions from the higher
   // of the two down to just above the lower one (never empty); else no cards.
   Cards EquivalentRun(int card, Cards tried_suit_cards, Cards hand) const {
@@ -1360,16 +1296,21 @@ class Play {
           if (hands[seat].Size() - hand_trumps.Size() < side_tricks) continue;
           auto [trump_tricks, trump_rank_winners] =
               TrumpRankTricks(hand_trumps, opp_trumps, lead_need - side_tricks);
-          if (trump_tricks > 0)
-            return {SureTrickCutoff(beta, side_tricks + trump_tricks, NsToPlay(), /*leading=*/true),
-                    side_rank_winners.Union(trump_rank_winners)};
+          if (trump_tricks > 0) {
+            const int cut =
+                SureTrickCutoff(beta, side_tricks + trump_tricks, NsToPlay(), /*leading=*/true);
+            CHECK(cut >= 0);
+            return {cut, side_rank_winners.Union(trump_rank_winners)};
+          }
         }
       }
       if (lead_gap <= MAX_DRAW_TRUMP_GAP) {
         auto [draw_tricks, draw_rank_winners] = DrawTrumpsThenCash();
-        if (draw_tricks >= lead_need)
-          return {SureTrickCutoff(beta, draw_tricks, NsToPlay(), /*leading=*/true),
-                  draw_rank_winners};
+        if (draw_tricks >= lead_need) {
+          const int cut = SureTrickCutoff(beta, draw_tricks, NsToPlay(), /*leading=*/true);
+          CHECK(cut >= 0);
+          return {cut, draw_rank_winners};
+        }
       }
     }
 
@@ -1549,6 +1490,7 @@ class Play {
 
   template <int POS>
   Result EvaluatePlayableCards(int beta) {
+    STATS(++stats[depth].num_visits);
     if (At<POS>(1)) {
       Result result;
       if (SecondSeatSureTricks(beta, result)) {
@@ -1556,7 +1498,6 @@ class Play {
         return result;
       }
     }
-    STATS(++stats[depth].num_visits);
     auto playable_cards = GetPlayableCards<POS>();
     VERBOSE(printf("%2d: all %lx playable %lx\n", depth, hands.all_cards().Value(),
                    playable_cards.Value()));
@@ -1607,7 +1548,14 @@ class Play {
     auto [ns_tricks, rank_winners] = search_card(card);
     if (is_cutoff(ns_tricks)) {
       STATS(++stats[depth].num_cuts);
-      if (card != cutoff_card) SaveCutoffCard<POS>(cutoff_hash, card);
+      if (card != cutoff_card) {
+        SaveCutoffCard<POS>(cutoff_hash, card);
+        STATS(stats[depth].num_new_cuts += (cutoff_card == CARD_END));
+        STATS(stats[depth].num_missed_cuts += (cutoff_card != CARD_END));
+      } else {
+        STATS(++stats[depth].num_cached_cuts);
+      }
+      VERBOSE(printf("%2d: search cut @1 %s\n", depth, NameOf(card)));
       // One card that works is enough: only its own play relies on equivalence runs.
       equivalence_runs = NextRuns<POS>();
       return {ns_tricks, rank_winners};
@@ -1649,7 +1597,14 @@ class Play {
                                : std::min(ns_tricks, branch_ns_tricks);
         if (is_cutoff(ns_tricks)) {
           STATS(++stats[depth].num_cuts);
-          if (card != cutoff_card) SaveCutoffCard<POS>(cutoff_hash, card);
+          if (card != cutoff_card) {
+            SaveCutoffCard<POS>(cutoff_hash, card);
+            STATS(stats[depth].num_new_cuts += (cutoff_card == CARD_END));
+            STATS(stats[depth].num_missed_cuts += (cutoff_card != CARD_END));
+          } else {
+            STATS(++stats[depth].num_cached_cuts);
+          }
+          VERBOSE(printf("%2d: search cut @%d %s\n", depth, i + 1, NameOf(card)));
           // One card that works is enough: only its own play relies on equivalence runs.
           equivalence_runs = NextRuns<POS>();
           return {ns_tricks, branch_rank_winners};
@@ -1860,7 +1815,10 @@ class Play {
    public:
     void Reset() { num_ordered_cards = 0; }
 
-    void AddCard(int card) { ordered_cards[num_ordered_cards++] = card; }
+    void AddCard(int card) {
+      CHECK(num_ordered_cards < TOTAL_TRICKS);
+      ordered_cards[num_ordered_cards++] = card;
+    }
 
     void AddCards(Cards cards) {
       for (int card : cards) AddCard(card);
@@ -2529,8 +2487,6 @@ class Play {
     return POS >= 0 ? POS : depth & 3;
   }
   bool TrickStarting() const { return (depth & 3) == 0; }
-  bool SecondSeat() const { return (depth & 3) == 1; }
-  bool ThirdSeat() const { return (depth & 3) == 2; }
   bool TrickEnding() const { return (depth & 3) == 3; }
   bool NsToPlay() const { return IsNs(seat_to_play); }
   bool NsWon() const { return IsNs(WinningSeat()); }
