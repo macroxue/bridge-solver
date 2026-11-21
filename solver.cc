@@ -545,10 +545,7 @@ class Shape {
   }
 
   void PlayCards(int seat, int c1, int c2, int c3, int c4) {
-    value -= 1ULL << Offset(seat, SuitOf(c1));
-    value -= 1ULL << Offset((seat + 1) % NUM_SEATS, SuitOf(c2));
-    value -= 1ULL << Offset((seat + 2) % NUM_SEATS, SuitOf(c3));
-    value -= 1ULL << Offset((seat + 3) % NUM_SEATS, SuitOf(c4));
+    value -= Unit(seat, c1) + Unit(seat + 1, c2) + Unit(seat + 2, c3) + Unit(seat + 3, c4);
   }
 
   int SuitLength(int seat, int suit) const { return (value >> Offset(seat, suit)) & 0xf; }
@@ -559,6 +556,10 @@ class Shape {
 
  private:
   static int Offset(int seat, int suit) { return 60 - (seat * NUM_SUITS + suit) * 4; }
+  // One card of the suit of `card` in the hand of `seat`, which may be 4 or more.
+  static uint64_t Unit(int seat, int card) {
+    return 1ULL << Offset(seat & (NUM_SEATS - 1), SuitOf(card));
+  }
 
   uint64_t value;
 };
