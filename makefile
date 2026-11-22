@@ -65,8 +65,9 @@ solver.p: $(SOURCES) $(HEADERS)
 	$(CXX) $(OPTS) -O3 -fprofile-generate $(LDOPTS) -o $@ $(SOURCES)
 	./$@ -if deals/hard/deal.8 | tail
 	for f in $(SOURCES:.cc=); do mv solver.p-$$f.gcda solver-$$f.gcda; done
+# Peeling the short hot loops PGO finds (on by default with -fprofile-use) costs ~0.5%.
 solver: $(SOURCES) $(HEADERS) solver.p
-	$(CXX) $(OPTS) -O3 -fprofile-use $(LDOPTS) -o $@ $(SOURCES)
+	$(CXX) $(OPTS) -O3 -fprofile-use -fno-peel-loops $(LDOPTS) -o $@ $(SOURCES)
 	./$@ -if deals/hard/deal.8 | tail
 endif
 solver.g: $(SOURCES) $(HEADERS)
