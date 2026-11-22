@@ -354,8 +354,8 @@ class Hands {
   Cards all_cards() const {
     return hands[WEST].Union(hands[NORTH]).Union(hands[EAST]).Union(hands[SOUTH]);
   }
-  const Cards& operator[](int seat) const { return hands[seat]; }
-  Cards& operator[](int seat) { return hands[seat]; }
+  const Cards& operator[](unsigned seat) const { return hands[seat]; }
+  Cards& operator[](unsigned seat) { return hands[seat]; }
 
   bool Equals(const Hands& other) const {
 #ifdef __AVX2__
