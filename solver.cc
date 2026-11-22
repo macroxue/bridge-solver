@@ -529,8 +529,8 @@ class RelativeHands {
   // These hands reduced to the cards in `kept_cards`, numbered as above.
   RelativeHands Keep(uint64_t kept_cards) const {
     RelativeHands kept;
-    kept.low = low & kept_cards;
-    kept.high = high & kept_cards;
+    kept.low = low;
+    kept.high = high;
     kept.cards = kept_cards;
     return kept;
   }
@@ -543,7 +543,7 @@ class RelativeHands {
     return ((((low ^ other.low) | (high ^ other.high)) & other.cards) | (~cards & other.cards)) == 0;
   }
   bool Equals(const RelativeHands& other) const {
-    return low == other.low && high == other.high && cards == other.cards;
+    return ((((low ^ other.low) | (high ^ other.high)) & cards) | (cards ^ other.cards)) == 0;
   }
 
   // Whether every card here is in the same seat's hand in a position, which has every card
